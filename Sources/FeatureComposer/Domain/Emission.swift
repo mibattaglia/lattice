@@ -15,13 +15,6 @@ public struct Emission<State> {
         Emission(kind: .state)
     }
     
-//    public static func perform(
-//        work: @Sendable @escaping (State) async -> State,
-//        prepending: @Sendable @escaping (inout State) -> Void
-//    ) -> Emission {
-//        Emission(kind: .perform(work: work, prepending: prepending))
-//    }
-    
     public static func perform(
         work: @Sendable @escaping (State) async -> State
     ) -> Emission {
