@@ -13,7 +13,7 @@ struct CounterInteractor: Interactor {
     }
     
     var body: some InteractorOf<Self> {
-        InteractOver<Self>(defaultValue: State(count: 0)) { state, action in
+        Interact<State, Action>(defaultValue: State(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1

@@ -11,7 +11,7 @@ public protocol Interactor<State, Action> {
 
     func interact(
         _ upstream: AnyPublisher<Action, Never>
-    ) -> AnyPublisher<InteractionResult<State>, Never>
+    ) -> AnyPublisher<State, Never>
 }
 
 extension Interactor where Body.State == Never {
@@ -27,10 +27,9 @@ extension Interactor where Body.State == Never {
 extension Interactor where Body: Interactor<State, Action> {
     public func interact(
         _ upstream: AnyPublisher<Action, Never>
-    ) -> AnyPublisher<InteractionResult<State>, Never> {
+    ) -> AnyPublisher<State, Never> {
         self.body.interact(upstream)
     }
 }
 
 public typealias InteractorOf<I: Interactor> = Interactor<I.State, I.Action>
-public typealias InteractOver<I: Interactor> = Interact<I.State, I.Action>
