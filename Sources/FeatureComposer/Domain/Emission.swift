@@ -4,8 +4,8 @@ import Foundation
 public struct Emission<State> {
     public enum Kind {
         case state
-        case perform(work: @Sendable (State) async -> State)
-        case observe(publisher: AnyPublisher<State, Never>)
+        case perform(work: @Sendable () async -> State)
+        case observe(publisher: (DynamicState<State>) -> AnyPublisher<State, Never>)
     
     }
 
@@ -16,14 +16,14 @@ public struct Emission<State> {
     }
     
     public static func perform(
-        work: @Sendable @escaping (State) async -> State
+        work: @Sendable @escaping () async -> State
     ) -> Emission {
         Emission(kind: .perform(work: work))
     }
     
     public static func observe(
-        _ publisher: AnyPublisher<State, Never>
+        _ builder: @escaping (DynamicState<State>) -> AnyPublisher<State, Never>
     ) -> Emission {
-        Emission(kind: .observe(publisher: publisher))
+        Emission(kind: .observe(publisher: builder))
     }
 }
