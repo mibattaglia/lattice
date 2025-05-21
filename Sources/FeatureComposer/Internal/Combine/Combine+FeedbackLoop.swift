@@ -43,9 +43,8 @@ extension Publisher where Failure == Never {
             return Just(feedbackState.state)
                 .eraseToAnyPublisher()
         case let .perform(work):
-            // TODO: - Spin Up Async Publisher Here
-            return Just(feedbackState.state)
-                // .prepend(feedbackState.state)
+            return Publishers.Async(work)
+                .prepend(feedbackState.state)
                 .eraseToAnyPublisher()
         case let .observe(publisher):
             return publisher

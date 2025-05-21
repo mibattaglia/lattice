@@ -4,7 +4,7 @@ import Foundation
 public struct Emission<State> {
     public enum Kind {
         case state
-        case perform(work: @Sendable (State) async -> State)
+        case perform(work: @Sendable () async -> State)
         case observe(publisher: AnyPublisher<State, Never>)
     
     }
@@ -16,7 +16,7 @@ public struct Emission<State> {
     }
     
     public static func perform(
-        work: @Sendable @escaping (State) async -> State
+        work: @Sendable @escaping () async -> State
     ) -> Emission {
         Emission(kind: .perform(work: work))
     }

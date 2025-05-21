@@ -14,8 +14,19 @@ let package = Package(
             ]
         ),
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/pointfreeco/combine-schedulers",
+            .upToNextMajor(from: "1.0.3")
+        ),
+    ],
     targets: [
-        .target(name: "FeatureComposer"),
+        .target(
+            name: "FeatureComposer",
+            dependencies: [
+                .product(name: "CombineSchedulers", package: "combine-schedulers")
+            ]
+        ),
         .target(name: "FeatureComposerTestingSupport"),
         .testTarget(
             name: "FeatureComposerTests",
