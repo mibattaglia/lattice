@@ -13,7 +13,10 @@ final class HotCounterInteractorTests {
     @Test func asyncWork() async {
         let expected: [HotCounterInteractor.State] = [
             .init(count: 0),
-            .init(count: 1)
+            .init(count: 1),
+            .init(count: 2),
+            .init(count: 4),
+            .init(count: 5)
         ]
         
         counterInteractor
@@ -30,7 +33,8 @@ final class HotCounterInteractorTests {
         subject.send(.observe(intPublisher.eraseToAnyPublisher()))
         intPublisher.send(1)
         intPublisher.send(2)
-        intPublisher.send(3)
+        
+        subject.send(.increment)
         intPublisher.send(completion: .finished)
         subject.send(completion: .finished)
     }

@@ -22,8 +22,8 @@ final class AsyncCounterInteractorTests {
         let expected: [AsyncCounterInteractor.State] = [
             .init(count: 0),
             .init(count: 1),
-            .init(count: 1),
-            .init(count: 2)
+            .init(count: 2),
+            .init(count: 3)
         ]
         
         counterInteractor
@@ -37,6 +37,7 @@ final class AsyncCounterInteractorTests {
         subject.send(.increment)
         subject.send(.async)
         await scheduler.advance(by: .seconds(0.5))
+        subject.send(.increment)
         subject.send(completion: .finished)
     }
 }

@@ -21,7 +21,6 @@ public struct Interact<State: Equatable, Action>: Interactor {
     public func interact(_ upstream: AnyPublisher<Action, Never>) -> AnyPublisher<State, Never> {
         upstream
             .feedback(initialState: initialValue, handler: handler)
-            .prepend(initialValue)
             .eraseToAnyPublisher()
     }
 }

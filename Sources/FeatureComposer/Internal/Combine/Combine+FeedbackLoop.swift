@@ -1,55 +1,46 @@
 import Combine
 import Foundation
 
-struct FeedbackState<State> {
-    let state: State
-    let emission: Emission<State>
-}
-
 extension Publisher where Failure == Never {
+    /// Observes changes in `State` via `handler`. Imperative, synchronous updates are published
+    /// immediately. Asynchronous updates (either via an async block or some observation mechanism) are
+    /// folded back into `State` via a `CurrentValueSubject`
     func feedback<State>(
         initialState: State,
         handler: @escaping (inout State, Output) -> Emission<State>
-    ) -> Publishers.FlatMap<AnyPublisher<State, Never>, Publishers.Scan<Self, FeedbackState<State>>> {
-        feedbackAccumulator(initialState: initialState, handler: handler)
-            .flatMap(effects(_:))
-    }
-    
-    func feedbackFromLatest<State>(
-        initialState: State,
-        handler: @escaping (inout State, Output) -> Emission<State>
-    ) -> Publishers.SwitchToLatest<AnyPublisher<State, Never>, Publishers.Map<Publishers.Scan<Self, FeedbackState<State>>, AnyPublisher<State, Never>>> {
-        feedbackAccumulator(initialState: initialState, handler: handler)
-            .map(effects(_:))
-            .switchToLatest()
-    }
-    
-    private func feedbackAccumulator<State>(
-        initialState: State,
-        handler: @escaping (inout State, Output) -> Emission<State>
-    ) -> Publishers.Scan<Self, FeedbackState<State>> {
-        scan(FeedbackState(state: initialState, emission: .state)) { accumulated, event in
-            var state = accumulated.state
-            let emission = handler(&state, event)
-            return FeedbackState(state: state, emission: emission)
-        }
-    }
-    
-    private func effects<State>(
-        _ feedbackState: FeedbackState<State>
-    ) -> AnyPublisher<State, Never> {
-        switch feedbackState.emission.kind {
-        case .state:
-            return Just(feedbackState.state)
-                .eraseToAnyPublisher()
-        case let .perform(work):
-            return Publishers.Async(work)
-                .prepend(feedbackState.state)
-                .eraseToAnyPublisher()
-        case let .observe(publisher):
-            return publisher
-                .prepend(feedbackState.state)
-                .eraseToAnyPublisher()
-        }
+    ) -> Publishers.HandleEvents<CurrentValueSubject<State, Never>> {
+        let state = CurrentValueSubject<State, Never>(initialState)
+        var effectCancellables = Set<AnyCancellable>()
+        
+        let upstreamCancellable = self.sink(
+            receiveCompletion: { completion in
+                state.send(completion: completion)
+                effectCancellables.forEach { $0.cancel() }
+            },
+            receiveValue: { event in
+                var current = state.value
+                let emission = handler(&current, event)
+
+                switch emission.kind {
+                case .state:
+                    state.value = current
+                case .perform(let work):
+                    Publishers.Async(work)
+                        .sink { newState in state.value = newState }
+                        .store(in: &effectCancellables)
+                case .observe(let createPublisher):
+                    createPublisher(DynamicState(stream: state))
+                        .sink { newState in state.value = newState }
+                        .store(in: &effectCancellables)
+                }
+            }
+        )
+        upstreamCancellable.store(in: &effectCancellables)
+        
+        return state
+            .handleEvents(receiveCancel: {
+                effectCancellables.forEach { $0.cancel() }
+                upstreamCancellable.cancel()
+            })
     }
 }

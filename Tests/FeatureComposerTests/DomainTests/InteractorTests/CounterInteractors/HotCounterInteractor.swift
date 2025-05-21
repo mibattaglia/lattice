@@ -19,11 +19,13 @@ struct HotCounterInteractor: Interactor {
                 state.count += 1
                 return .state
             case let .observe(publisher):
-                let statePublisher = publisher
-                    .map { [count = state.count] int in
-                        State(count: count + int)
-                    }
-                return .observe(statePublisher.eraseToAnyPublisher())
+                return .observe { state in
+                    let statePublisher = publisher
+                        .map { int in
+                            State(count: state.count + int)
+                        }
+                    return statePublisher.eraseToAnyPublisher()
+                }
             }
         }
     }
