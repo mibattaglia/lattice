@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-/// A result builder for combining multiple interactors and running their events in sequence, one after the other,
-/// and merging the results.
+/// A result builder for combining multiple interactors, pushing an action into each one, and then returning
+/// an interleaved sequence of results.
 @resultBuilder
 public enum InteractorBuilder<State, Action> {
     public static func buildArray(

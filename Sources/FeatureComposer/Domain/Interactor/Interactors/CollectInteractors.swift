@@ -2,11 +2,11 @@ import Combine
 import Foundation
 
 public extension Interactors {
-    struct CollectInteractors<State, Action, Content: Interactor>: Interactor
-    where State == Content.State, Action == Content.Action {
-        private let interactors: Content
+    struct CollectInteractors<State, Action, Interactors: Interactor>: Interactor
+    where State == Interactors.State, Action == Interactors.Action {
+        private let interactors: Interactors
         
-        public init(@InteractorBuilder<State, Action> _ build: () -> Content) {
+        public init(@InteractorBuilder<State, Action> _ build: () -> Interactors) {
             self.interactors = build()
         }
         
