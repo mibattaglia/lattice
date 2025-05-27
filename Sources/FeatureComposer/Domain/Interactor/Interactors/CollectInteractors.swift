@@ -12,8 +12,7 @@ extension Interactors {
 
         public var body: some Interactor<State, Action> { self }
 
-        public func interact(_ upstream: AnyPublisher<Action, Never>) -> AnyPublisher<State, Never>
-        {
+        public func interact(_ upstream: AnyPublisher<Action, Never>) -> AnyPublisher<State, Never> {
             interactors.interact(upstream)
         }
     }
