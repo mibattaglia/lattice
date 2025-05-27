@@ -1,8 +1,7 @@
 import Combine
 import CombineSchedulers
+import FeatureComposer
 import Foundation
-
-@testable import FeatureComposer
 
 final class MyViewModel: ViewModel {
     @Published private(set) var viewState: MyViewState = .loading
