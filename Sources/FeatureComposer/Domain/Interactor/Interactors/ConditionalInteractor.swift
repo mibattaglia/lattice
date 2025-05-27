@@ -2,9 +2,7 @@ import Combine
 import Foundation
 
 extension Interactors {
-    public enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>:
-        Interactor
-    {
+    public enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>: Interactor {
         case first(First)
         case second(Second)
 

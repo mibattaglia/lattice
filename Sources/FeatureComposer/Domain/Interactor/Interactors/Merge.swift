@@ -13,9 +13,7 @@ extension Interactors {
 
         public var body: some Interactor<I0.State, I0.Action> { self }
 
-        public func interact(_ upstream: AnyPublisher<I0.Action, Never>) -> AnyPublisher<
-            I0.State, Never
-        > {
+        public func interact(_ upstream: AnyPublisher<I0.Action, Never>) -> AnyPublisher<I0.State, Never> {
             upstream
                 .flatMap { event in
                     i0.interact(Just(event).eraseToAnyPublisher())

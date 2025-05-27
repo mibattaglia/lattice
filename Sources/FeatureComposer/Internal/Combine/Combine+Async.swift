@@ -34,8 +34,7 @@ extension Publishers {
 }
 
 extension Publishers.Async {
-    fileprivate final class AsyncPublisherSubscription<S: Subscriber>: Subscription, @unchecked
-        Sendable
+    fileprivate final class AsyncPublisherSubscription<S: Subscriber>: Subscription, @unchecked Sendable
     where S.Input == Output, S.Failure == Failure, S: Sendable {
         private let lock = NSLock()
 
