@@ -20,7 +20,7 @@ final class AsyncCounterInteractorTests {
     }
 
     @Test func asyncWork() async {
-        let expected: [AsyncCounterInteractor.State] = [
+        let expected: [AsyncCounterInteractor.DomainState] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

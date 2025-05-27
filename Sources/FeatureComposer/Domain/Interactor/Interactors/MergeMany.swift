@@ -9,11 +9,11 @@ extension Interactors {
             self.interactors = interactors
         }
 
-        public var body: some Interactor<Element.State, Element.Action> { self }
+        public var body: some Interactor<Element.DomainState, Element.Action> { self }
 
         public func interact(
             _ upstream: AnyPublisher<Element.Action, Never>
-        ) -> AnyPublisher<Element.State, Never> {
+        ) -> AnyPublisher<Element.DomainState, Never> {
             upstream
                 .flatMap { event in
                     interactors

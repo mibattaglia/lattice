@@ -18,13 +18,18 @@ let package = Package(
         .package(
             url: "https://github.com/pointfreeco/combine-schedulers",
             .upToNextMajor(from: "1.0.3")
-        )
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-case-paths",
+            .upToNextMajor(from: "1.7.0")
+        ),
     ],
     targets: [
         .target(
             name: "FeatureComposer",
             dependencies: [
-                .product(name: "CombineSchedulers", package: "combine-schedulers")
+                .product(name: "CombineSchedulers", package: "combine-schedulers"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
             ]
         ),
         .target(name: "FeatureComposerTestingSupport"),

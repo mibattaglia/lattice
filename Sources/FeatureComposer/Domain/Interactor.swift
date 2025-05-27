@@ -1,20 +1,20 @@
 import Combine
 import Foundation
 
-public protocol Interactor<State, Action> {
-    associatedtype State
+public protocol Interactor<DomainState, Action> {
+    associatedtype DomainState
     associatedtype Action
     associatedtype Body: Interactor
 
-    @InteractorBuilder<State, Action>
+    @InteractorBuilder<DomainState, Action>
     var body: Body { get }
 
     func interact(
         _ upstream: AnyPublisher<Action, Never>
-    ) -> AnyPublisher<State, Never>
+    ) -> AnyPublisher<DomainState, Never>
 }
 
-extension Interactor where Body.State == Never {
+extension Interactor where Body.DomainState == Never {
     public var body: Body {
         fatalError(
             """
@@ -24,22 +24,22 @@ extension Interactor where Body.State == Never {
     }
 }
 
-extension Interactor where Body: Interactor<State, Action> {
+extension Interactor where Body: Interactor<DomainState, Action> {
     public func interact(
         _ upstream: AnyPublisher<Action, Never>
-    ) -> AnyPublisher<State, Never> {
+    ) -> AnyPublisher<DomainState, Never> {
         self.body.interact(upstream)
     }
 }
 
-public typealias InteractorOf<I: Interactor> = Interactor<I.State, I.Action>
+public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Action>
 
 public struct AnyInteractor<State, Action>: Interactor {
     private let interactFunc: (AnyPublisher<Action, Never>) -> AnyPublisher<State, Never>
 
     public init<I: Interactor>(
         _ base: I
-    ) where I.State == State, I.Action == Action {
+    ) where I.DomainState == State, I.Action == Action {
         self.interactFunc = base.interact(_:)
     }
 
@@ -51,7 +51,7 @@ public struct AnyInteractor<State, Action>: Interactor {
 }
 
 extension Interactor {
-    public func eraseToAnyInteractor() -> AnyInteractor<State, Action> {
+    public func eraseToAnyInteractor() -> AnyInteractor<DomainState, Action> {
         AnyInteractor(self)
     }
 }

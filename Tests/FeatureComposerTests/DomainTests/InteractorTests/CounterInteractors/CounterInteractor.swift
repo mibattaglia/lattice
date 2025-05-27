@@ -3,7 +3,7 @@ import Testing
 @testable import FeatureComposer
 
 struct CounterInteractor: Interactor {
-    struct State: Equatable, Sendable {
+    struct DomainState: Equatable, Sendable {
         var count: Int
     }
 
@@ -14,7 +14,7 @@ struct CounterInteractor: Interactor {
     }
 
     var body: some InteractorOf<Self> {
-        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
+        Interact<DomainState, Action>(initialValue: DomainState(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1
