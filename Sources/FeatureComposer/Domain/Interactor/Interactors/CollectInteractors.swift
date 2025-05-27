@@ -3,7 +3,7 @@ import Foundation
 
 extension Interactors {
     public struct CollectInteractors<State, Action, Interactors: Interactor>: Interactor
-    where State == Interactors.State, Action == Interactors.Action {
+    where State == Interactors.DomainState, Action == Interactors.Action {
         private let interactors: Interactors
 
         public init(@InteractorBuilder<State, Action> _ build: () -> Interactors) {

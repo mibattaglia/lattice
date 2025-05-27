@@ -12,7 +12,7 @@ final class CounterInteractorTests {
     private let counterInteractor = CounterInteractor()
 
     @Test func increment() {
-        let expected: [CounterInteractor.State] = [
+        let expected: [CounterInteractor.DomainState] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
@@ -34,7 +34,7 @@ final class CounterInteractorTests {
     }
 
     @Test func decrement() {
-        let expected: [CounterInteractor.State] = [
+        let expected: [CounterInteractor.DomainState] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
@@ -62,7 +62,7 @@ final class CounterInteractorTests {
     }
 
     @Test func reset() {
-        let expected: [CounterInteractor.State] = [
+        let expected: [CounterInteractor.DomainState] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

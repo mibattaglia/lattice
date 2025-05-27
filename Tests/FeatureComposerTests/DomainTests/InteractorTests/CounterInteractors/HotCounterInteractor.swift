@@ -4,7 +4,7 @@ import Foundation
 @testable import FeatureComposer
 
 struct HotCounterInteractor: Interactor {
-    struct State: Equatable, Sendable {
+    struct DomainState: Equatable, Sendable {
         var count: Int
     }
 
@@ -14,7 +14,7 @@ struct HotCounterInteractor: Interactor {
     }
 
     var body: some InteractorOf<Self> {
-        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
+        Interact<DomainState, Action>(initialValue: DomainState(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1
@@ -24,7 +24,7 @@ struct HotCounterInteractor: Interactor {
                     let statePublisher =
                         publisher
                         .map { int in
-                            State(count: state.count + int)
+                            DomainState(count: state.count + int)
                         }
                     return statePublisher.eraseToAnyPublisher()
                 }

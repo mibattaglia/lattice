@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 extension Interactors {
-    public struct Merge<I0: Interactor, I1: Interactor<I0.State, I0.Action>>: Interactor {
+    public struct Merge<I0: Interactor, I1: Interactor<I0.DomainState, I0.Action>>: Interactor {
         private let i0: I0
         private let i1: I1
 
@@ -11,9 +11,9 @@ extension Interactors {
             self.i1 = i1
         }
 
-        public var body: some Interactor<I0.State, I0.Action> { self }
+        public var body: some Interactor<I0.DomainState, I0.Action> { self }
 
-        public func interact(_ upstream: AnyPublisher<I0.Action, Never>) -> AnyPublisher<I0.State, Never> {
+        public func interact(_ upstream: AnyPublisher<I0.Action, Never>) -> AnyPublisher<I0.DomainState, Never> {
             upstream
                 .flatMap { event in
                     i0.interact(Just(event).eraseToAnyPublisher())

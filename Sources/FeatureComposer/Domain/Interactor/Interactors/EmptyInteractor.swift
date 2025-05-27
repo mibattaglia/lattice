@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 public struct EmptyInteractor<State, Action>: Interactor {
-    public typealias State = State
+    public typealias DomainState = State
     public typealias Action = Action
 
     public init() {}

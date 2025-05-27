@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// A reusable abstraction for state-action transformation
-public struct Interact<State: Equatable, Action>: Interactor {
+public struct Interact<State, Action>: Interactor {
     private let initialValue: State
     private let handler: (inout State, Action) -> Emission<State>
 

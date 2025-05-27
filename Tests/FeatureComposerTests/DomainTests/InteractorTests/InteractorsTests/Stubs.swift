@@ -3,7 +3,7 @@ import FeatureComposer
 
 /// Takes an input and doubles it
 struct DoubleInteractor: Interactor {
-    typealias State = Int
+    typealias DomainState = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }
@@ -17,7 +17,7 @@ struct DoubleInteractor: Interactor {
 
 /// Takes an input and triples it
 struct TripleInteractor: Interactor {
-    typealias State = Int
+    typealias DomainState = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }

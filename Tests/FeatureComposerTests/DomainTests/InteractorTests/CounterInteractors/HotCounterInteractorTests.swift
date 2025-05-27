@@ -12,7 +12,7 @@ final class HotCounterInteractorTests {
     private let counterInteractor = HotCounterInteractor()
 
     @Test func asyncWork() async {
-        let expected: [HotCounterInteractor.State] = [
+        let expected: [HotCounterInteractor.DomainState] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

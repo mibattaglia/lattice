@@ -4,7 +4,7 @@ import Foundation
 @testable import FeatureComposer
 
 struct AsyncCounterInteractor: Interactor {
-    struct State: Equatable, Sendable {
+    struct DomainState: Equatable, Sendable {
         var count: Int
     }
 
@@ -20,7 +20,7 @@ struct AsyncCounterInteractor: Interactor {
     }
 
     var body: some InteractorOf<Self> {
-        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
+        Interact<DomainState, Action>(initialValue: DomainState(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1
@@ -28,7 +28,7 @@ struct AsyncCounterInteractor: Interactor {
             case .async:
                 return .perform { [count = state.count] in
                     try? await scheduler.sleep(for: .seconds(0.5))
-                    return AsyncCounterInteractor.State(count: count + 1)
+                    return AsyncCounterInteractor.DomainState(count: count + 1)
                 }
             }
         }
