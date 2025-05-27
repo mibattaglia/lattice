@@ -1,23 +1,24 @@
 import Combine
 import Foundation
-@testable import FeatureComposer
 import Testing
+
+@testable import FeatureComposer
 
 @Suite
 final class CounterInteractorTests {
     private let subject = PassthroughSubject<CounterInteractor.Action, Never>()
     private var cancellables: Set<AnyCancellable> = []
-    
+
     private let counterInteractor = CounterInteractor()
-    
+
     @Test func increment() {
         let expected: [CounterInteractor.State] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
-            .init(count: 3)
+            .init(count: 3),
         ]
-        
+
         counterInteractor
             .interact(subject.eraseToAnyPublisher())
             .collect()
@@ -25,13 +26,13 @@ final class CounterInteractorTests {
                 #expect(actual == expected)
             }
             .store(in: &cancellables)
-        
+
         for _ in 1..<4 {
             subject.send(.increment)
         }
         subject.send(completion: .finished)
     }
-    
+
     @Test func decrement() {
         let expected: [CounterInteractor.State] = [
             .init(count: 0),
@@ -40,9 +41,9 @@ final class CounterInteractorTests {
             .init(count: 3),
             .init(count: 2),
             .init(count: 1),
-            .init(count: 0)
+            .init(count: 0),
         ]
-        
+
         counterInteractor
             .interact(subject.eraseToAnyPublisher())
             .collect()
@@ -50,7 +51,7 @@ final class CounterInteractorTests {
                 #expect(actual == expected)
             }
             .store(in: &cancellables)
-        
+
         for _ in 1..<4 {
             subject.send(.increment)
         }
@@ -59,16 +60,16 @@ final class CounterInteractorTests {
         }
         subject.send(completion: .finished)
     }
-    
+
     @Test func reset() {
         let expected: [CounterInteractor.State] = [
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
             .init(count: 3),
-            .init(count: 0)
+            .init(count: 0),
         ]
-        
+
         counterInteractor
             .interact(subject.eraseToAnyPublisher())
             .collect()
@@ -76,7 +77,7 @@ final class CounterInteractorTests {
                 #expect(actual == expected)
             }
             .store(in: &cancellables)
-        
+
         for _ in 1..<4 {
             subject.send(.increment)
         }

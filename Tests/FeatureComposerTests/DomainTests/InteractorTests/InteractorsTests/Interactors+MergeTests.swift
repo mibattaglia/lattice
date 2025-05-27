@@ -1,14 +1,15 @@
 import Combine
 import CombineSchedulers
 import Foundation
-@testable import FeatureComposer
 import Testing
+
+@testable import FeatureComposer
 
 @Suite
 final class MergeTests {
     private var cancellables: Set<AnyCancellable> = []
     private let subject = PassthroughSubject<Int, Never>()
-    
+
     @Test
     func mergeTwoRunsSequentially() async {
         let merge = Interactors.Merge(
@@ -23,7 +24,7 @@ final class MergeTests {
                     confirmation()
                 }
                 .store(in: &cancellables)
-            
+
             subject.send(3)
             subject.send(completion: .finished)
         }

@@ -1,5 +1,6 @@
 @preconcurrency import Combine
 import Foundation
+
 @testable import FeatureComposer
 
 struct HotCounterInteractor: Interactor {
@@ -11,7 +12,7 @@ struct HotCounterInteractor: Interactor {
         case increment
         case observe(AnyPublisher<Int, Never>)
     }
-    
+
     var body: some InteractorOf<Self> {
         Interact<State, Action>(initialValue: State(count: 0)) { state, action in
             switch action {
@@ -20,7 +21,8 @@ struct HotCounterInteractor: Interactor {
                 return .state
             case let .observe(publisher):
                 return .observe { state in
-                    let statePublisher = publisher
+                    let statePublisher =
+                        publisher
                         .map { int in
                             State(count: state.count + int)
                         }
