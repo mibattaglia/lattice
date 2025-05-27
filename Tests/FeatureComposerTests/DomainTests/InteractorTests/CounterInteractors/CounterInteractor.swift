@@ -1,5 +1,6 @@
-@testable import FeatureComposer
 import Testing
+
+@testable import FeatureComposer
 
 struct CounterInteractor: Interactor {
     struct State: Equatable, Sendable {
@@ -11,7 +12,7 @@ struct CounterInteractor: Interactor {
         case decrement
         case reset
     }
-    
+
     var body: some InteractorOf<Self> {
         Interact<State, Action>(initialValue: State(count: 0)) { state, action in
             switch action {

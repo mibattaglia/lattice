@@ -2,8 +2,9 @@
 // Inspired by tests in https://github.com/pointfreeco/swift-composable-architecture/blob/main/Tests/ComposableArchitectureTests/ReducerBuilderTests.swift
 import Combine
 import Foundation
-@testable import FeatureComposer
 import Testing
+
+@testable import FeatureComposer
 
 private struct MyState {}
 private enum MyAction { case myAction }
@@ -31,7 +32,7 @@ func limitedAvailability() {
         if #available(iOS 9999, macOS 9999, tvOS 9999, visionOS 9999, watchOS 9999, *) {
             UnavailableInteractor()
         }
-        
+
         if #available(iOS 8888, macOS 8888, tvOS 8888, visionOS 8888, watchOS 8888, *) {
             EmptyInteractor<MyState, MyAction>()
         }
@@ -43,9 +44,9 @@ func controlFlow() {
         if Bool.random() {
             TestInteractor()
         }
-        
+
         TestInteractor()
-        
+
         for _ in 0...10 {
             EmptyInteractor<MyState, MyAction>()
         }

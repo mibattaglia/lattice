@@ -1,13 +1,15 @@
 import Combine
 import Foundation
 
-public extension Interactors {
-    enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>: Interactor {
+extension Interactors {
+    public enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>:
+        Interactor
+    {
         case first(First)
         case second(Second)
-        
+
         public var body: some Interactor<First.State, First.Action> { self }
-        
+
         public func interact(
             _ upstream: AnyPublisher<First.Action, Never>
         ) -> AnyPublisher<First.State, Never> {

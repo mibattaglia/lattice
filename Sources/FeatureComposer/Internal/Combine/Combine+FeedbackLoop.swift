@@ -11,7 +11,7 @@ extension Publisher where Failure == Never {
     ) -> Publishers.HandleEvents<CurrentValueSubject<State, Never>> {
         let state = CurrentValueSubject<State, Never>(initialState)
         var effectCancellables = Set<AnyCancellable>()
-        
+
         let upstreamCancellable = self.sink(
             receiveCompletion: { completion in
                 state.send(completion: completion)
@@ -36,8 +36,9 @@ extension Publisher where Failure == Never {
             }
         )
         upstreamCancellable.store(in: &effectCancellables)
-        
-        return state
+
+        return
+            state
             .handleEvents(receiveCancel: {
                 effectCancellables.forEach { $0.cancel() }
                 upstreamCancellable.cancel()

@@ -1,5 +1,6 @@
 import CombineSchedulers
 import Foundation
+
 @testable import FeatureComposer
 
 struct AsyncCounterInteractor: Interactor {
@@ -11,13 +12,13 @@ struct AsyncCounterInteractor: Interactor {
         case increment
         case async
     }
-    
+
     private let scheduler: AnySchedulerOf<DispatchQueue>
-    
+
     init(scheduler: AnySchedulerOf<DispatchQueue>) {
         self.scheduler = scheduler
     }
-    
+
     var body: some InteractorOf<Self> {
         Interact<State, Action>(initialValue: State(count: 0)) { state, action in
             switch action {
