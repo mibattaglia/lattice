@@ -1,13 +1,13 @@
 import FeatureComposer
 import Foundation
 
-enum MyDomainEvent: Equatable {
+enum MyEvent: Equatable {
     case load
     case incrementCount
 }
 
 struct MyInteractor: Interactor {
-    typealias Action = MyDomainEvent
+    typealias Action = MyEvent
     typealias DomainState = MyDomainState
 
     let dateFactory: () -> Date

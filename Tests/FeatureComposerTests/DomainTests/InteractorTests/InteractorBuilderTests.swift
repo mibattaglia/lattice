@@ -10,7 +10,7 @@ private struct MyState {}
 private enum MyAction { case myAction }
 
 private struct TestInteractor: Interactor {
-    var body: some Interactor<MyState, MyAction> {
+    var body: some Interactor<MyAction, MyState> {
         EmptyInteractor()
     }
 }
@@ -21,7 +21,7 @@ private struct TestInteractor: Interactor {
 @available(visionOS, introduced: 9999)
 @available(watchOS, introduced: 9999)
 private struct UnavailableInteractor: Interactor {
-    var body: some Interactor<MyState, MyAction> {
+    var body: some Interactor<MyAction, MyState> {
         EmptyInteractor()
     }
 }
@@ -34,7 +34,7 @@ func limitedAvailability() {
         }
 
         if #available(iOS 8888, macOS 8888, tvOS 8888, visionOS 8888, watchOS 8888, *) {
-            EmptyInteractor<MyState, MyAction>()
+            EmptyInteractor<MyAction, MyState>()
         }
     }
 }
@@ -48,7 +48,7 @@ func controlFlow() {
         TestInteractor()
 
         for _ in 0...10 {
-            EmptyInteractor<MyState, MyAction>()
+            EmptyInteractor<MyAction, MyState>()
         }
     }
 }

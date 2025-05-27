@@ -33,3 +33,26 @@ extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> 
 }
 
 public typealias ViewStateReducerOf<V: ViewStateReducer> = ViewStateReducer<V.DomainState, V.ViewState>
+
+public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer {
+    private let reduceFunc: (AnyPublisher<DomainState, Never>) -> AnyPublisher<ViewState, Never>
+
+    init<VS: ViewStateReducer>(_ base: VS)
+    where VS.DomainState == DomainState, VS.ViewState == ViewState {
+        self.reduceFunc = base.reduce(_:)
+    }
+
+    public var body: some ViewStateReducer<DomainState, ViewState> { self }
+
+    public func reduce(
+        _ upstream: AnyPublisher<DomainState, Never>
+    ) -> AnyPublisher<ViewState, Never> {
+        reduceFunc(upstream)
+    }
+}
+
+extension ViewStateReducer {
+    public func eraseToAnyReducer() -> AnyViewStateReducer<DomainState, ViewState> {
+        AnyViewStateReducer(self)
+    }
+}
