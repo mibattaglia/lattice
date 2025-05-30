@@ -6,7 +6,7 @@ struct MyViewStateReducer: ViewStateReducer {
     typealias ViewState = MyViewState
 
     var body: some ViewStateReducerOf<Self> {
-        BuildViewState<DomainState, ViewState> { domainState in
+        Self.build { domainState in
             switch domainState {
             case let .error(code):
                 return .error(title: reduceErrorCode(code))

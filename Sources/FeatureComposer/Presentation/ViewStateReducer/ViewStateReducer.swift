@@ -32,6 +32,14 @@ extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> 
     }
 }
 
+extension ViewStateReducer {
+    public static func build(
+        _ block: @escaping (DomainState) -> ViewState
+    ) -> BuildViewState<DomainState, ViewState> {
+        BuildViewState(reducerBlock: block)
+    }
+}
+
 public typealias ViewStateReducerOf<V: ViewStateReducer> = ViewStateReducer<V.DomainState, V.ViewState>
 
 public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer {

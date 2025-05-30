@@ -45,6 +45,17 @@ struct ViewModelTests {
         #expect(viewModel.viewState == viewStateFactory(count: 2))
     }
 
+    @Test
+    func testBinding() async {
+        viewModel.sendViewEvent(.load)
+        await scheduler.advance()
+
+        let binding = viewModel.binding(get: \.success) { value in
+            return .incrementCount
+        }
+
+    }
+
     private func viewStateFactory(count: Int) -> MyViewState {
         MyViewState.success(
             .init(

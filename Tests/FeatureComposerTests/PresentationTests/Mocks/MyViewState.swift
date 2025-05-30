@@ -1,5 +1,8 @@
+import CasePaths
 import Foundation
 
+@CasePathable
+@dynamicMemberLookup
 enum MyViewState: Equatable {
     case loading
     case error(title: String)
