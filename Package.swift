@@ -3,14 +3,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "swift-feature-composer",
+    name: "swift-domain-architecture",
     platforms: [.iOS(.v15), .watchOS(.v9), .macOS(.v13)],
     products: [
         .library(
-            name: "FeatureComposer",
+            name: "DomainArchitecture",
             targets: [
-                "FeatureComposer",
-                "FeatureComposerTestingSupport",
+                "DomainArchitecture",
+                "DomainArchitectureTestingSupport",
             ]
         )
     ],
@@ -26,18 +26,18 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "FeatureComposer",
+            name: "DomainArchitecture",
             dependencies: [
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ]
         ),
-        .target(name: "FeatureComposerTestingSupport"),
+        .target(name: "DomainArchitectureTestingSupport"),
         .testTarget(
-            name: "FeatureComposerTests",
+            name: "DomainArchitectureTests",
             dependencies: [
-                "FeatureComposer",
-                "FeatureComposerTestingSupport",
+                "DomainArchitecture",
+                "DomainArchitectureTestingSupport",
             ]
         ),
     ],
