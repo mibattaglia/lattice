@@ -1,4 +1,4 @@
-import FeatureComposer
+import DomainArchitecture
 import Foundation
 
 struct MyViewStateReducer: ViewStateReducer {

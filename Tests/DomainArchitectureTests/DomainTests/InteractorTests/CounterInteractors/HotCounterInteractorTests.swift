@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import Testing
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 @Suite
 final class HotCounterInteractorTests {

@@ -1,6 +1,6 @@
 import Testing
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 struct CounterInteractor: Interactor {
     struct DomainState: Equatable, Sendable {

@@ -1,5 +1,5 @@
 import Combine
-import FeatureComposer
+import DomainArchitecture
 import Foundation
 import Testing
 

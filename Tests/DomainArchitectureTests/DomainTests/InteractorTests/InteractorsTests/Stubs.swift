@@ -1,5 +1,5 @@
 import Combine
-import FeatureComposer
+import DomainArchitecture
 
 /// Takes an input and doubles it
 struct DoubleInteractor: Interactor {

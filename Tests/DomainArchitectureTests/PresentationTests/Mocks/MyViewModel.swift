@@ -1,6 +1,6 @@
 import Combine
 import CombineSchedulers
-import FeatureComposer
+import DomainArchitecture
 import Foundation
 
 final class MyViewModel: ViewModel {

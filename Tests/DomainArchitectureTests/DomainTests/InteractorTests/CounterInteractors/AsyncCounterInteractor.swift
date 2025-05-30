@@ -1,7 +1,7 @@
 import CombineSchedulers
 import Foundation
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 struct AsyncCounterInteractor: Interactor {
     struct DomainState: Equatable, Sendable {

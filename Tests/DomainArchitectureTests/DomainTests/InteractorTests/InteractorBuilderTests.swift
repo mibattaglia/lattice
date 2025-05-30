@@ -4,7 +4,7 @@ import Combine
 import Foundation
 import Testing
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 private struct MyState {}
 private enum MyAction { case myAction }

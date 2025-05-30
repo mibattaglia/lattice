@@ -3,7 +3,7 @@ import CombineSchedulers
 import Foundation
 import Testing
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 @MainActor
 @Suite

@@ -1,7 +1,7 @@
 @preconcurrency import Combine
 import Foundation
 
-@testable import FeatureComposer
+@testable import DomainArchitecture
 
 struct HotCounterInteractor: Interactor {
     struct DomainState: Equatable, Sendable {
