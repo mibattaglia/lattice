@@ -6,6 +6,7 @@ enum MyEvent: Equatable {
     case incrementCount
 }
 
+@Interactor<MyEvent, MyDomainState>
 struct MyInteractor: Interactor {
     typealias Action = MyEvent
     typealias DomainState = MyDomainState
@@ -34,3 +35,10 @@ struct MyInteractor: Interactor {
         }
     }
 }
+
+//@Interactor<MyEvent, MyDomainState>
+//struct MyMacroInteractor {
+//    var body: some InteractorOf<Self> {
+//        EmptyInteractor()
+//    }
+//}
