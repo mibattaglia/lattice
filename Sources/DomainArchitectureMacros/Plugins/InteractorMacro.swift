@@ -144,7 +144,48 @@ extension InteractorMacro: MemberMacro {
         providingMembersOf declaration: D,
         in context: C
     ) throws -> [DeclSyntax] {
-        []
+        let attributes = declaration.attributes
+        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
+            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
+        else {
+            // TODO: - Diagnostic?
+            return []
+        }
+        guard let generics = attrName.genericArgumentClause,
+            generics.arguments.count == 2
+        else {
+            context
+                .diagnose(
+                    Diagnostic(
+                        node: node.attributeName,
+                        message: MacroExpansionErrorMessage(
+                            """
+                            Only 2 generic arguments should be applied the @Interactor macro. \
+                            One for the Interactor's state type and one for its action type. 
+                            """
+                        )
+                    )
+                )
+            return []
+        }
+        let argumentsArray = generics
+            .arguments
+            .compactMap { $0.argument.as(IdentifierTypeSyntax.self) }
+        let domainStateType = argumentsArray[0].name.text
+        let eventType = argumentsArray[1].name.text
+        var decls: [DeclSyntax] = []
+
+        decls.append(
+            """
+            typealias DomainState = \(raw: domainStateType)
+            """
+        )
+        decls.append(
+            """
+            typealias Action = \(raw: eventType)
+            """
+        )
+        return decls
     }
 }
 

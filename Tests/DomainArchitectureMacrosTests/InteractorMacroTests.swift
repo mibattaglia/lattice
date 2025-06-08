@@ -6,7 +6,7 @@
     final class InteractorMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                //            record: .failed,
+                record: .failed,
                 macros: [InteractorMacro.self]
             ) {
                 super.invokeTest()
@@ -55,6 +55,10 @@
                     var body: some InteractorOf<Self> {
                         EmptyInteractor()
                     }
+
+                    typealias DomainState = Int
+
+                    typealias Action = String
                 }
 
                 extension MyInteractor: DomainArchitecture.Interactor {
