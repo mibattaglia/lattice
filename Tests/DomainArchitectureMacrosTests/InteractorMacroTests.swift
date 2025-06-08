@@ -67,6 +67,53 @@
             }
         }
 
+        func testBasics_GenericsInMacro_ExistingTypealias_EmitsWarning() {
+            assertMacro {
+                """
+                @Interactor<Int, String>
+                struct MyInteractor {
+                    typealias DomainState = Int
+                    typealias Action = String
+
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } diagnostics: {
+                """
+                @Interactor<Int, String>
+                struct MyInteractor {
+                    typealias DomainState = Int
+                    ┬──────────────────────────
+                    ╰─ ⚠️ Consider removing explicit `typealias Action = Int`. This is handled by the `@Interactor` macro.
+                    typealias Action = String
+                    ┬────────────────────────
+                    ╰─ ⚠️ Consider removing explicit `typealias Action = String`. This is handled by the `@Interactor` macro.
+
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } expansion: {
+                """
+                struct MyInteractor {
+                    typealias DomainState = Int
+                    typealias Action = String
+                    @DomainArchitecture.InteractorBuilder<Int, String>
+
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+
+                extension MyInteractor: DomainArchitecture.Interactor {
+                }
+                """
+            }
+        }
+
         func testGenericsInMacro_EmitsError() {
             assertMacro {
                 """

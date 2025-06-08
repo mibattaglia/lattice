@@ -144,6 +144,18 @@ extension InteractorMacro: MemberMacro {
         providingMembersOf declaration: D,
         in context: C
     ) throws -> [DeclSyntax] {
+        let memberBlock = declaration.memberBlock
+        let existingTypeAliases = memberBlock
+            .members
+            .compactMap { member in
+                let `typealias` = member.decl.as(TypeAliasDeclSyntax.self)
+                if let `typealias` {
+                    return `typealias`
+                } else {
+                    return nil
+                }
+            }
+
         let attributes = declaration.attributes
         guard let declAttr = attributes.first?.as(AttributeSyntax.self),
             let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
@@ -175,17 +187,64 @@ extension InteractorMacro: MemberMacro {
         let eventType = argumentsArray[1].name.text
         var decls: [DeclSyntax] = []
 
-        decls.append(
-            """
-            typealias DomainState = \(raw: domainStateType)
-            """
-        )
-        decls.append(
-            """
-            typealias Action = \(raw: eventType)
-            """
-        )
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "DomainState",
+                typeName: domainStateType
+            )
+        ) {
+            decls.append(
+                """
+                typealias DomainState = \(raw: domainStateType)
+                """
+            )
+        }
+
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "Action",
+                typeName: eventType
+            )
+        ) {
+            decls.append(
+                """
+                typealias Action = \(raw: eventType)
+                """
+            )
+        }
         return decls
+    }
+
+    private static func handleTypeAlias<C: MacroExpansionContext>(
+        _ aliases: [TypeAliasDeclSyntax],
+        context: C,
+        aliasType: TypeAliasType,
+        addDecl: @escaping () -> Void
+    ) {
+        if let existing = aliases.first(where: { $0.name.text == aliasType.rawValue }) {
+            context
+                .diagnose(
+                    Diagnostic(
+                        node: existing,
+                        message: MacroExpansionWarningMessage(
+                            """
+                            Consider removing explicit `typealias Action = \(aliasType.typeName)`. \
+                            This is handled by the `@Interactor` macro.
+                            """
+                        )
+                    )
+                )
+        } else {
+            addDecl()
+        }
+    }
+    private struct TypeAliasType {
+        let rawValue: String
+        let typeName: String
     }
 }
 
