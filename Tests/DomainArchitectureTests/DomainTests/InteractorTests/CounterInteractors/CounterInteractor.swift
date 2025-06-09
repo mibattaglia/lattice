@@ -2,8 +2,9 @@ import Testing
 
 @testable import DomainArchitecture
 
-struct CounterInteractor: Interactor {
-    struct DomainState: Equatable, Sendable {
+@Interactor
+struct CounterInteractor {
+    struct State: Equatable, Sendable {
         var count: Int
     }
 
@@ -13,8 +14,8 @@ struct CounterInteractor: Interactor {
         case reset
     }
 
-    var body: some InteractorOf<Self> {
-        Interact<DomainState, Action>(initialValue: DomainState(count: 0)) { state, action in
+    var body: some Interactor<State, Action> {
+        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1

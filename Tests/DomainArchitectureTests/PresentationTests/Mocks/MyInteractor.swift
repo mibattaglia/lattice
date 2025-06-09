@@ -6,10 +6,8 @@ enum MyEvent: Equatable {
     case incrementCount
 }
 
+@Interactor<MyDomainState, MyEvent>
 struct MyInteractor: Interactor {
-    typealias Action = MyEvent
-    typealias DomainState = MyDomainState
-
     let dateFactory: () -> Date
 
     var body: some InteractorOf<Self> {
