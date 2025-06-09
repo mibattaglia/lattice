@@ -6,7 +6,7 @@
     final class InteractorMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                //                record: .failed,
+                //                                record: .failed,
                 macros: [InteractorMacro.self]
             ) {
                 super.invokeTest()
@@ -115,7 +115,7 @@
                 struct MyInteractor {
                     typealias DomainState = Int
                     ┬──────────────────────────
-                    ╰─ ⚠️ Consider removing explicit `typealias Action = Int`. This is handled by the `@Interactor` macro.
+                    ╰─ ⚠️ Consider removing explicit `typealias DomainState = Int`. This is handled by the `@Interactor` macro.
                     typealias Action = String
                     ┬────────────────────────
                     ╰─ ⚠️ Consider removing explicit `typealias Action = String`. This is handled by the `@Interactor` macro.

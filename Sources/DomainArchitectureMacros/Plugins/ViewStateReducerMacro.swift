@@ -6,9 +6,9 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacroExpansion
 import SwiftSyntaxMacros
 
-public enum InteractorMacro {}
+public enum ViewStateReducerMacro {}
 
-extension InteractorMacro: ExtensionMacro {
+extension ViewStateReducerMacro: ExtensionMacro {
     public static func expansion<D: DeclGroupSyntax, T: TypeSyntaxProtocol, C: MacroExpansionContext>(
         of node: AttributeSyntax,
         attachedTo declaration: D,
@@ -20,13 +20,13 @@ extension InteractorMacro: ExtensionMacro {
             inheritanceClause
                 .inheritedTypes
                 .contains(where: {
-                    ["Interactor"]
+                    ["ViewStateReducer"]
                         .moduleQualified.contains($0.type.trimmedDescription)
                 })
         {
             return []
         }
-        let conformance = "DomainArchitecture.Interactor"
+        let conformance = "DomainArchitecture.ViewStateReducer"
         let `extension`: DeclSyntax =
             """
             \(declaration.attributes.availability)extension \(type.trimmed): \(raw: conformance) {}
@@ -35,7 +35,7 @@ extension InteractorMacro: ExtensionMacro {
     }
 }
 
-extension InteractorMacro: MemberAttributeMacro {
+extension ViewStateReducerMacro: MemberAttributeMacro {
     public static func expansion<D: DeclGroupSyntax, M: DeclSyntaxProtocol, C: MacroExpansionContext>(
         of node: AttributeSyntax,
         attachedTo declaration: D,
@@ -51,8 +51,8 @@ extension InteractorMacro: MemberAttributeMacro {
                             node: node.attributeName,
                             message: MacroExpansionErrorMessage(
                                 """
-                                Only 2 generic arguments should be applied the @Interactor macro. \
-                                One for the Interactor's state type and one for its action type. 
+                                Only 2 generic arguments should be applied the @ViewStateReducer macro. \
+                                One for the ViewStateReducer's domain state type and one for its view state type. 
                                 """
                             )
                         )
@@ -84,7 +84,7 @@ extension InteractorMacro: MemberAttributeMacro {
                 var newTypeAnnotation = binding.typeAnnotation
                 let interactorOr = SomeOrAnyTypeSyntax(
                     someOrAnySpecifier: .identifier("some"),
-                    constraint: TypeSyntax(stringLiteral: " InteractorOf<Self>"),
+                    constraint: TypeSyntax(stringLiteral: " ViewStateReducerOf<Self>"),
                     trailingTrivia: Trivia(pieces: [TriviaPiece.spaces(1)])
                 )
                 newTypeAnnotation?.type = TypeSyntax(interactorOr)
@@ -101,8 +101,8 @@ extension InteractorMacro: MemberAttributeMacro {
                         fixIt: .replace(
                             message: MacroExpansionFixItMessage(
                                 """
-                                Replace 'some Interactor<\(bodyGenericArgNames.joined(separator: ", "))>' \
-                                with 'some InteractorOf<Self>'
+                                Replace 'some ViewStateReducer<\(bodyGenericArgNames.joined(separator: ", "))>' \
+                                with 'some ViewStateReducerOf<Self>'
                                 """
                             ),
                             oldNode: binding,
@@ -120,8 +120,8 @@ extension InteractorMacro: MemberAttributeMacro {
                 else {
                     continue
                 }
-                guard !attributeName.starts(with: "InteractorBuilder"),
-                    !attributeName.starts(with: "DomainArchitecture.InteractorBuilder")
+                guard !attributeName.starts(with: "ViewStateReducerBuilder"),
+                    !attributeName.starts(with: "DomainArchitecture.ViewStateReducerBuilder")
                 else {
                     return []
                 }
@@ -129,13 +129,13 @@ extension InteractorMacro: MemberAttributeMacro {
 
             let builderArguments: TokenSyntax =
                 if let macroGenerics {
-                    .identifier("DomainArchitecture.InteractorBuilder<\(macroGenerics)>")
+                    .identifier("DomainArchitecture.ViewStateReducerBuilder<\(macroGenerics)>")
                 } else if genericArgs.count == 1 {
                     .identifier(
-                        "DomainArchitecture.InteractorBuilder<\(genericArgs.description).State, \(genericArgs.description).Action>"
+                        "DomainArchitecture.ViewStateReducerBuilder<\(genericArgs.description).DomainState, \(genericArgs.description).ViewState>"
                     )
                 } else {
-                    .identifier("DomainArchitecture.InteractorBuilder<\(genericArgs)>")
+                    .identifier("DomainArchitecture.ViewStateReducerBuilder<\(genericArgs)>")
                 }
             return [
                 AttributeSyntax(
@@ -147,7 +147,7 @@ extension InteractorMacro: MemberAttributeMacro {
     }
 }
 
-extension InteractorMacro: MemberMacro {
+extension ViewStateReducerMacro: MemberMacro {
     public static func expansion<D: DeclGroupSyntax, C: MacroExpansionContext>(
         of node: AttributeSyntax,
         providingMembersOf declaration: D,
@@ -180,7 +180,7 @@ extension InteractorMacro: MemberMacro {
                 .arguments
                 .compactMap { $0.argument.as(IdentifierTypeSyntax.self) }
             let domainStateType = argumentsArray[0].name.text
-            let eventType = argumentsArray[1].name.text
+            let viewStateType = argumentsArray[1].name.text
             var decls: [DeclSyntax] = []
 
             handleTypeAlias(
@@ -202,13 +202,13 @@ extension InteractorMacro: MemberMacro {
                 existingTypeAliases,
                 context: context,
                 aliasType: .init(
-                    rawValue: "Action",
-                    typeName: eventType
+                    rawValue: "ViewState",
+                    typeName: viewStateType
                 )
             ) {
                 decls.append(
                     """
-                    typealias Action = \(raw: eventType)
+                    typealias ViewState = \(raw: viewStateType)
                     """
                 )
             }
@@ -232,7 +232,7 @@ extension InteractorMacro: MemberMacro {
                         message: MacroExpansionWarningMessage(
                             """
                             Consider removing explicit `typealias \(aliasType.rawValue) = \(aliasType.typeName)`. \
-                            This is handled by the `@Interactor` macro.
+                            This is handled by the `@ViewStateReducer` macro.
                             """
                         )
                     )

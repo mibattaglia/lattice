@@ -1,12 +1,10 @@
 import DomainArchitecture
 import Foundation
 
-struct MyViewStateReducer: ViewStateReducer {
-    typealias DomainState = MyDomainState
-    typealias ViewState = MyViewState
-
+@ViewStateReducer<MyDomainState, MyViewState>
+struct MyViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
-        BuildViewState<DomainState, ViewState> { domainState in
+        Self.buildViewState { domainState in
             switch domainState {
             case let .error(code):
                 return .error(title: reduceErrorCode(code))

@@ -24,6 +24,14 @@ extension ViewStateReducer where Body.DomainState == Never {
     }
 }
 
+extension ViewStateReducer {
+    public static func buildViewState(
+        reducerBlock: @escaping (DomainState) -> ViewState
+    ) -> BuildViewState<DomainState, ViewState> {
+        BuildViewState(reducerBlock: reducerBlock)
+    }
+}
+
 extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> {
     public func reduce(
         _ upstream: AnyPublisher<DomainState, Never>
