@@ -6,7 +6,7 @@
     final class InteractorMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                record: .failed,
+                //                record: .failed,
                 macros: [InteractorMacro.self]
             ) {
                 super.invokeTest()
@@ -28,6 +28,35 @@
                 struct MyInteractor {
                     @DomainArchitecture.InteractorBuilder<Int, String>
                     var body: some Interactor<Int, String> {
+                        EmptyInteractor()
+                    }
+                }
+
+                extension MyInteractor: DomainArchitecture.Interactor {
+                }
+                """
+            }
+        }
+
+        func testBasics_NoGenericsInMacro_NestedStateAndAction() {
+            assertMacro {
+                """
+                @Interactor
+                struct MyInteractor {
+                    struct DomainState {}
+                    enum Action {}
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } expansion: {
+                """
+                struct MyInteractor {
+                    struct DomainState {}
+                    enum Action {}
+                    @DomainArchitecture.InteractorBuilder<Self.State, Self.Action>
+                    var body: some InteractorOf<Self> {
                         EmptyInteractor()
                     }
                 }
@@ -152,6 +181,10 @@
                     var body: some InteractorOf<Self> {
                         EmptyInteractor()
                     }
+
+                    typealias DomainState = Int
+
+                    typealias Action = String
                 }
 
                 extension MyInteractor: DomainArchitecture.Interactor {

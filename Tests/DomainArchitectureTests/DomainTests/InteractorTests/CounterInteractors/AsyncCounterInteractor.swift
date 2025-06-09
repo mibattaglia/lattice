@@ -3,8 +3,9 @@ import Foundation
 
 @testable import DomainArchitecture
 
-struct AsyncCounterInteractor: Interactor {
-    struct DomainState: Equatable, Sendable {
+@Interactor
+struct AsyncCounterInteractor {
+    struct State: Equatable, Sendable {
         var count: Int
     }
 
@@ -19,8 +20,8 @@ struct AsyncCounterInteractor: Interactor {
         self.scheduler = scheduler
     }
 
-    var body: some InteractorOf<Self> {
-        Interact<DomainState, Action>(initialValue: DomainState(count: 0)) { state, action in
+    var body: some Interactor<State, Action> {
+        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
             switch action {
             case .increment:
                 state.count += 1
