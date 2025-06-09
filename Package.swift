@@ -4,14 +4,14 @@ import CompilerPluginSupport
 import PackageDescription
 
 let package = Package(
-    name: "swift-domain-architecture",
+    name: "swift-uno-architecture",
     platforms: [.iOS(.v15), .watchOS(.v9), .macOS(.v13)],
     products: [
         .library(
-            name: "DomainArchitecture",
+            name: "UnoArchitecture",
             targets: [
-                "DomainArchitecture",
-                "DomainArchitectureTestingSupport",
+                "UnoArchitecture",
+                "UnoArchitectureTestingSupport",
             ]
         )
     ],
@@ -35,32 +35,32 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "DomainArchitecture",
+            name: "UnoArchitecture",
             dependencies: [
-                "DomainArchitectureMacros",
+                "UnoArchitectureMacros",
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ]
         ),
         .macro(
-            name: "DomainArchitectureMacros",
+            name: "UnoArchitectureMacros",
             dependencies: [
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
-        .target(name: "DomainArchitectureTestingSupport"),
+        .target(name: "UnoArchitectureTestingSupport"),
         .testTarget(
-            name: "DomainArchitectureTests",
+            name: "UnoArchitectureTests",
             dependencies: [
-                "DomainArchitecture",
-                "DomainArchitectureTestingSupport",
+                "UnoArchitecture",
+                "UnoArchitectureTestingSupport",
             ]
         ),
         .testTarget(
-            name: "DomainArchitectureMacrosTests",
+            name: "UnoArchitectureMacrosTests",
             dependencies: [
-                "DomainArchitectureMacros",
+                "UnoArchitectureMacros",
                 .product(name: "MacroTesting", package: "swift-macro-testing"),
             ]
         ),
