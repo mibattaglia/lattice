@@ -6,7 +6,7 @@
     final class ViewStateReducerMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                record: .failed,
+                //                record: .failed,
                 macros: [ViewStateReducerMacro.self]
             ) {
                 super.invokeTest()

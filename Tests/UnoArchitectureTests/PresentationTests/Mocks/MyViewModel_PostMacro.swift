@@ -2,9 +2,9 @@ import Combine
 import CombineSchedulers
 import Foundation
 import UnoArchitecture
-
+/*
 @ViewModel<MyViewState, MyEvent>
-final class MyViewModel {
+final class MyViewModel_PostMacro {
     init(
         scheduler: AnySchedulerOf<DispatchQueue>,
         interactor: AnyInteractor<MyDomainState, MyEvent>,
@@ -14,3 +14,4 @@ final class MyViewModel {
         #subscribe(scheduler, interactor, viewStateReducer)
     }
 }
+*/

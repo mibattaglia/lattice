@@ -31,7 +31,7 @@ extension InteractorMacro: ExtensionMacro {
             """
             \(declaration.attributes.availability)extension \(type.trimmed): \(raw: conformance) {}
             """
-        return [`extension`.cast(ExtensionDeclSyntax.self)]
+        return [`extension`.as(ExtensionDeclSyntax.self)].compactMap { $0 }
     }
 }
 
@@ -82,12 +82,8 @@ extension InteractorMacro: MemberAttributeMacro {
                     genericArgs
                     .compactMap { $0.argument.as(IdentifierTypeSyntax.self)?.name.text }
                 var newTypeAnnotation = binding.typeAnnotation
-                let interactorOr = SomeOrAnyTypeSyntax(
-                    someOrAnySpecifier: .identifier("some"),
-                    constraint: TypeSyntax(stringLiteral: " InteractorOf<Self>"),
-                    trailingTrivia: Trivia(pieces: [TriviaPiece.spaces(1)])
-                )
-                newTypeAnnotation?.type = TypeSyntax(interactorOr)
+
+                newTypeAnnotation?.type = TypeSyntax(stringLiteral: "some InteractorOf<Self> ")
 
                 context.diagnose(
                     Diagnostic(
