@@ -7,10 +7,15 @@ import UnoArchitecture
 final class MyViewModel {
     init(
         scheduler: AnySchedulerOf<DispatchQueue>,
-        interactor: AnyInteractor<MyDomainState, MyEvent>,
+        interactor: AnyInteractor<MyEvent, MyDomainState>,
         viewStateReducer: AnyViewStateReducer<MyDomainState, MyViewState>
     ) {
         self.viewState = .loading
-        #subscribe(scheduler, interactor, viewStateReducer)
+        #subscribe { builder in
+            builder
+                .viewStateReceiver(scheduler)
+                .interactor(interactor)
+                .viewStateReducer(viewStateReducer)
+        }
     }
 }

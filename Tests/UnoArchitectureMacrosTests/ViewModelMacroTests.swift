@@ -10,7 +10,6 @@
                 macros: [
                     ViewModelMacro.self,
                     SubscribeMacro.self,
-                    SubscribeSimpleMacro.self,
                 ]
             ) {
                 super.invokeTest()
@@ -59,7 +58,12 @@
                         viewStateReducer: AnyViewStateReducer<Float, String>
                     ) {
                         self.viewState = "Hello, world!"
-                        #subscribe(DispatchQueue.main, interactor, viewStateReducer)
+                        #subscribe { builder in
+                            builder
+                                .viewStateReceiver(DispatchQueue.main)
+                                .interactor(interactor)
+                                .viewStateReducer(viewStateReducer)
+                        }
                     }
                 }
                 """
@@ -71,11 +75,18 @@
                         viewStateReducer: AnyViewStateReducer<Float, String>
                     ) {
                         self.viewState = "Hello, world!"
-                        viewEvents
-                            .interact(with: interactor)
-                            .reduce(using: viewStateReducer)
-                            .receive(on: DispatchQueue.main)
-                            .assign(to: &$viewState)
+                        {
+                            var __uno_builder = ViewModelBuilder()
+                            __uno_builder.interactor(interactor)
+                                __uno_builder.viewStateReceiver(DispatchQueue.main)
+                                __uno_builder.viewStateReducer(viewStateReducer)
+                            let __uno_config = try! __uno_builder.build()
+                            viewEvents
+                                    .interact(with: __uno_config.interactor)
+                                    .reduce(using: __uno_config.viewStateReducer!)
+                                    .receive(on: __uno_config.viewStateReceiver)
+                                    .assign(to: &$viewState)
+                        }()
                     }
 
                     @Published private(set) var viewState: Int
