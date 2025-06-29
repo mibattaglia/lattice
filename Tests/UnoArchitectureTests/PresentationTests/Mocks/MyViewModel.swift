@@ -1,25 +1,21 @@
 import Combine
 import CombineSchedulers
-import UnoArchitecture
 import Foundation
+import UnoArchitecture
 
-final class MyViewModel: ViewModel {
-    @Published private(set) var viewState: MyViewState = .loading
-    private let viewEvents = PassthroughSubject<MyEvent, Never>()
-
+@ViewModel<MyViewState, MyEvent>
+final class MyViewModel {
     init(
         scheduler: AnySchedulerOf<DispatchQueue>,
         interactor: AnyInteractor<MyDomainState, MyEvent>,
         viewStateReducer: AnyViewStateReducer<MyDomainState, MyViewState>
     ) {
-        viewEvents
-            .interact(with: interactor)
-            .reduce(using: viewStateReducer)
-            .receive(on: scheduler)
-            .assign(to: &$viewState)
-    }
-
-    func sendViewEvent(_ event: MyEvent) {
-        viewEvents.send(event)
+        self.viewState = .loading
+        #subscribe { builder in
+            builder
+                .viewStateReceiver(scheduler)
+                .interactor(interactor)
+                .viewStateReducer(viewStateReducer)
+        }
     }
 }
