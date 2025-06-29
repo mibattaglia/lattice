@@ -5,7 +5,7 @@ import Foundation
 public final class ViewModelBuilder<DomainEvent, DomainState, ViewState>: @unchecked Sendable {
     private var _viewEventsReceiver: AnySchedulerOf<DispatchQueue> = .main
     private var _viewStateReceiver: AnySchedulerOf<DispatchQueue> = .main
-    private var _interactor: AnyInteractor<DomainEvent, DomainState>?
+    private var _interactor: AnyInteractor<DomainState, DomainEvent>?
     private var _viewStateReducer: AnyViewStateReducer<DomainState, ViewState>?
 
     public init() {}
@@ -23,7 +23,7 @@ public final class ViewModelBuilder<DomainEvent, DomainState, ViewState>: @unche
     }
 
     @discardableResult
-    public func interactor(_ interactor: AnyInteractor<DomainEvent, DomainState>) -> Self {
+    public func interactor(_ interactor: AnyInteractor<DomainState, DomainEvent>) -> Self {
         self._interactor = interactor
         return self
     }
@@ -53,7 +53,7 @@ public final class ViewModelBuilder<DomainEvent, DomainState, ViewState>: @unche
 public struct ViewModelConfiguration<DomainEvent, DomainState, ViewState> {
     let viewEventsReceiver: AnySchedulerOf<DispatchQueue>
     let viewStateReceiver: AnySchedulerOf<DispatchQueue>
-    let interactor: AnyInteractor<DomainEvent, DomainState>
+    let interactor: AnyInteractor<DomainState, DomainEvent>
     let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>?
 }
 

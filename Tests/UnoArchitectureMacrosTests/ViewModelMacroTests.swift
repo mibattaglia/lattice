@@ -6,7 +6,7 @@
     final class ViewModelMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                record: .failed,
+                //                record: .failed,
                 macros: [
                     ViewModelMacro.self,
                     SubscribeMacro.self,
@@ -54,8 +54,8 @@
                 @ViewModel<Int, String>
                 final class MyViewModel {
                     init(
-                        interactor: AnyInteractor<Bool, Float>,
-                        viewStateReducer: AnyViewStateReducer<Float, String>
+                        interactor: AnyInteractor<String, Float>,
+                        viewStateReducer: AnyViewStateReducer<Float, Int>
                     ) {
                         self.viewState = "Hello, world!"
                         #subscribe { builder in
@@ -71,22 +71,15 @@
                 """
                 final class MyViewModel {
                     init(
-                        interactor: AnyInteractor<Bool, Float>,
-                        viewStateReducer: AnyViewStateReducer<Float, String>
+                        interactor: AnyInteractor<String, Float>,
+                        viewStateReducer: AnyViewStateReducer<Float, Int>
                     ) {
                         self.viewState = "Hello, world!"
-                        {
-                            var __uno_builder = ViewModelBuilder()
-                            __uno_builder.interactor(interactor)
-                                __uno_builder.viewStateReceiver(DispatchQueue.main)
-                                __uno_builder.viewStateReducer(viewStateReducer)
-                            let __uno_config = try! __uno_builder.build()
-                            viewEvents
-                                    .interact(with: __uno_config.interactor)
-                                    .reduce(using: __uno_config.viewStateReducer!)
-                                    .receive(on: __uno_config.viewStateReceiver)
-                                    .assign(to: &$viewState)
-                        }()
+                        viewEvents
+                            .interact(with: interactor)
+                            .reduce(using: viewStateReducer)
+                            .receive(on: DispatchQueue.main)
+                            .assign(to: &$viewState)
                     }
 
                     @Published private(set) var viewState: Int
@@ -104,16 +97,20 @@
             }
         }
 
-        func testBasics_WithSimpleSubscribe() {
+        func testBasics_WithSubscribe_NoViewStateReducer() {
             assertMacro {
                 """
                 @ViewModel<Int, String>
                 final class MyViewModel {
                     init(
-                        interactor: AnyInteractor<Bool, String>
+                        interactor: AnyInteractor<Int, String>,
                     ) {
                         self.viewState = "Hello, world!"
-                        #subscribeSimple(DispatchQueue.main, interactor)
+                        #subscribe { builder in
+                            builder
+                                .viewStateReceiver(DispatchQueue.main)
+                                .interactor(interactor)
+                        }
                     }
                 }
                 """
@@ -121,7 +118,7 @@
                 """
                 final class MyViewModel {
                     init(
-                        interactor: AnyInteractor<Bool, String>
+                        interactor: AnyInteractor<Int, String>,
                     ) {
                         self.viewState = "Hello, world!"
                         viewEvents
