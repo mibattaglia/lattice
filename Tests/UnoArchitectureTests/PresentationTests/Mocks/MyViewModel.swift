@@ -15,7 +15,6 @@ final class MyViewModel {
             builder
                 .viewStateReceiver(scheduler)
                 .interactor(interactor)
-                //                .viewStateReducer(<#T##viewStateReducer: AnyViewStateReducer<MyEvent, _>##AnyViewStateReducer<MyEvent, _>#>)
                 .viewStateReducer(viewStateReducer)
         }
     }
