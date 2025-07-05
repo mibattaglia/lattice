@@ -1,6 +1,8 @@
 import Combine
 import Foundation
 
+/// An ``Interactor`` that executes **one** of two interactors based on which enum case is chosen
+/// by the enclosing ``InteractorBuilder``'s `if`/`else` branch.
 extension Interactors {
     public enum Conditional<First: Interactor, Second: Interactor<First.DomainState, First.Action>>: Interactor {
         case first(First)
