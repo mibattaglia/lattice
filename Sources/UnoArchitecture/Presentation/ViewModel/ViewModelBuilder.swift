@@ -2,6 +2,9 @@ import Combine
 import CombineSchedulers
 import Foundation
 
+/// A builder that assembles the moving parts required to construct a ``ViewModel``.
+///
+/// Used internally by the ``@ViewModel`` macro.
 public final class ViewModelBuilder<DomainEvent, DomainState, ViewState>: @unchecked Sendable {
     private var _viewEventsReceiver: AnySchedulerOf<DispatchQueue> = .main
     private var _viewStateReceiver: AnySchedulerOf<DispatchQueue> = .main
@@ -50,6 +53,7 @@ public final class ViewModelBuilder<DomainEvent, DomainState, ViewState>: @unche
     }
 }
 
+/// The concrete configuration produced by ``ViewModelBuilder/build()``.
 public struct ViewModelConfiguration<DomainEvent, DomainState, ViewState> {
     let viewEventsReceiver: AnySchedulerOf<DispatchQueue>
     let viewStateReceiver: AnySchedulerOf<DispatchQueue>
@@ -58,5 +62,6 @@ public struct ViewModelConfiguration<DomainEvent, DomainState, ViewState> {
 }
 
 public enum ViewModelBuilderError: Error {
+    /// Thrown when `interactor(_:)` has not been called before `build()`.
     case missingInteractor
 }

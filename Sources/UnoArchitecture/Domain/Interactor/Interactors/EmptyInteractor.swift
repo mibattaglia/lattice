@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 
+/// An ``Interactor`` that ignores every action and never emits state.
 public struct EmptyInteractor<State, Action>: Interactor {
     public typealias DomainState = State
     public typealias Action = Action

@@ -1,6 +1,10 @@
 import Combine
 import Foundation
 
+/// An ``Interactor`` that delivers each incoming action to **two** child interactors in
+/// sequence and merges their state outputs.
+///
+/// This type underpins partial blocks built with the ``InteractorBuilder``'s two-parameter overload.
 extension Interactors {
     public struct Merge<I0: Interactor, I1: Interactor<I0.DomainState, I0.Action>>: Interactor {
         private let i0: I0
