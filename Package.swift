@@ -9,10 +9,7 @@ let package = Package(
     products: [
         .library(
             name: "UnoArchitecture",
-            targets: [
-                "UnoArchitecture",
-                "UnoArchitectureTestingSupport",
-            ]
+            targets: ["UnoArchitecture"]
         )
     ],
     dependencies: [
@@ -49,12 +46,10 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
-        .target(name: "UnoArchitectureTestingSupport"),
         .testTarget(
             name: "UnoArchitectureTests",
             dependencies: [
-                "UnoArchitecture",
-                "UnoArchitectureTestingSupport",
+                "UnoArchitecture"
             ]
         ),
         .testTarget(
