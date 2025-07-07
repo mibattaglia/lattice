@@ -9,13 +9,17 @@ struct SearchView: View {
         self.viewModel = viewModel
     }
 
+    @State var search = ""
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 8) {
                 Text(
                     """
                     This view provides a simple example on how to debounced
-                    search events with Uno. Data Flow:
+                    search events with Uno. 
+
+                    Data Flow:
                      - Keystrokes are debounced by 300ms
                      - When you stop typing an API Request is made to load locations
                      - Tapping on a row loads weather
@@ -28,11 +32,14 @@ struct SearchView: View {
 
                     TextField(
                         "New York, San Francisco, ...",
-                        text: .constant("")
+                        text: $search
                     )
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .onChange(of: search) { oldValue, newValue in
+                        viewModel.sendViewEvent(.search(newValue))
+                    }
                 }
                 .padding(.horizontal, 16)
 

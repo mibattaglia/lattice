@@ -1,18 +1,26 @@
-//
-//  SearchApp.swift
-//  Search
-//
-//  Created by Michael Battaglia on 7/5/25.
-//
-
 import SwiftUI
+import UnoArchitecture
 
 @main
 struct SearchApp: App {
+    @StateObject private var viewModel: AnyViewModel<SearchEvent, SearchViewState>
+
+    init() {
+        let weatherService = RealWeatherService()
+        _viewModel = StateObject(
+            wrappedValue: SearchViewModel(
+                interactor: SearchInteractor(weatherService: weatherService)
+                    .eraseToAnyInteractor(),
+                viewStateReducer: SearchViewStateReducer()
+                    .eraseToAnyReducer()
+            )
+            .erased()
+        )
+    }
+
     var body: some Scene {
         WindowGroup {
-            //            SearchView()
-            Text("Hello")
+            SearchView(viewModel: viewModel)
         }
     }
 }
