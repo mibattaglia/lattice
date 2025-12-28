@@ -167,23 +167,40 @@ extension Interactors {
         public func interact(
             _ upstream: AnyPublisher<ParentAction, Never>
         ) -> AnyPublisher<ParentAction, Never> {
-            // Filter actions for the child
-            let childActions =
-                upstream
-                .compactMap { action in
-                    self.toChildAction.extract(from: action)
-                }
+            // Subject to drive child interactor while maintaining state continuity
+            let childActionSubject = PassthroughSubject<Child.Action, Never>()
 
-            // Run child interactor and convert child state updates to parent actions
-            let childStateActions =
-                childActions
+            // Use CurrentValueSubject as a reference-type state holder for synchronous access
+            let stateHolder = CurrentValueSubject<Child.DomainState?, Never>(nil)
+            let cancellable: AnyCancellable? = childActionSubject
                 .interact(with: self.child)
-                .map { childState in
-                    self.toStateAction.embed(childState)
-                }
+                .sink { stateHolder.send($0) }
 
-            // Pass through all original actions and add child state change actions
-            return Publishers.Merge(upstream, childStateActions)
+            // Capture initial state after subscription is established
+            let initialStateAction: AnyPublisher<ParentAction, Never>
+            if let initialState = stateHolder.value {
+                initialStateAction = Just(self.toStateAction.embed(initialState)).eraseToAnyPublisher()
+            } else {
+                initialStateAction = Empty().eraseToAnyPublisher()
+            }
+
+            // Process upstream with deterministic ordering:
+            // original action first, then any resulting state changes
+            return upstream
+                .flatMap { [toChildAction, toStateAction] action -> AnyPublisher<ParentAction, Never> in
+                    var outputs: [ParentAction] = [action]
+
+                    if let childAction = toChildAction.extract(from: action) {
+                        childActionSubject.send(childAction)
+                        if let state = stateHolder.value {
+                            outputs.append(toStateAction.embed(state))
+                        }
+                    }
+
+                    return outputs.publisher.eraseToAnyPublisher()
+                }
+                .prepend(initialStateAction)
+                .handleEvents(receiveCancel: { cancellable?.cancel() })
                 .eraseToAnyPublisher()
         }
     }

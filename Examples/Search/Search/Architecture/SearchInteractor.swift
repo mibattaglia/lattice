@@ -1,30 +1,44 @@
 import Combine
+import CombineSchedulers
 import Foundation
 import UnoArchitecture
 
 @Interactor<SearchDomainState, SearchEvent>
 struct SearchInteractor {
     private let weatherService: WeatherService
+    private let scheduler: AnySchedulerOf<DispatchQueue>
 
-    init(weatherService: WeatherService) {
+    init(
+        weatherService: WeatherService,
+        scheduler: AnySchedulerOf<DispatchQueue> = .main
+    ) {
         self.weatherService = weatherService
+        self.scheduler = scheduler
     }
 
     var body: some InteractorOf<Self> {
-        Interact(initialValue: .none) { accum, event in
+        When(
+            stateIs: \.results,
+            actionAction: \.search,
+            stateAction: \.searchResultsChanged
+        ) {
+            SearchQueryInteractor(weatherService: weatherService)
+        }
+
+        Interact(initialValue: .none) { state, event in
             switch event {
-            case let .locationTapped(id):
-                print(id)
+            case .searchResultsChanged:
                 return .state
-            case let .search(query):
-                print(query)
+            case .search:
+                return .state
+            case .locationTapped:
                 return .state
             }
         }
     }
 }
 
-protocol WeatherService {
+protocol WeatherService: Sendable {
     func searchWeather(query: String) async throws -> WeatherSearchDomainModel
     func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel
 }

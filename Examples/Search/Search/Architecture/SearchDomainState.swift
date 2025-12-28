@@ -1,11 +1,7 @@
 import CasePaths
 
 @CasePathable
-enum SearchDomainState {
+enum SearchDomainState: Equatable {
     case none
-    case loaded(Content)
-
-    struct Content: Equatable {
-        var model: WeatherSearchDomainModel
-    }
+    case results(WeatherSearchDomainModel?)
 }

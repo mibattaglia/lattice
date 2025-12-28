@@ -38,7 +38,7 @@ struct SearchView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onChange(of: search) { oldValue, newValue in
-                        viewModel.sendViewEvent(.search(newValue))
+                        viewModel.sendViewEvent(.search(.query(newValue)))
                     }
                 }
                 .padding(.horizontal, 16)
