@@ -4,11 +4,11 @@ import Foundation
 
 /// An ``Interactor`` that embeds a child interactor in a parent domain.
 ///
-/// ``Scope`` allows you to transform a parent domain into a child domain, run a child
+/// ``When`` allows you to transform a parent domain into a child domain, run a child
 /// interactor on that subset domain, and emit the results as parent actions. This is an important
 /// tool for breaking down large features into smaller units and then piecing them together.
 ///
-/// You hand ``Scope`` 3 pieces of data for it to do its job:
+/// You hand ``When`` 3 pieces of data for it to do its job:
 ///
 /// * A writable key path that identifies the child state inside the parent state.
 /// * A case path that identifies the child actions inside the parent actions.
@@ -23,14 +23,14 @@ import Foundation
 /// ```
 ///
 /// A parent interactor with a domain that holds onto the child domain can use
-/// ``Scope`` to embed the child interactor in its ``Interactor/body-swift.property``:
+/// ``When`` to embed the child interactor in its ``Interactor/body-swift.property``:
 ///
 /// ```swift
 /// struct ParentInteractor: Interactor {
 ///   var body: some InteractorOf<Self> {
-///     Scope(
-///       state: \.child,
-///       action: \.child,
+///     When(
+///       stateIs: \.child,
+///       actionIs: \.child,
 ///       stateAction: \.childStateChanged
 ///     ) {
 ///       ChildInteractor()
@@ -42,7 +42,7 @@ import Foundation
 /// }
 /// ```
 extension Interactors {
-    public struct Scope<ParentState, ParentAction, Child: Interactor>: Interactor {
+    public struct When<ParentState, ParentAction, Child: Interactor>: Interactor {
         enum StatePath {
             case keyPath(WritableKeyPath<ParentState, Child.DomainState>)
             case casePath(AnyCasePath<ParentState, Child.DomainState>)
@@ -68,23 +68,25 @@ extension Interactors {
             self.child = child
         }
 
-        /// Initializes a scope that runs the given child interactor against a slice of parent state and
-        /// actions.
+        /// Initializes a ``When`` interactor that routes child actions to a child interactor and
+        /// propagates state updates back to the parent.
         ///
-        /// Useful for combining child interactors into a parent.
+        /// Use this initializer when the child state is a **struct property** of the parent state.
+        /// This is the most common composition pattern for features that are always present in the
+        /// parent domain.
         ///
         /// ```swift
         /// var body: some InteractorOf<Self> {
-        ///   Scope(
-        ///     state: \.profile,
-        ///     action: \.profile,
+        ///   When(
+        ///     stateIs: \.profile,
+        ///     actionIs: \.profile,
         ///     stateAction: \.profileStateChanged
         ///   ) {
         ///     Profile()
         ///   }
-        ///   Scope(
-        ///     state: \.settings,
-        ///     action: \.settings,
+        ///   When(
+        ///     stateIs: \.settings,
+        ///     actionIs: \.settings,
         ///     stateAction: \.settingsStateChanged
         ///   ) {
         ///     Settings()
@@ -99,10 +101,10 @@ extension Interactors {
         ///   - toStateAction: A case path that creates parent actions from child state updates.
         ///   - child: An interactor that will be invoked with child actions against child state.
         public init<ChildState, ChildAction>(
-            state toChildState: WritableKeyPath<ParentState, ChildState>,
-            action toChildAction: CaseKeyPath<ParentAction, ChildAction>,
+            stateIs toChildState: WritableKeyPath<ParentState, ChildState>,
+            actionIs toChildAction: CaseKeyPath<ParentAction, ChildAction>,
             stateAction toStateAction: CaseKeyPath<ParentAction, ChildState>,
-            @InteractorBuilder<ChildState, ChildAction> child: () -> Child
+            @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
         ) where ChildState == Child.DomainState, ChildAction == Child.Action {
             self.init(
                 toChildState: .keyPath(toChildState),
@@ -112,23 +114,25 @@ extension Interactors {
             )
         }
 
-        /// Initializes a scope that runs the given child interactor against a slice of parent state and
-        /// actions.
+        /// Initializes a ``When`` interactor that routes child actions to a child interactor and
+        /// propagates state updates back to the parent.
         ///
-        /// Useful for combining interactors of mutually-exclusive enum state.
+        /// Use this initializer when the child state is an **enum case** of the parent state.
+        /// This pattern is useful for mutually-exclusive features (e.g., logged in vs. logged out).
+        /// The child interactor only receives actions when the parent state matches its case.
         ///
         /// ```swift
         /// var body: some InteractorOf<Self> {
-        ///   Scope(
-        ///     state: \.loggedIn,
-        ///     action: \.loggedIn,
+        ///   When(
+        ///     stateIs: \.loggedIn,
+        ///     actionAction: \.loggedIn,
         ///     stateAction: \.loggedInStateChanged
         ///   ) {
         ///     LoggedIn()
         ///   }
-        ///   Scope(
-        ///     state: \.loggedOut,
-        ///     action: \.loggedOut,
+        ///   When(
+        ///     stateIs: \.loggedOut,
+        ///     actionAction: \.loggedOut,
         ///     stateAction: \.loggedOutStateChanged
         ///   ) {
         ///     LoggedOut()
@@ -142,10 +146,10 @@ extension Interactors {
         ///   - toStateAction: A case path that creates parent actions from child state updates.
         ///   - child: An interactor that will be invoked with child actions against child state.
         public init<ChildState, ChildAction>(
-            state toChildState: CaseKeyPath<ParentState, ChildState>,
-            action toChildAction: CaseKeyPath<ParentAction, ChildAction>,
+            stateIs toChildState: CaseKeyPath<ParentState, ChildState>,
+            actionAction toChildAction: CaseKeyPath<ParentAction, ChildAction>,
             stateAction toStateAction: CaseKeyPath<ParentAction, ChildState>,
-            @InteractorBuilder<ChildState, ChildAction> child: () -> Child
+            @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
         ) where ChildState == Child.DomainState, ChildAction == Child.Action {
             self.init(
                 toChildState: .casePath(AnyCasePath(toChildState)),
@@ -184,3 +188,5 @@ extension Interactors {
         }
     }
 }
+
+public typealias When<ParentState, ParentAction, Child: Interactor> = Interactors.When<ParentState, ParentAction, Child>

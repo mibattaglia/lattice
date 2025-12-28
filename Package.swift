@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "swift-uno-architecture",
-    platforms: [.iOS(.v15), .watchOS(.v9), .macOS(.v13)],
+    platforms: [.iOS(.v16), .watchOS(.v10), .macOS(.v14)],
     products: [
         .library(
             name: "UnoArchitecture",
