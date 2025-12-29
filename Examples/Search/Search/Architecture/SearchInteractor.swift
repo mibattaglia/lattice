@@ -41,7 +41,6 @@ struct SearchInteractor {
                     var currentState = currentState
                     let weather = try? await weatherService.forecast(latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
                     if let weather {
-                        print("updating")
                         currentState.modify(\.results) { domainState in
                             domainState.results[tappedRowIndex].isLoading = false
                             domainState.results[tappedRowIndex].forecast = weather
@@ -53,7 +52,7 @@ struct SearchInteractor {
             }
         }
         .when(stateIs: \.results, actionIs: \.search, stateAction: \.searchResultsChanged) {
-            Interactors.Debounce(for: .milliseconds(300), scheduler: scheduler) {
+            DebounceInteractor(for: .milliseconds(300), scheduler: scheduler) {
                 SearchQueryInteractor(weatherService: weatherService)
             }
         }

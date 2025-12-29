@@ -33,3 +33,5 @@ extension Interactors {
         }
     }
 }
+
+public typealias DebounceInteractor<Child: Interactor> = Interactors.Debounce<Child>
