@@ -14,7 +14,7 @@ extension Interactors {
         public init(
             for duration: DispatchQueue.SchedulerTimeType.Stride,
             scheduler: AnySchedulerOf<DispatchQueue>,
-            @InteractorBuilder<Child.DomainState, Child.Action> child: () -> Child
+            child: () -> Child
         ) {
             self.duration = duration
             self.scheduler = scheduler

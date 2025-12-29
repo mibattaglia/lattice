@@ -3,7 +3,7 @@ import CasePaths
 @CasePathable
 enum SearchEvent: Equatable {
     case search(SearchQueryEvent)
-    case searchResultsChanged(WeatherSearchDomainModel?)
+    case searchResultsChanged(SearchDomainState.ResultState)
     case locationTapped(id: String)
 }
 

@@ -17,90 +17,45 @@ struct SearchInteractor {
     }
 
     var body: some InteractorOf<Self> {
-        When(
-            stateIs: \.results,
-            actionAction: \.search,
-            stateAction: \.searchResultsChanged
-        ) {
-            SearchQueryInteractor(weatherService: weatherService)
-        }
-
-        Interact(initialValue: .none) { state, event in
+        Interact(initialValue: .noResults) { state, event in
             switch event {
-            case .searchResultsChanged:
+            case .searchResultsChanged(let results):
+                state = .results(results)
                 return .state
             case .search:
                 return .state
-            case .locationTapped:
-                return .state
+            case let .locationTapped(id):
+                let tappedRowIndex = state[dynamicMember: \.results]?.results.firstIndex(where: { "\($0.weatherModel.id)" == id })
+
+                guard let tappedRowIndex,
+                      let tappedRow = state[dynamicMember: \.results]?.results[tappedRowIndex] else {
+                    return .state
+                }
+                state.modify(\.results) { domainState in
+                    var currentRow = domainState.results[tappedRowIndex]
+                    if !currentRow.isLoading {
+                        currentRow.isLoading = true
+                    }
+                }
+                return .perform { [weatherService, currentState = state] in
+                    var currentState = currentState
+                    let weather = try? await weatherService.forecast(latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
+                    if let weather {
+                        print("updating")
+                        currentState.modify(\.results) { domainState in
+                            domainState.results[tappedRowIndex].isLoading = false
+                            domainState.results[tappedRowIndex].forecast = weather
+                        }
+                    }
+
+                    return currentState
+                }
             }
         }
-    }
-}
-
-protocol WeatherService: Sendable {
-    func searchWeather(query: String) async throws -> WeatherSearchDomainModel
-    func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel
-}
-
-struct WeatherSearchDomainModel: Codable, Equatable {
-    let results: [Result]
-
-    struct Result: Codable, Equatable {
-        let country: String
-        let latitude: Double
-        let longitude: Double
-        let id: Int
-        let name: String
-    }
-}
-
-struct ForecastDomainModel: Codable, Equatable {
-    let daily: Daily
-    let dailyUnits: DailyUnits
-
-    struct Daily: Codable, Equatable {
-        let temperatureMax: [Double]
-        let temperatureMin: [Double]
-        let time: [Date]
-    }
-
-    struct DailyUnits: Codable, Equatable {
-        let temperatureMax: String
-        let temperatureMin: String
-    }
-}
-
-struct RealWeatherService: WeatherService {
-    private let jsonDecoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .iso8601)
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        decoder.dateDecodingStrategy = .formatted(formatter)
-        return decoder
-    }()
-
-    func searchWeather(query: String) async throws -> WeatherSearchDomainModel {
-        var components = URLComponents(string: "https://geocoding-api.open-meteo.com/v1/search")!
-        components.queryItems = [URLQueryItem(name: "name", value: query)]
-
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
-        return try jsonDecoder.decode(WeatherSearchDomainModel.self, from: data)
-    }
-
-    func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel {
-        var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
-        components.queryItems = [
-            URLQueryItem(name: "latitude", value: "\(latitude)"),
-            URLQueryItem(name: "longitude", value: "\(longitude)"),
-            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min"),
-            URLQueryItem(name: "timezone", value: TimeZone.autoupdatingCurrent.identifier),
-        ]
-
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
-        return try jsonDecoder.decode(ForecastDomainModel.self, from: data)
+        .when(stateIs: \.results, actionIs: \.search, stateAction: \.searchResultsChanged) {
+            Interactors.Debounce(for: .milliseconds(300), scheduler: scheduler) {
+                SearchQueryInteractor(weatherService: weatherService)
+            }
+        }
     }
 }

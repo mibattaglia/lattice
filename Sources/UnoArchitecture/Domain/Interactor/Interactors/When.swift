@@ -2,208 +2,187 @@ import CasePaths
 import Combine
 import Foundation
 
-/// An ``Interactor`` that embeds a child interactor in a parent domain.
-///
-/// ``When`` allows you to transform a parent domain into a child domain, run a child
-/// interactor on that subset domain, and emit the results as parent actions. This is an important
-/// tool for breaking down large features into smaller units and then piecing them together.
-///
-/// You hand ``When`` 3 pieces of data for it to do its job:
-///
-/// * A writable key path that identifies the child state inside the parent state.
-/// * A case path that identifies the child actions inside the parent actions.
-/// * A case path that creates parent actions from child state updates.
-///
-/// For example, given the basic scaffolding of child interactor:
-///
-/// ```swift
-/// struct ChildInteractor: Interactor {
-///   // ...
-/// }
-/// ```
-///
-/// A parent interactor with a domain that holds onto the child domain can use
-/// ``When`` to embed the child interactor in its ``Interactor/body-swift.property``:
-///
-/// ```swift
-/// struct ParentInteractor: Interactor {
-///   var body: some InteractorOf<Self> {
-///     When(
-///       stateIs: \.child,
-///       actionIs: \.child,
-///       stateAction: \.childStateChanged
-///     ) {
-///       ChildInteractor()
-///     }
-///     Interact(initialValue: ParentState()) { state, action in
-///       // Additional parent logic and behavior
-///     }
-///   }
-/// }
-/// ```
+// MARK: - Interactor Extension
+
+extension Interactor {
+    /// Embeds a child interactor that runs on a subset of this interactor's domain.
+    ///
+    /// The child interactor receives child actions extracted from parent actions,
+    /// and its state changes are fed back as state change actions to this interactor.
+    ///
+    /// Use this modifier when the child state is a **struct property** of the parent state.
+    ///
+    /// ```swift
+    /// var body: some InteractorOf<Self> {
+    ///   Interact(initialValue: ParentState()) { state, action in
+    ///     switch action {
+    ///     case .childStateChanged(let childState):
+    ///       state.child = childState
+    ///       return .state
+    ///     // ...
+    ///     }
+    ///   }
+    ///   .when(stateIs: \.child, actionIs: \.child, stateAction: \.childStateChanged) {
+    ///     ChildInteractor()
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - toChildState: A writable key path from parent state to a property containing child state.
+    ///   - toChildAction: A case path from parent action to a case containing child actions.
+    ///   - toStateAction: A case path that creates parent actions from child state updates.
+    ///   - child: An interactor that will be invoked with child actions against child state.
+    /// - Returns: An interactor that wraps this interactor with child embedding.
+    public func when<ChildState, ChildAction, Child: Interactor>(
+        stateIs toChildState: WritableKeyPath<DomainState, ChildState>,
+        actionIs toChildAction: CaseKeyPath<Action, ChildAction>,
+        stateAction toStateAction: CaseKeyPath<Action, ChildState>,
+        @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
+    ) -> Interactors.When<Self, Child>
+    where Child.DomainState == ChildState, Child.Action == ChildAction {
+        Interactors.When(
+            parent: self,
+            toChildState: .keyPath(toChildState),
+            toChildAction: AnyCasePath(toChildAction),
+            toStateAction: AnyCasePath(toStateAction),
+            child: child()
+        )
+    }
+
+    /// Embeds a child interactor that runs on a subset of this interactor's domain.
+    ///
+    /// Use this modifier when the child state is an **enum case** of the parent state.
+    /// This pattern is useful for mutually-exclusive features (e.g., logged in vs. logged out).
+    ///
+    /// ```swift
+    /// var body: some InteractorOf<Self> {
+    ///   Interact(initialValue: .loggedOut(LoggedOut.State())) { state, action in
+    ///     switch action {
+    ///     case .loggedInStateChanged(let childState):
+    ///       state = .loggedIn(childState)
+    ///       return .state
+    ///     // ...
+    ///     }
+    ///   }
+    ///   .when(stateIs: \.loggedIn, actionIs: \.loggedIn, stateAction: \.loggedInStateChanged) {
+    ///     LoggedInInteractor()
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - toChildState: A case path from parent state to a case containing child state.
+    ///   - toChildAction: A case path from parent action to a case containing child actions.
+    ///   - toStateAction: A case path that creates parent actions from child state updates.
+    ///   - child: An interactor that will be invoked with child actions against child state.
+    /// - Returns: An interactor that wraps this interactor with child embedding.
+    public func when<ChildState, ChildAction, Child: Interactor>(
+        stateIs toChildState: CaseKeyPath<DomainState, ChildState>,
+        actionIs toChildAction: CaseKeyPath<Action, ChildAction>,
+        stateAction toStateAction: CaseKeyPath<Action, ChildState>,
+        @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
+    ) -> Interactors.When<Self, Child>
+    where Child.DomainState == ChildState, Child.Action == ChildAction {
+        Interactors.When(
+            parent: self,
+            toChildState: .casePath(AnyCasePath(toChildState)),
+            toChildAction: AnyCasePath(toChildAction),
+            toStateAction: AnyCasePath(toStateAction),
+            child: child()
+        )
+    }
+}
+
+// MARK: - When Interactor
+
 extension Interactors {
-    public struct When<ParentState, ParentAction, Child: Interactor>: Interactor {
+    /// An ``Interactor`` that embeds a child interactor in a parent domain.
+    ///
+    /// ``When`` wraps a parent interactor and augments its action stream with child state
+    /// changes. This allows child interactors to be composed with parent interactors while
+    /// maintaining type safety.
+    ///
+    /// You typically create a ``When`` using the `.when()` modifier on an interactor:
+    ///
+    /// ```swift
+    /// Interact(initialValue: ParentState()) { state, action in
+    ///   switch action {
+    ///   case .childStateChanged(let childState):
+    ///     state.child = childState
+    ///     return .state
+    ///   // ...
+    ///   }
+    /// }
+    /// .when(stateIs: \.child, actionIs: \.child, stateAction: \.childStateChanged) {
+    ///   ChildInteractor()
+    /// }
+    /// ```
+    ///
+    /// The modifier intercepts child actions, routes them to the child interactor, and injects
+    /// the resulting state changes as parent actions. This enables child interactors to be
+    /// isolated from the parent domain while still propagating their state changes.
+    public struct When<Parent: Interactor, Child: Interactor>: Interactor {
+        public typealias DomainState = Parent.DomainState
+        public typealias Action = Parent.Action
+
         enum StatePath {
-            case keyPath(WritableKeyPath<ParentState, Child.DomainState>)
-            case casePath(AnyCasePath<ParentState, Child.DomainState>)
+            case keyPath(WritableKeyPath<Parent.DomainState, Child.DomainState>)
+            case casePath(AnyCasePath<Parent.DomainState, Child.DomainState>)
         }
 
+        let parent: Parent
         let toChildState: StatePath
-
-        let toChildAction: AnyCasePath<ParentAction, Child.Action>
-
-        let toStateAction: AnyCasePath<ParentAction, Child.DomainState>
-
+        let toChildAction: AnyCasePath<Parent.Action, Child.Action>
+        let toStateAction: AnyCasePath<Parent.Action, Child.DomainState>
         let child: Child
 
         init(
+            parent: Parent,
             toChildState: StatePath,
-            toChildAction: AnyCasePath<ParentAction, Child.Action>,
-            toStateAction: AnyCasePath<ParentAction, Child.DomainState>,
+            toChildAction: AnyCasePath<Parent.Action, Child.Action>,
+            toStateAction: AnyCasePath<Parent.Action, Child.DomainState>,
             child: Child
         ) {
+            self.parent = parent
             self.toChildState = toChildState
             self.toChildAction = toChildAction
             self.toStateAction = toStateAction
             self.child = child
         }
 
-        /// Initializes a ``When`` interactor that routes child actions to a child interactor and
-        /// propagates state updates back to the parent.
-        ///
-        /// Use this initializer when the child state is a **struct property** of the parent state.
-        /// This is the most common composition pattern for features that are always present in the
-        /// parent domain.
-        ///
-        /// ```swift
-        /// var body: some InteractorOf<Self> {
-        ///   When(
-        ///     stateIs: \.profile,
-        ///     actionIs: \.profile,
-        ///     stateAction: \.profileStateChanged
-        ///   ) {
-        ///     Profile()
-        ///   }
-        ///   When(
-        ///     stateIs: \.settings,
-        ///     actionIs: \.settings,
-        ///     stateAction: \.settingsStateChanged
-        ///   ) {
-        ///     Settings()
-        ///   }
-        ///   // ...
-        /// }
-        /// ```
-        ///
-        /// - Parameters:
-        ///   - toChildState: A writable key path from parent state to a property containing child state.
-        ///   - toChildAction: A case path from parent action to a case containing child actions.
-        ///   - toStateAction: A case path that creates parent actions from child state updates.
-        ///   - child: An interactor that will be invoked with child actions against child state.
-        public init<ChildState, ChildAction>(
-            stateIs toChildState: WritableKeyPath<ParentState, ChildState>,
-            actionIs toChildAction: CaseKeyPath<ParentAction, ChildAction>,
-            stateAction toStateAction: CaseKeyPath<ParentAction, ChildState>,
-            @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
-        ) where ChildState == Child.DomainState, ChildAction == Child.Action {
-            self.init(
-                toChildState: .keyPath(toChildState),
-                toChildAction: AnyCasePath(toChildAction),
-                toStateAction: AnyCasePath(toStateAction),
-                child: child()
-            )
-        }
-
-        /// Initializes a ``When`` interactor that routes child actions to a child interactor and
-        /// propagates state updates back to the parent.
-        ///
-        /// Use this initializer when the child state is an **enum case** of the parent state.
-        /// This pattern is useful for mutually-exclusive features (e.g., logged in vs. logged out).
-        /// The child interactor only receives actions when the parent state matches its case.
-        ///
-        /// ```swift
-        /// var body: some InteractorOf<Self> {
-        ///   When(
-        ///     stateIs: \.loggedIn,
-        ///     actionAction: \.loggedIn,
-        ///     stateAction: \.loggedInStateChanged
-        ///   ) {
-        ///     LoggedIn()
-        ///   }
-        ///   When(
-        ///     stateIs: \.loggedOut,
-        ///     actionAction: \.loggedOut,
-        ///     stateAction: \.loggedOutStateChanged
-        ///   ) {
-        ///     LoggedOut()
-        ///   }
-        /// }
-        /// ```
-        ///
-        /// - Parameters:
-        ///   - toChildState: A case path from parent state to a case containing child state.
-        ///   - toChildAction: A case path from parent action to a case containing child actions.
-        ///   - toStateAction: A case path that creates parent actions from child state updates.
-        ///   - child: An interactor that will be invoked with child actions against child state.
-        public init<ChildState, ChildAction>(
-            stateIs toChildState: CaseKeyPath<ParentState, ChildState>,
-            actionAction toChildAction: CaseKeyPath<ParentAction, ChildAction>,
-            stateAction toStateAction: CaseKeyPath<ParentAction, ChildState>,
-            @InteractorBuilder<ChildState, ChildAction> run child: () -> Child
-        ) where ChildState == Child.DomainState, ChildAction == Child.Action {
-            self.init(
-                toChildState: .casePath(AnyCasePath(toChildState)),
-                toChildAction: AnyCasePath(toChildAction),
-                toStateAction: AnyCasePath(toStateAction),
-                child: child()
-            )
-        }
-
-        public typealias DomainState = ParentAction
-        public typealias Action = ParentAction
-
-        public var body: some Interactor<ParentAction, ParentAction> { self }
+        public var body: some Interactor<DomainState, Action> { self }
 
         public func interact(
-            _ upstream: AnyPublisher<ParentAction, Never>
-        ) -> AnyPublisher<ParentAction, Never> {
-            // Subject to drive child interactor while maintaining state continuity
+            _ upstream: AnyPublisher<Action, Never>
+        ) -> AnyPublisher<DomainState, Never> {
             let childActionSubject = PassthroughSubject<Child.Action, Never>()
 
-            // Use CurrentValueSubject as a reference-type state holder for synchronous access
-            let stateHolder = CurrentValueSubject<Child.DomainState?, Never>(nil)
-            let cancellable: AnyCancellable? = childActionSubject
-                .interact(with: self.child)
-                .sink { stateHolder.send($0) }
+            // Child state emissions become state change actions (handles async children like Debounce)
+            let childStateActions = childActionSubject
+                .interact(with: child)
+                .map { [toStateAction] state in toStateAction.embed(state) }
 
-            // Capture initial state after subscription is established
-            let initialStateAction: AnyPublisher<ParentAction, Never>
-            if let initialState = stateHolder.value {
-                initialStateAction = Just(self.toStateAction.embed(initialState)).eraseToAnyPublisher()
-            } else {
-                initialStateAction = Empty().eraseToAnyPublisher()
-            }
-
-            // Process upstream with deterministic ordering:
-            // original action first, then any resulting state changes
-            return upstream
-                .flatMap { [toChildAction, toStateAction] action -> AnyPublisher<ParentAction, Never> in
-                    var outputs: [ParentAction] = [action]
-
-                    if let childAction = toChildAction.extract(from: action) {
-                        childActionSubject.send(childAction)
-                        if let state = stateHolder.value {
-                            outputs.append(toStateAction.embed(state))
+            // Filter child actions from upstream - route them to child instead
+            let nonChildActions = upstream
+                .handleEvents(
+                    receiveOutput: { [toChildAction] action in
+                        if let childAction = toChildAction.extract(from: action) {
+                            childActionSubject.send(childAction)
                         }
-                    }
-
-                    return outputs.publisher.eraseToAnyPublisher()
+                    },
+                    receiveCompletion: { _ in childActionSubject.send(completion: .finished) },
+                    receiveCancel: { childActionSubject.send(completion: .finished) }
+                )
+                .filter { [toChildAction] action in
+                    toChildAction.extract(from: action) == nil
                 }
-                .prepend(initialStateAction)
-                .handleEvents(receiveCancel: { cancellable?.cancel() })
+
+            // Merge non-child actions with async child state change actions
+            return nonChildActions
+                .merge(with: childStateActions)
+                .interact(with: parent)
                 .eraseToAnyPublisher()
         }
     }
 }
-
-public typealias When<ParentState, ParentAction, Child: Interactor> = Interactors.When<ParentState, ParentAction, Child>

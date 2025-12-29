@@ -96,6 +96,35 @@
             }
         }
 
+        func testBasics_GenericsInMacro_OptionalState() {
+            assertMacro {
+                """
+                @Interactor<Int?, String>
+                struct MyInteractor {
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } expansion: {
+                """
+                struct MyInteractor {
+                    @UnoArchitecture.InteractorBuilder<Int?, String>
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                
+                    typealias DomainState = Int?
+                
+                    typealias Action = String
+                }
+                
+                extension MyInteractor: UnoArchitecture.Interactor {
+                }
+                """
+            }
+        }
+
         func testBasics_GenericsInMacro_ExistingTypealias_EmitsWarning() {
             assertMacro {
                 """
