@@ -53,3 +53,28 @@ public struct Emission<State> {
         Emission(kind: .observe(publisher: builder))
     }
 }
+
+extension Emission {
+    public static func stream<T>(
+        _ builder: @escaping (DynamicState<State>, StreamBuilder<T>) -> AnyPublisher<State, Never>
+    ) -> Emission {
+        let streamBuilder = StreamBuilder<T>()
+        return .observe { state in
+            return builder(state, streamBuilder)
+        }
+    }
+}
+
+public struct StreamBuilder<T> {
+    private let subject = PassthroughSubject<T, Never>()
+
+    @discardableResult
+    public func send(_ value: T) -> StreamBuilder<T> {
+        subject.send(value)
+        return self
+    }
+
+    public func publisher() -> AnyPublisher<T, Never> {
+        subject.eraseToAnyPublisher()
+    }
+}

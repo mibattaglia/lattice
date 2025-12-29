@@ -38,4 +38,8 @@ public struct DynamicState<State> {
     public subscript<T>(dynamicMember keyPath: KeyPath<State, T>) -> T {
         stream.value[keyPath: keyPath]
     }
+
+    public var wrappedValue: State {
+        stream.value
+    }
 }

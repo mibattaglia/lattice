@@ -172,11 +172,9 @@ extension InteractorMacro: MemberMacro {
         if let generics = attrName.genericArgumentClause,
             generics.arguments.count == 2
         {
-            let argumentsArray = generics
-                .arguments
-                .compactMap { $0.argument.as(IdentifierTypeSyntax.self) }
-            let domainStateType = argumentsArray[0].name.text
-            let eventType = argumentsArray[1].name.text
+            let argumentsArray = Array(generics.arguments)
+            let domainStateType = argumentsArray[0].argument.trimmedDescription
+            let eventType = argumentsArray[1].argument.trimmedDescription
             var decls: [DeclSyntax] = []
 
             handleTypeAlias(

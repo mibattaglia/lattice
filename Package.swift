@@ -5,14 +5,11 @@ import PackageDescription
 
 let package = Package(
     name: "swift-uno-architecture",
-    platforms: [.iOS(.v15), .watchOS(.v9), .macOS(.v13)],
+    platforms: [.iOS(.v16), .watchOS(.v10), .macOS(.v14)],
     products: [
         .library(
             name: "UnoArchitecture",
-            targets: [
-                "UnoArchitecture",
-                "UnoArchitectureTestingSupport",
-            ]
+            targets: ["UnoArchitecture"]
         )
     ],
     dependencies: [
@@ -49,12 +46,10 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
-        .target(name: "UnoArchitectureTestingSupport"),
         .testTarget(
             name: "UnoArchitectureTests",
             dependencies: [
-                "UnoArchitecture",
-                "UnoArchitectureTestingSupport",
+                "UnoArchitecture"
             ]
         ),
         .testTarget(
