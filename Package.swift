@@ -14,6 +14,10 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/apple/swift-async-algorithms",
+            .upToNextMajor(from: "1.0.0")
+        ),
+        .package(
             url: "https://github.com/pointfreeco/combine-schedulers",
             .upToNextMajor(from: "1.0.3")
         ),
@@ -35,6 +39,7 @@ let package = Package(
             name: "UnoArchitecture",
             dependencies: [
                 "UnoArchitectureMacros",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ]
