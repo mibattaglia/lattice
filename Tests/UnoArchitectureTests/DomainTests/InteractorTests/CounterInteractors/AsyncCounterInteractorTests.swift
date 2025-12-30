@@ -1,4 +1,3 @@
-import Combine
 import CombineSchedulers
 import Foundation
 import Testing
@@ -6,39 +5,25 @@ import Testing
 @testable import UnoArchitecture
 
 @Suite
+@MainActor
 final class AsyncCounterInteractorTests {
-    private let subject = PassthroughSubject<AsyncCounterInteractor.Action, Never>()
-    private var cancellables: Set<AnyCancellable> = []
-
-    private let counterInteractor: AsyncCounterInteractor
     private let scheduler = DispatchQueue.test
 
-    init() {
-        self.counterInteractor = AsyncCounterInteractor(
-            scheduler: scheduler.eraseToAnyScheduler()
-        )
-    }
+    @Test func asyncWork() async throws {
+        let interactor = AsyncCounterInteractor(scheduler: scheduler.eraseToAnyScheduler())
+        let harness = await InteractorTestHarness(interactor)
 
-    @Test func asyncWork() async {
-        let expected: [AsyncCounterInteractor.DomainState] = [
+        harness.send(.increment)
+        harness.send(.async)
+        await scheduler.advance(by: .seconds(0.5))
+        harness.send(.increment)
+        harness.finish()
+
+        try await harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
             .init(count: 3),
-        ]
-
-        counterInteractor
-            .interact(subject.eraseToAnyPublisher())
-            .collect()
-            .sink { actual in
-                #expect(actual == expected)
-            }
-            .store(in: &cancellables)
-
-        subject.send(.increment)
-        subject.send(.async)
-        await scheduler.advance(by: .seconds(0.5))
-        subject.send(.increment)
-        subject.send(completion: .finished)
+        ])
     }
 }

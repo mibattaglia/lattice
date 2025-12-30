@@ -33,6 +33,10 @@ let package = Package(
             url: "https://github.com/pointfreeco/swift-macro-testing",
             from: "0.2.0"
         ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-clocks",
+            .upToNextMajor(from: "1.0.0")
+        ),
     ],
     targets: [
         .target(
@@ -42,6 +46,7 @@ let package = Package(
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
+                .product(name: "Clocks", package: "swift-clocks"),
             ]
         ),
         .macro(

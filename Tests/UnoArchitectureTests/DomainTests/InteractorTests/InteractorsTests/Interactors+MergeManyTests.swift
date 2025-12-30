@@ -1,17 +1,13 @@
-import Combine
-import CombineSchedulers
 import Foundation
 import Testing
 
 @testable import UnoArchitecture
 
 @Suite
-final class MergeManyTests {
-    private var cancellables: Set<AnyCancellable> = []
-    private let subject = PassthroughSubject<Int, Never>()
-
+@MainActor
+struct MergeManyTests {
     @Test
-    func mergeManyInOrder_SameType() async {
+    func mergeManyInOrder_SameType() async throws {
         let many = Interactors.MergeMany(
             interactors: [
                 DoubleInteractor(),
@@ -19,22 +15,21 @@ final class MergeManyTests {
                 DoubleInteractor(),
             ]
         )
-        let input = 4
 
-        await confirmation { confirmation in
-            many
-                .interact(Just(input).eraseToAnyPublisher())
-                .collect()
-                .sink { actual in
-                    #expect(actual == [8, 8, 8])
-                    confirmation()
-                }
-                .store(in: &cancellables)
-        }
+        let recorder = AsyncStreamRecorder<Int>()
+        let (actionStream, actionCont) = AsyncStream<Int>.makeStream()
+
+        recorder.record(many.interact(actionStream))
+
+        actionCont.yield(4)
+        actionCont.finish()
+
+        try await recorder.waitForEmissions(count: 3, timeout: .milliseconds(0.5))
+        #expect(recorder.values == [8, 8, 8])
     }
 
     @Test
-    func mergeManyInOrder_TypeErased() async {
+    func mergeManyInOrder_TypeErased() async throws {
         let many = Interactors.MergeMany(
             interactors: [
                 DoubleInteractor().eraseToAnyInteractor(),
@@ -42,17 +37,16 @@ final class MergeManyTests {
                 DoubleInteractor().eraseToAnyInteractor(),
             ]
         )
-        let input = 4
 
-        await confirmation { confirmation in
-            many
-                .interact(Just(input).eraseToAnyPublisher())
-                .collect()
-                .sink { actual in
-                    #expect(actual == [8, 12, 8])
-                    confirmation()
-                }
-                .store(in: &cancellables)
-        }
+        let recorder = AsyncStreamRecorder<Int>()
+        let (actionStream, actionCont) = AsyncStream<Int>.makeStream()
+
+        recorder.record(many.interact(actionStream))
+
+        actionCont.yield(4)
+        actionCont.finish()
+
+        try await recorder.waitForEmissions(count: 3, timeout: .milliseconds(0.5))
+        #expect(recorder.values == [8, 12, 8])
     }
 }

@@ -8,7 +8,7 @@ enum MyEvent: Equatable {
 
 @Interactor<MyDomainState, MyEvent>
 struct MyInteractor: Interactor {
-    let dateFactory: () -> Date
+    let dateFactory: @Sendable () -> Date
 
     var body: some InteractorOf<Self> {
         Interact(initialValue: .loading) { domainState, event in

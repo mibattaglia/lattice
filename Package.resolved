@@ -1,5 +1,5 @@
 {
-  "originHash" : "f291f94d451e23170019c01d3b2c691f4a3698a38c86485c1a50a1bc248919d6",
+  "originHash" : "e898128e5b481a32b843d067eb4fcb3aa5a06c1b5894fde50dba9a579825a3ff",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "41b89b8b68d8c56c622dbb7132258f1a3e638b25",
         "version" : "1.7.0"
+      }
+    },
+    {
+      "identity" : "swift-clocks",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-clocks",
+      "state" : {
+        "revision" : "cc46202b53476d64e824e0b6612da09d84ffde8e",
+        "version" : "1.0.6"
       }
     },
     {

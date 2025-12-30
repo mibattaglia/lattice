@@ -1,6 +1,4 @@
 import CasePaths
-import Combine
-import CombineSchedulers
 import Foundation
 import Testing
 
@@ -8,25 +6,25 @@ import Testing
 
 // MARK: - Test Domain Models
 
-struct ParentState: Equatable {
+struct ParentState: Equatable, Sendable {
     var counter: CounterInteractor.State
     var otherProperty: String
 }
 
 @CasePathable
-enum ParentAction {
+enum ParentAction: Sendable {
     case counter(CounterInteractor.Action)
     case counterStateChanged(CounterInteractor.State)
     case otherAction
 }
 
-struct ParentStateWithTwo: Equatable {
+struct ParentStateWithTwo: Equatable, Sendable {
     var counter1: CounterInteractor.State
     var counter2: CounterInteractor.State
 }
 
 @CasePathable
-enum ParentActionWithTwo {
+enum ParentActionWithTwo: Sendable {
     case counter1(CounterInteractor.Action)
     case counter1StateChanged(CounterInteractor.State)
     case counter2(CounterInteractor.Action)
@@ -36,11 +34,11 @@ enum ParentActionWithTwo {
 // MARK: - Tests
 
 @Suite
-final class WhenTests {
-    private var cancellables: Set<AnyCancellable> = []
+@MainActor
+struct WhenTests {
 
     @Test
-    func whenKeyPathBasicFunctionality() async {
+    func whenKeyPathBasicFunctionality() async throws {
         let interactor = Interact<ParentState, ParentAction>(
             initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
         ) { state, action in
@@ -52,42 +50,37 @@ final class WhenTests {
                 return .state
             }
         }
-        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-            CounterInteractor()
-        }
+            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+                CounterInteractor()
+            }
 
-        let subject = PassthroughSubject<ParentAction, Never>()
-        var receivedStates: [ParentState] = []
+        let recorder = AsyncStreamRecorder<ParentState>()
+        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
 
-        await confirmation { confirmation in
-            interactor.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    receivedStates.append(state)
-                    if receivedStates.count == 2 {
-                        confirmation()
-                    }
-                }
-                .store(in: &cancellables)
+        recorder.record(interactor.interact(actionStream))
 
-            subject.send(.counter(.increment))
-            subject.send(completion: .finished)
-        }
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
+
+        actionCont.yield(.counter(.increment))
+
+        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+        actionCont.finish()
 
         // Should receive: initial state (count: 0) + state after increment (count: 1)
         // Child actions are filtered out - only state change actions reach parent
-        #expect(receivedStates.count == 2)
+        #expect(recorder.values.count == 2)
 
         // First state is initial parent state with child's initial state (count: 0)
-        #expect(receivedStates[0].counter.count == 0)
-        #expect(receivedStates[0].otherProperty == "test")
+        #expect(recorder.values[0].counter.count == 0)
+        #expect(recorder.values[0].otherProperty == "test")
 
         // Second state reflects the increment via stateChanged
-        #expect(receivedStates[1].counter.count == 1)
-        #expect(receivedStates[1].otherProperty == "test")
+        #expect(recorder.values[1].counter.count == 1)
+        #expect(recorder.values[1].otherProperty == "test")
     }
 
     @Test
-    func whenFiltersNonChildActions() async {
+    func whenFiltersNonChildActions() async throws {
         let interactor = Interact<ParentState, ParentAction>(
             initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
         ) { state, action in
@@ -102,41 +95,36 @@ final class WhenTests {
                 return .state
             }
         }
-        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-            CounterInteractor()
-        }
+            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+                CounterInteractor()
+            }
 
-        let subject = PassthroughSubject<ParentAction, Never>()
-        var receivedStates: [ParentState] = []
+        let recorder = AsyncStreamRecorder<ParentState>()
+        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
 
-        await confirmation { confirmation in
-            interactor.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    receivedStates.append(state)
-                    if receivedStates.count == 2 {
-                        confirmation()
-                    }
-                }
-                .store(in: &cancellables)
+        recorder.record(interactor.interact(actionStream))
 
-            subject.send(.otherAction)
-            subject.send(completion: .finished)
-        }
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
+
+        actionCont.yield(.otherAction)
+
+        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+        actionCont.finish()
 
         // Should receive: initial state + state after otherAction
-        #expect(receivedStates.count == 2)
+        #expect(recorder.values.count == 2)
 
         // First state is initial
-        #expect(receivedStates[0].counter.count == 0)
-        #expect(receivedStates[0].otherProperty == "test")
+        #expect(recorder.values[0].counter.count == 0)
+        #expect(recorder.values[0].otherProperty == "test")
 
         // Second state has modified otherProperty
-        #expect(receivedStates[1].otherProperty == "modified")
-        #expect(receivedStates[1].counter.count == 0)  // Counter unchanged
+        #expect(recorder.values[1].otherProperty == "modified")
+        #expect(recorder.values[1].counter.count == 0)  // Counter unchanged
     }
 
     @Test
-    func whenMultipleChildActions() async {
+    func whenMultipleChildActions() async throws {
         let interactor = Interact<ParentState, ParentAction>(
             initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
         ) { state, action in
@@ -148,38 +136,33 @@ final class WhenTests {
                 return .state
             }
         }
-        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-            CounterInteractor()
-        }
+            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+                CounterInteractor()
+            }
 
-        let subject = PassthroughSubject<ParentAction, Never>()
-        var receivedStates: [ParentState] = []
+        let recorder = AsyncStreamRecorder<ParentState>()
+        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
 
-        await confirmation { confirmation in
-            interactor.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    receivedStates.append(state)
-                    if receivedStates.count == 4 {  // initial + 3 state changes
-                        confirmation()
-                    }
-                }
-                .store(in: &cancellables)
+        recorder.record(interactor.interact(actionStream))
 
-            subject.send(.counter(.increment))  // count: 0 -> 1
-            subject.send(.counter(.increment))  // count: 1 -> 2
-            subject.send(.counter(.decrement))  // count: 2 -> 1
-            subject.send(completion: .finished)
-        }
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
 
-        #expect(receivedStates.count == 4)
+        actionCont.yield(.counter(.increment))  // count: 0 -> 1
+        actionCont.yield(.counter(.increment))  // count: 1 -> 2
+        actionCont.yield(.counter(.decrement))  // count: 2 -> 1
+
+        try await recorder.waitForEmissions(count: 4, timeout: .seconds(2))  // initial + 3 state changes
+        actionCont.finish()
+
+        #expect(recorder.values.count == 4)
 
         // Child actions are filtered - only state changes reach parent
-        let counterValues = receivedStates.map { $0.counter.count }
+        let counterValues = recorder.values.map { $0.counter.count }
         #expect(counterValues == [0, 1, 2, 1])
     }
 
     @Test
-    func whenChainingMultipleModifiers() async {
+    func whenChainingMultipleModifiers() async throws {
         let interactor = Interact<ParentStateWithTwo, ParentActionWithTwo>(
             initialValue: ParentStateWithTwo(
                 counter1: CounterInteractor.State(count: 0),
@@ -197,55 +180,52 @@ final class WhenTests {
                 return .state
             }
         }
-        .when(stateIs: \.counter1, actionIs: \.counter1, stateAction: \.counter1StateChanged) {
-            CounterInteractor()
-        }
-        .when(stateIs: \.counter2, actionIs: \.counter2, stateAction: \.counter2StateChanged) {
-            Interact<CounterInteractor.State, CounterInteractor.Action>(initialValue: CounterInteractor.State(count: 10)) { state, action in
-                switch action {
-                case .increment:
-                    state.count += 1
-                    return .state
-                case .decrement:
-                    state.count -= 1
-                    return .state
-                case .reset:
-                    state.count = 10
-                    return .state
-                }
+            .when(stateIs: \.counter1, actionIs: \.counter1, stateAction: \.counter1StateChanged) {
+                CounterInteractor()
             }
-        }
-
-        let subject = PassthroughSubject<ParentActionWithTwo, Never>()
-        var receivedStates: [ParentStateWithTwo] = []
-
-        await confirmation { confirmation in
-            interactor.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    receivedStates.append(state)
-                    if receivedStates.count == 3 {  // initial + 2 state changes
-                        confirmation()
+            .when(stateIs: \.counter2, actionIs: \.counter2, stateAction: \.counter2StateChanged) {
+                Interact<CounterInteractor.State, CounterInteractor.Action>(initialValue: CounterInteractor.State(count: 10)) { state, action in
+                    switch action {
+                    case .increment:
+                        state.count += 1
+                        return .state
+                    case .decrement:
+                        state.count -= 1
+                        return .state
+                    case .reset:
+                        state.count = 10
+                        return .state
                     }
                 }
-                .store(in: &cancellables)
+            }
 
-            subject.send(.counter1(.increment))  // counter1: 0 -> 1
-            subject.send(.counter2(.decrement))  // counter2: 10 -> 9
-            subject.send(completion: .finished)
-        }
+        let recorder = AsyncStreamRecorder<ParentStateWithTwo>()
+        let (actionStream, actionCont) = AsyncStream<ParentActionWithTwo>.makeStream()
 
-        #expect(receivedStates.count == 3)
+        recorder.record(interactor.interact(actionStream))
+
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
+
+        actionCont.yield(.counter1(.increment))  // counter1: 0 -> 1
+        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+
+        actionCont.yield(.counter2(.decrement))  // counter2: 10 -> 9
+        try await recorder.waitForEmissions(count: 3, timeout: .seconds(2))
+
+        actionCont.finish()
+
+        #expect(recorder.values.count == 3)
 
         // Initial state
-        #expect(receivedStates[0].counter1.count == 0)
-        #expect(receivedStates[0].counter2.count == 10)
+        #expect(recorder.values[0].counter1.count == 0)
+        #expect(recorder.values[0].counter2.count == 10)
 
         // After counter1 state changed
-        #expect(receivedStates[1].counter1.count == 1)
-        #expect(receivedStates[1].counter2.count == 10)
+        #expect(recorder.values[1].counter1.count == 1)
+        #expect(recorder.values[1].counter2.count == 10)
 
         // After counter2 state changed
-        #expect(receivedStates[2].counter1.count == 1)
-        #expect(receivedStates[2].counter2.count == 9)
+        #expect(recorder.values[2].counter1.count == 1)
+        #expect(recorder.values[2].counter2.count == 9)
     }
 }
