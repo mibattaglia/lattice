@@ -4,16 +4,11 @@ import Foundation
 import UnoArchitecture
 
 @Interactor<SearchDomainState, SearchEvent>
-struct SearchInteractor {
+struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
-    private let scheduler: AnySchedulerOf<DispatchQueue>
 
-    init(
-        weatherService: WeatherService,
-        scheduler: AnySchedulerOf<DispatchQueue> = .main
-    ) {
+    init(weatherService: WeatherService) {
         self.weatherService = weatherService
-        self.scheduler = scheduler
     }
 
     var body: some InteractorOf<Self> {
@@ -37,8 +32,8 @@ struct SearchInteractor {
                         currentRow.isLoading = true
                     }
                 }
-                return .perform { [weatherService, currentState = state] in
-                    var currentState = currentState
+                return .perform { [weatherService] state, send in
+                    var currentState = await state.current
                     let weather = try? await weatherService.forecast(latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
                     if let weather {
                         currentState.modify(\.results) { domainState in
@@ -46,13 +41,12 @@ struct SearchInteractor {
                             domainState.results[tappedRowIndex].forecast = weather
                         }
                     }
-
-                    return currentState
+                    await send(currentState)
                 }
             }
         }
         .when(stateIs: \.results, actionIs: \.search, stateAction: \.searchResultsChanged) {
-            DebounceInteractor(for: .milliseconds(300), scheduler: scheduler) {
+            DebounceInteractor(for: .milliseconds(300)) {
                 SearchQueryInteractor(weatherService: weatherService)
             }
         }

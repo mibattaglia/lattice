@@ -3,7 +3,7 @@ import CombineSchedulers
 import UnoArchitecture
 
 @Interactor<SearchDomainState.ResultState, SearchQueryEvent>
-struct SearchQueryInteractor {
+struct SearchQueryInteractor: Sendable {
     private let weatherService: WeatherService
 
     init(weatherService: WeatherService) {
@@ -18,7 +18,7 @@ struct SearchQueryInteractor {
                     state = .none
                     return .state
                 }
-                return .perform { [weatherService] in
+                return .perform { [weatherService] _, send in
                     do {
                         let weatherModels = try await weatherService.searchWeather(query: query)
                         let weatherResults = weatherModels.results.map { weatherModel in
@@ -27,10 +27,10 @@ struct SearchQueryInteractor {
                                 forecast: nil
                             )
                         }
-                        return SearchDomainState.ResultState(results: weatherResults)
+                        await send(SearchDomainState.ResultState(results: weatherResults))
                     } catch {
                         print("Search error: \(error)")
-                        return .none
+                        await send(SearchDomainState.ResultState.none)
                     }
                 }
             }
