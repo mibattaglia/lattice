@@ -6,7 +6,7 @@
     final class ViewModelMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-                //                record: .failed,
+//                record: .failed,
                 macros: [
                     ViewModelMacro.self,
                     SubscribeMacro.self,
@@ -35,10 +35,17 @@
 
                     @Published private(set) var viewState: Int
 
-                    private let viewEvents = PassthroughSubject<String, Never>()
+                    private var viewEventContinuation: AsyncStream<String>.Continuation?
+
+                    private var subscriptionTask: Task<Void, Never>?
 
                     func sendViewEvent(_ event: String) {
-                        viewEvents.send(event)
+                        viewEventContinuation?.yield(event)
+                    }
+
+                    deinit {
+                        viewEventContinuation?.finish()
+                        subscriptionTask?.cancel()
                     }
                 }
 
@@ -60,7 +67,6 @@
                         self.viewState = "Hello, world!"
                         #subscribe { builder in
                             builder
-                                .viewStateReceiver(DispatchQueue.main)
                                 .interactor(interactor)
                                 .viewStateReducer(viewStateReducer)
                         }
@@ -75,19 +81,37 @@
                         viewStateReducer: AnyViewStateReducer<Float, Int>
                     ) {
                         self.viewState = "Hello, world!"
-                        viewEvents
-                            .interact(with: interactor)
-                            .reduce(using: viewStateReducer)
-                            .receive(on: DispatchQueue.main)
-                            .assign(to: &$viewState)
+                        ({
+                            let interactor = interactor
+                            let viewStateReducer = viewStateReducer
+                            let (stream, continuation) = AsyncStream.makeStream(of: ViewEventType.self)
+                            self.viewEventContinuation = continuation
+                            self.subscriptionTask = Task { [interactor, viewStateReducer, stream] in
+                                for await domainState in interactor.interact(stream) {
+                                    guard !Task.isCancelled else {
+                                            break
+                                        }
+                                    await MainActor.run { [weak self] in
+                                        self?.viewState = viewStateReducer.reduce(domainState)
+                                    }
+                                }
+                            }
+                            })()
                     }
 
                     @Published private(set) var viewState: Int
 
-                    private let viewEvents = PassthroughSubject<String, Never>()
+                    private var viewEventContinuation: AsyncStream<String>.Continuation?
+
+                    private var subscriptionTask: Task<Void, Never>?
 
                     func sendViewEvent(_ event: String) {
-                        viewEvents.send(event)
+                        viewEventContinuation?.yield(event)
+                    }
+
+                    deinit {
+                        viewEventContinuation?.finish()
+                        subscriptionTask?.cancel()
                     }
                 }
 
@@ -108,7 +132,6 @@
                         self.viewState = "Hello, world!"
                         #subscribe { builder in
                             builder
-                                .viewStateReceiver(DispatchQueue.main)
                                 .interactor(interactor)
                         }
                     }
@@ -121,18 +144,36 @@
                         interactor: AnyInteractor<Int, String>,
                     ) {
                         self.viewState = "Hello, world!"
-                        viewEvents
-                            .interact(with: interactor)
-                            .receive(on: DispatchQueue.main)
-                            .assign(to: &$viewState)
+                        ({
+                            let interactor = interactor
+                            let (stream, continuation) = AsyncStream.makeStream(of: ViewEventType.self)
+                            self.viewEventContinuation = continuation
+                            self.subscriptionTask = Task { [interactor, stream] in
+                                for await domainState in interactor.interact(stream) {
+                                    guard !Task.isCancelled else {
+                                            break
+                                        }
+                                    await MainActor.run { [weak self] in
+                                        self?.viewState = domainState
+                                    }
+                                }
+                            }
+                            })()
                     }
 
                     @Published private(set) var viewState: Int
 
-                    private let viewEvents = PassthroughSubject<String, Never>()
+                    private var viewEventContinuation: AsyncStream<String>.Continuation?
+
+                    private var subscriptionTask: Task<Void, Never>?
 
                     func sendViewEvent(_ event: String) {
-                        viewEvents.send(event)
+                        viewEventContinuation?.yield(event)
+                    }
+
+                    deinit {
+                        viewEventContinuation?.finish()
+                        subscriptionTask?.cancel()
                     }
                 }
 

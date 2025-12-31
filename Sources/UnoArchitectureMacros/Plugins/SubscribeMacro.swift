@@ -11,8 +11,6 @@ import SwiftSyntaxMacros
 /// Internal structure that records the values passed to the builder inside the
 /// trailing-closure that the `#subscribe` macro accepts.
 private struct BuilderConfiguration {
-    var viewEventReceiver: ExprSyntax?
-    var viewStateReceiver: ExprSyntax?
     var interactor: ExprSyntax?
     var viewStateReducer: ExprSyntax?
 }
@@ -42,10 +40,6 @@ private final class BuilderCallCollector: SyntaxVisitor {
         let firstArgument = node.arguments.first?.expression
 
         switch methodName {
-        case "viewEventReceiver":
-            configuration.viewEventReceiver = firstArgument
-        case "viewStateReceiver":
-            configuration.viewStateReceiver = firstArgument
         case "interactor":
             configuration.interactor = firstArgument
         case "viewStateReducer":
@@ -54,35 +48,6 @@ private final class BuilderCallCollector: SyntaxVisitor {
             break
         }
 
-        return .visitChildren
-    }
-
-    // Visits assignment expressions like `builder.viewEventReceiver = .main`.
-    override func visit(_ node: AssignmentExprSyntax) -> SyntaxVisitorContinueKind {
-        // We only care about assignments where the LHS is a member access on
-        // the builder (e.g. `builder.viewEventReceiver = ...`).
-        guard
-            let memberAccess = node.parent?.as(InfixOperatorExprSyntax.self)?.leftOperand.as(
-                MemberAccessExprSyntax.self),
-            isCall(onBuilder: memberAccess.base)
-        else {
-            return .visitChildren
-        }
-
-        let propertyName = memberAccess.declName.baseName.text
-        // The right-hand side value is the sibling `rightOperand` of the
-        // `AssignmentExprSyntax`'s parent (`InfixOperatorExprSyntax`).
-        if let infix = node.parent?.as(InfixOperatorExprSyntax.self) {
-            let valueExpr = infix.rightOperand
-            switch propertyName {
-            case "viewEventReceiver":
-                configuration.viewEventReceiver = valueExpr
-            case "viewStateReceiver":
-                configuration.viewStateReceiver = valueExpr
-            default:
-                break
-            }
-        }
         return .visitChildren
     }
 
@@ -167,7 +132,7 @@ extension SubscribeMacro: ExpressionMacro {
         // Walk the closure body collecting the builder configuration.
         let collector = BuilderCallCollector(builderName: builderName)
         collector.walk(Syntax(closure))
-        var configuration = collector.configuration
+        let configuration = collector.configuration
 
         // If the interactor is missing we both diagnose and early return so the
         // macro expansion does not crash at runtime.
@@ -176,36 +141,47 @@ extension SubscribeMacro: ExpressionMacro {
             return ExprSyntax("()")
         }
 
-        // Provide default values when none are specified.
-        if configuration.viewStateReceiver == nil {
-            configuration.viewStateReceiver = ExprSyntax(".main")
-        }
-        // `viewEventReceiver` is currently unused in the generated pipeline but
-        // we still store it for future use if needed.
-
-        // Compose the direct Combine pipeline expression.
-        let receiveOnExpr = configuration.viewStateReceiver?.trimmedDescription ?? ".main"
-
+        // Generate Task-based pipeline wrapped in immediately-invoked closure
+        // (expression macros must produce expressions, not statements)
+        // Values are captured in the Task's capture list to transfer Sendable ownership
         let pipeline: String
         if let reducerExpr = configuration.viewStateReducer?.trimmedDescription {
+            // With ViewStateReducer: reduce domain state to view state
             pipeline = """
-                viewEvents
-                    .interact(with: \(interactorExpr.trimmedDescription))
-                    .reduce(using: \(reducerExpr))
-                    .receive(on: \(receiveOnExpr))
-                    .assign(to: &$viewState)
+                ({
+                    let interactor = \(interactorExpr.trimmedDescription)
+                    let viewStateReducer = \(reducerExpr)
+                    let (stream, continuation) = AsyncStream.makeStream(of: ViewEventType.self)
+                    self.viewEventContinuation = continuation
+                    self.subscriptionTask = Task { [interactor, viewStateReducer, stream] in
+                        for await domainState in interactor.interact(stream) {
+                            guard !Task.isCancelled else { break }
+                            await MainActor.run { [weak self] in
+                                self?.viewState = viewStateReducer.reduce(domainState)
+                            }
+                        }
+                    }
+                })()
                 """
         } else {
+            // Without ViewStateReducer: domain state IS view state
             pipeline = """
-                viewEvents
-                    .interact(with: \(interactorExpr.trimmedDescription))
-                    .receive(on: \(receiveOnExpr))
-                    .assign(to: &$viewState)
+                ({
+                    let interactor = \(interactorExpr.trimmedDescription)
+                    let (stream, continuation) = AsyncStream.makeStream(of: ViewEventType.self)
+                    self.viewEventContinuation = continuation
+                    self.subscriptionTask = Task { [interactor, stream] in
+                        for await domainState in interactor.interact(stream) {
+                            guard !Task.isCancelled else { break }
+                            await MainActor.run { [weak self] in
+                                self?.viewState = domainState
+                            }
+                        }
+                    }
+                })()
                 """
         }
 
-        let expanded: ExprSyntax = ExprSyntax(stringLiteral: pipeline)
-
-        return expanded
+        return ExprSyntax(stringLiteral: pipeline)
     }
 }
