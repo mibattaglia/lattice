@@ -78,8 +78,11 @@ extension Interactors {
                             }
                         }
                         childActionChannel.finish()
-                        _ = await childTask.result
                         parentCont.finish()
+                        // Do not await `childTask` here. Child interactors may be long-lived (e.g.
+                        // observation streams) and waiting for them would prevent the parent action
+                        // stream from completing, which can hang consumers waiting on parent states.
+                        childTask.cancel()
                     }
 
                     for await state in parent.interact(parentActionStream) {
