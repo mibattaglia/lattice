@@ -21,7 +21,7 @@ struct MergeTests {
         actionCont.yield(3)
         actionCont.finish()
 
-        try await recorder.waitForEmissions(count: 2, timeout: .milliseconds(0.5))
+        try await recorder.waitForEmissions(count: 2, timeout: .milliseconds(500))
         #expect(recorder.values == [9, 6])
     }
 }

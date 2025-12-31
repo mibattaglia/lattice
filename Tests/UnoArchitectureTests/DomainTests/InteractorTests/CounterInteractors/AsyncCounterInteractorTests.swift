@@ -16,7 +16,9 @@ final class AsyncCounterInteractorTests {
         harness.send(.increment)
         harness.send(.async)
         await scheduler.advance(by: .seconds(0.5))
+        await Task.yield()
         harness.send(.increment)
+        await Task.yield()
         harness.finish()
 
         try await harness.assertStates([
