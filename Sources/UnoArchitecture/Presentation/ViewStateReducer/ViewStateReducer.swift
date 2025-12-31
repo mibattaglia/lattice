@@ -2,12 +2,47 @@ import Foundation
 
 /// A type that transforms domain **state** into **view state**.
 ///
-/// ``ViewStateReducer`` is a **stateless** transformer. Its sole purpose is to consume
-/// complex `DomainState` and simplify (or _reduce_) it into simpler state for another component to use.
-/// Usually, this means generating "rendering instructions" for a UI component.
+/// `ViewStateReducer` is a **stateless** transformer that converts complex domain state
+/// into simplified view state suitable for UI rendering.
 ///
-/// Feature state accumulation should be handled in an ``Interactor`` and then fed into a ViewStateReducer
-/// via a ``subscribe(_:)`` block in a ``ViewModel``.
+/// ## Purpose
+///
+/// Separating domain state from view state provides several benefits:
+///
+/// - **Separation of concerns**: Domain logic stays independent of UI requirements
+/// - **Testability**: View state transformations can be tested in isolation
+/// - **Performance**: Only view-relevant data is observed by SwiftUI
+///
+/// ## Usage
+///
+/// Use the `@ViewStateReducer` macro for a concise declaration:
+///
+/// ```swift
+/// @ViewStateReducer<CounterDomainState, CounterViewState>
+/// struct CounterViewStateReducer: Sendable {
+///     var body: some ViewStateReducerOf<Self> {
+///         BuildViewState { domainState in
+///             CounterViewState(
+///                 count: domainState.count,
+///                 displayText: "Count: \(domainState.count)",
+///                 canDecrement: domainState.count > 0
+///             )
+///         }
+///     }
+/// }
+/// ```
+///
+/// ## Integration
+///
+/// Connect the reducer to a view model via `#subscribe`:
+///
+/// ```swift
+/// #subscribe { builder in
+///     builder
+///         .interactor(interactor)
+///         .viewStateReducer(reducer)
+/// }
+/// ```
 public protocol ViewStateReducer<DomainState, ViewState> {
     /// The type of DomainState consumed upstream. Usually fed into the ViewStateReducer
     /// via an ``Interactor`` and a ``subscribe(_:)`` block.
