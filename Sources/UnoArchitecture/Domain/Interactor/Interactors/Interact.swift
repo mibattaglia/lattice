@@ -1,71 +1,73 @@
-import Combine
+import AsyncAlgorithms
 import Foundation
 
 /// A primitive used *inside* an ``Interactor``'s ``Interactor/body-swift.property`` for
 /// handling incoming **actions** and emitting new **state** via an ``Emission``.
-///
-/// ``Interact`` lets you describe synchronous state transitions imperatively.
-///
-/// You typically create an ``Interact`` directly in an interactor's `body`:
-///
-/// ```swift
-/// @Interactor<MyDomainState, MyEvent>
-/// struct MyInteractor: Interactor {
-///     var body: some InteractorOf<Self> {
-///         Interact(initialValue: .loading) { state, event in
-///             switch event {
-///             case .incrementCount:
-///                 state.count += 1
-///                 return .state
-///             case .load:
-///                 return .perform {
-///                     // hit an API
-///                     let apiResult = try await myApiService.fetchCount()
-///                     return MyDomainState.success(count: apiResult.count)
-///                 }
-///             case .syncWithOther: // or some other imaginary value over time event
-///                 return .observe { currentState in
-///                     myCachePublisher
-///                         .map { cacheState in
-///                             currentState.lastFetchedAt = cacheState.lastFetchedAt
-///                         }
-///                         .eraseToAnyPublisher()
-///                 }
-///             }
-///         }
-///     }
-/// }
-/// ```
-///
-/// While ``Interact`` is most commonly used this way, it can also be combined with higher-order
-/// interactors via ``InteractorBuilder`` to model more complex behavior.
-public struct Interact<State, Action>: Interactor {
-    private let initialValue: State
-    private let handler: (inout State, Action) -> Emission<State>
+public struct Interact<State: Sendable, Action: Sendable>: Interactor, @unchecked Sendable {
+    public typealias Handler = @MainActor (inout State, Action) -> Emission<State>
 
-    /// Creates an ``Interact`` with an initial state and reducer closure.
-    ///
-    /// - Parameters:
-    ///   - initialValue: The starting state fed to the downstream publisher.
-    ///   - handler: A reducer that mutates `inout` `State` in response to an `Action` and returns
-    ///     an ``Emission`` that dictates how the new state should be published.
-    public init(
-        initialValue: State,
-        handler: @escaping (inout State, Action) -> Emission<State>
-    ) {
+    private let initialValue: State
+    private let handler: Handler
+
+    public init(initialValue: State, handler: @escaping Handler) {
         self.initialValue = initialValue
         self.handler = handler
     }
 
-    public var body: some Interactor<State, Action> {
-        self
-    }
+    public var body: some Interactor<State, Action> { self }
 
-    /// Implements ``Interactor/interact(_:)`` by wiring the upstream actions through a feedback
-    /// loop powered by ``Combine``'s `.feedback` operator (see ``Combine/Publisher/feedback(initialState:handler:)``).
-    public func interact(_ upstream: AnyPublisher<Action, Never>) -> AnyPublisher<State, Never> {
-        upstream
-            .feedback(initialState: initialValue, handler: handler)
-            .eraseToAnyPublisher()
+    public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<State> {
+        let initialValue = self.initialValue
+        let handler = self.handler
+
+        return AsyncStream { continuation in
+            let task = Task { @MainActor in
+                let stateBox = StateBox(initialValue)
+                var effectTasks: [Task<Void, Never>] = []
+
+                let send = Send<State> { newState in
+                    stateBox.value = newState
+                    continuation.yield(newState)
+                }
+
+                continuation.yield(stateBox.value)
+
+                for await action in upstream {
+                    var state = stateBox.value
+                    let emission = handler(&state, action)
+                    stateBox.value = state
+
+                    switch emission.kind {
+                    case .state:
+                        continuation.yield(state)
+
+                    case .perform(let work):
+                        let dynamicState = DynamicState {
+                            await MainActor.run { stateBox.value }
+                        }
+                        let effectTask = Task {
+                            await work(dynamicState, send)
+                        }
+                        effectTasks.append(effectTask)
+
+                    case .observe(let streamWork):
+                        let dynamicState = DynamicState {
+                            await MainActor.run { stateBox.value }
+                        }
+                        let effectTask = Task {
+                            await streamWork(dynamicState, send)
+                        }
+                        effectTasks.append(effectTask)
+                    }
+                }
+
+                effectTasks.forEach { $0.cancel() }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
     }
 }

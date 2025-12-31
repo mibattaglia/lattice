@@ -4,10 +4,10 @@ import Foundation
 import SwiftUI
 import UnoArchitecture
 
+@MainActor
 @ViewModel<SearchViewState, SearchEvent>
 final class SearchViewModel {
     init(
-        scheduler: AnySchedulerOf<DispatchQueue> = .main,
         interactor: AnyInteractor<SearchDomainState, SearchEvent>,
         viewStateReducer: AnyViewStateReducer<SearchDomainState, SearchViewState>
     ) {
@@ -16,7 +16,6 @@ final class SearchViewModel {
             builder
                 .interactor(interactor)
                 .viewStateReducer(viewStateReducer)
-                .viewStateReceiver(scheduler)
         }
     }
 }

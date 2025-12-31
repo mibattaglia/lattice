@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// A convenience ``ViewStateReducer`` that maps `DomainState` directly to `ViewState`.
@@ -22,15 +21,9 @@ public struct BuildViewState<DomainState, ViewState>: ViewStateReducer {
         self.reducerBlock = reducerBlock
     }
 
-    public var body: some ViewStateReducer<DomainState, ViewState> {
-        self
-    }
+    public var body: some ViewStateReducer<DomainState, ViewState> { self }
 
-    public func reduce(
-        _ upstream: AnyPublisher<DomainState, Never>
-    ) -> AnyPublisher<ViewState, Never> {
-        upstream
-            .map(reducerBlock)
-            .eraseToAnyPublisher()
+    public func reduce(_ domainState: DomainState) -> ViewState {
+        reducerBlock(domainState)
     }
 }

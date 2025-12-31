@@ -14,6 +14,10 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/apple/swift-async-algorithms",
+            .upToNextMajor(from: "1.0.0")
+        ),
+        .package(
             url: "https://github.com/pointfreeco/combine-schedulers",
             .upToNextMajor(from: "1.0.3")
         ),
@@ -29,14 +33,20 @@ let package = Package(
             url: "https://github.com/pointfreeco/swift-macro-testing",
             from: "0.2.0"
         ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-clocks",
+            .upToNextMajor(from: "1.0.0")
+        ),
     ],
     targets: [
         .target(
             name: "UnoArchitecture",
             dependencies: [
                 "UnoArchitectureMacros",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
+                .product(name: "Clocks", package: "swift-clocks"),
             ]
         ),
         .macro(

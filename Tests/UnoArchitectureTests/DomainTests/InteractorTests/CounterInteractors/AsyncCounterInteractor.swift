@@ -27,9 +27,9 @@ struct AsyncCounterInteractor {
                 state.count += 1
                 return .state
             case .async:
-                return .perform { [count = state.count] in
+                return .perform { state, send in
                     try? await scheduler.sleep(for: .seconds(0.5))
-                    return AsyncCounterInteractor.DomainState(count: count + 1)
+                    await send(AsyncCounterInteractor.DomainState(count: state.count + 1))
                 }
             }
         }

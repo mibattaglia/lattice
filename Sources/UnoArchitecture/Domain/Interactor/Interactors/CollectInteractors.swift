@@ -1,8 +1,7 @@
-import Combine
 import Foundation
 
 extension Interactors {
-    public struct CollectInteractors<State, Action, Interactors: Interactor>: Interactor
+    public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor, @unchecked Sendable
     where State == Interactors.DomainState, Action == Interactors.Action {
         private let interactors: Interactors
 
@@ -12,7 +11,7 @@ extension Interactors {
 
         public var body: some Interactor<State, Action> { self }
 
-        public func interact(_ upstream: AnyPublisher<Action, Never>) -> AnyPublisher<State, Never> {
+        public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<State> {
             interactors.interact(upstream)
         }
     }

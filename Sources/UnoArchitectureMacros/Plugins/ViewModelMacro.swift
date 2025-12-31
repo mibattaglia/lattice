@@ -104,25 +104,44 @@ extension ViewModelMacro: MemberMacro {
             )
         }
 
-        // Generate viewEvents subject if it doesn't exist
-        if !existingMembers.contains("viewEvents") {
+        // Generate AsyncStream continuation for view events
+        if !existingMembers.contains("viewEventContinuation") {
             declarations.append(
                 """
-                private let viewEvents = PassthroughSubject<\(raw: viewEventType), Never>()
+                private var viewEventContinuation: AsyncStream<\(raw: viewEventType)>.Continuation?
                 """
             )
         }
 
-        // Generate sendViewEvent method if it doesn't exist
+        // Generate subscription task for lifecycle management
+        if !existingMembers.contains("subscriptionTask") {
+            declarations.append(
+                """
+                private var subscriptionTask: Task<Void, Never>?
+                """
+            )
+        }
+
+        // Generate sendViewEvent method using continuation
         if !existingMembers.contains("sendViewEvent") {
             declarations.append(
                 """
                 func sendViewEvent(_ event: \(raw: viewEventType)) {
-                    viewEvents.send(event)
+                    viewEventContinuation?.yield(event)
                 }
                 """
             )
         }
+
+        // Generate deinit for cleanup
+        declarations.append(
+            """
+            deinit {
+                viewEventContinuation?.finish()
+                subscriptionTask?.cancel()
+            }
+            """
+        )
 
         return declarations
     }

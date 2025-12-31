@@ -5,5 +5,4 @@
 /*.swiftinterface
 /*.xcodeproj
 xcuserdata/
-.claude/
-/thoughts
+.claude

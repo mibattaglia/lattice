@@ -6,10 +6,10 @@ import Testing
 
 @testable import UnoArchitecture
 
-private struct MyState {}
-private enum MyAction { case myAction }
+private struct MyState: Sendable {}
+private enum MyAction: Sendable { case myAction }
 
-private struct TestInteractor: Interactor {
+private struct TestInteractor: Interactor, Sendable {
     var body: some Interactor<MyAction, MyState> {
         EmptyInteractor()
     }
@@ -20,7 +20,7 @@ private struct TestInteractor: Interactor {
 @available(tvOS, introduced: 9999)
 @available(visionOS, introduced: 9999)
 @available(watchOS, introduced: 9999)
-private struct UnavailableInteractor: Interactor {
+private struct UnavailableInteractor: Interactor, Sendable {
     var body: some Interactor<MyAction, MyState> {
         EmptyInteractor()
     }

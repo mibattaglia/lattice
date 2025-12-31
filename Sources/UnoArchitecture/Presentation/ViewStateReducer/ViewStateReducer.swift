@@ -1,7 +1,6 @@
-import Combine
 import Foundation
 
-/// A type that transforms a publisher of domain **state** into a publisher of **view state**.
+/// A type that transforms domain **state** into **view state**.
 ///
 /// ``ViewStateReducer`` is a **stateless** transformer. Its sole purpose is to consume
 /// complex `DomainState` and simplify (or _reduce_) it into simpler state for another component to use.
@@ -25,24 +24,13 @@ public protocol ViewStateReducer<DomainState, ViewState> {
     @ViewStateReducerBuilder<DomainState, ViewState>
     var body: Body { get }
 
-    /// Transforms the upstream publisher of `DomainState` into a downstream publisher of `ViewState`.
-    ///
-    /// > Important: do not implement this method directly. It is synthesized via conformance to this protocol.
-    ///
-    /// - Parameter upstream: A publisher of ``Action`` values coming from the view layer.
-    /// - Returns: A publisher that emits new `DomainState` values.
-    func reduce(
-        _ upstream: AnyPublisher<DomainState, Never>
-    ) -> AnyPublisher<ViewState, Never>
+    /// Transforms domain state into view state synchronously.
+    func reduce(_ domainState: DomainState) -> ViewState
 }
 
 extension ViewStateReducer where Body.DomainState == Never {
     public var body: Body {
-        fatalError(
-            """
-            '\(Self.self)' has no body.
-            """
-        )
+        fatalError("'\(Self.self)' has no body.")
     }
 }
 
@@ -55,34 +43,30 @@ extension ViewStateReducer {
 }
 
 extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> {
-    public func reduce(
-        _ upstream: AnyPublisher<DomainState, Never>
-    ) -> AnyPublisher<ViewState, Never> {
-        self.body.reduce(upstream)
+    public func reduce(_ domainState: DomainState) -> ViewState {
+        self.body.reduce(domainState)
     }
 }
 
 public typealias ViewStateReducerOf<V: ViewStateReducer> = ViewStateReducer<V.DomainState, V.ViewState>
 
 /// A type-erased wrapper around any ``ViewStateReducer``.
-public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer {
-    private let reduceFunc: (AnyPublisher<DomainState, Never>) -> AnyPublisher<ViewState, Never>
+public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer, Sendable {
+    private let reduceFunc: @Sendable (DomainState) -> ViewState
 
-    init<VS: ViewStateReducer>(_ base: VS)
+    public init<VS: ViewStateReducer & Sendable>(_ base: VS)
     where VS.DomainState == DomainState, VS.ViewState == ViewState {
-        self.reduceFunc = base.reduce(_:)
+        self.reduceFunc = { base.reduce($0) }
     }
 
     public var body: some ViewStateReducer<DomainState, ViewState> { self }
 
-    public func reduce(
-        _ upstream: AnyPublisher<DomainState, Never>
-    ) -> AnyPublisher<ViewState, Never> {
-        reduceFunc(upstream)
+    public func reduce(_ domainState: DomainState) -> ViewState {
+        reduceFunc(domainState)
     }
 }
 
-extension ViewStateReducer {
+extension ViewStateReducer where Self: Sendable {
     /// Returns a type-erased wrapper of `self`.
     public func eraseToAnyReducer() -> AnyViewStateReducer<DomainState, ViewState> {
         AnyViewStateReducer(self)

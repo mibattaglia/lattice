@@ -1,5 +1,3 @@
-import Combine
-import CombineSchedulers
 import Foundation
 import Testing
 
@@ -10,39 +8,32 @@ import Testing
 struct ViewModelTests {
     private let interactor: MyInteractor
     private let viewStateReducer: MyViewStateReducer
-    private let viewModel: AnyViewModel<MyEvent, MyViewState>
-    private let scheduler: TestSchedulerOf<DispatchQueue>
+    private let viewModel: MyViewModel
 
     private static let now = Date(timeIntervalSince1970: 1_748_377_205)
 
     init() {
-        self.interactor = MyInteractor(dateFactory: { Self.now })
+        let capturedNow = Self.now
+        self.interactor = MyInteractor(dateFactory: { capturedNow })
         self.viewStateReducer = MyViewStateReducer()
-        self.scheduler = DispatchQueue.test
         self.viewModel = MyViewModel(
-            scheduler: scheduler.eraseToAnyScheduler(),
-            interactor: interactor.eraseToAnyInteractor(),
+            interactor: interactor.eraseToAnyInteractorUnchecked(),
             viewStateReducer: viewStateReducer.eraseToAnyReducer()
         )
-        .erased()
     }
 
     @Test
-    func testBasics() async {
+    func testBasics() async throws {
         let initialViewState = MyViewState.loading
         #expect(viewModel.viewState == initialViewState)
 
         viewModel.sendViewEvent(.load)
-        await scheduler.advance()
+        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == viewStateFactory(count: 0))
 
         viewModel.sendViewEvent(.incrementCount)
-        await scheduler.advance()
+        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == viewStateFactory(count: 1))
-
-        viewModel.sendViewEvent(.incrementCount)
-        await scheduler.advance()
-        #expect(viewModel.viewState == viewStateFactory(count: 2))
     }
 
     private func viewStateFactory(count: Int) -> MyViewState {

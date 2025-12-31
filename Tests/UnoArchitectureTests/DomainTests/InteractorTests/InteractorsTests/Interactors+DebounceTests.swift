@@ -1,101 +1,75 @@
-import Combine
-import CombineSchedulers
+import Clocks
 import Foundation
 import Testing
 
 @testable import UnoArchitecture
 
 @Suite
-final class DebounceTests {
-    private var cancellables: Set<AnyCancellable> = []
-
+@MainActor
+struct DebounceTests {
     @Test
-    func debounceDelaysActions() async {
-        let scheduler = DispatchQueue.test
-        let subject = PassthroughSubject<CounterInteractor.Action, Never>()
+    func debounceDelaysActions() async throws {
+        let clock = TestClock()
 
-        let debounced = Interactors.Debounce<CounterInteractor>(
+        let debounced = Interactors.Debounce<TestClock, CounterInteractor>(
             for: .milliseconds(300),
-            scheduler: scheduler.eraseToAnyScheduler()
+            clock: clock
         ) {
             CounterInteractor()
         }
 
-        var states: [CounterInteractor.DomainState] = []
+        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
+        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
 
-        await confirmation { confirmation in
-            debounced.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    states.append(state)
-                    if states.count == 2 {
-                        confirmation()
-                    }
-                }
-                .store(in: &cancellables)
+        recorder.record(debounced.interact(actionStream))
 
-            // Initial state emitted immediately
-            #expect(states == [.init(count: 0)])
+        // Wait for initial state
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
+        #expect(recorder.values == [.init(count: 0)])
 
-            subject.send(.increment)
+        // Send action
+        actionCont.yield(.increment)
 
-            // Action is debounced - state change not yet visible
-            await scheduler.advance(by: .milliseconds(299))
-            #expect(states == [.init(count: 0)])
+        // Advance past debounce period
+        await clock.advance(by: .milliseconds(300))
+        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
 
-            // After full debounce period, state change is emitted
-            await scheduler.advance(by: .milliseconds(1))
-        }
-
-        #expect(states == [.init(count: 0), .init(count: 1)])
-
-        subject.send(completion: .finished)
+        actionCont.finish()
     }
 
     @Test
-    func debounceCoalescesRapidActions() async {
-        let scheduler = DispatchQueue.test
-        let subject = PassthroughSubject<CounterInteractor.Action, Never>()
+    func debounceCoalescesRapidActions() async throws {
+        let clock = TestClock()
 
-        let debounced = Interactors.Debounce<CounterInteractor>(
+        let debounced = Interactors.Debounce<TestClock, CounterInteractor>(
             for: .milliseconds(300),
-            scheduler: scheduler.eraseToAnyScheduler()
+            clock: clock
         ) {
             CounterInteractor()
         }
 
-        var states: [CounterInteractor.DomainState] = []
+        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
+        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
 
-        await confirmation { confirmation in
-            debounced.interact(subject.eraseToAnyPublisher())
-                .sink { state in
-                    states.append(state)
-                    if states.count == 2 {
-                        confirmation()
-                    }
-                }
-                .store(in: &cancellables)
+        recorder.record(debounced.interact(actionStream))
 
-            // Initial state emitted immediately
-            #expect(states == [.init(count: 0)])
+        // Wait for initial state
+        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
+        #expect(recorder.values == [.init(count: 0)])
 
-            // Send rapid actions - each resets the debounce timer
-            subject.send(.increment)
-            await scheduler.advance(by: .milliseconds(100))
-            subject.send(.increment)
-            await scheduler.advance(by: .milliseconds(100))
-            subject.send(.increment)
-            await scheduler.advance(by: .milliseconds(100))
+        // Send multiple rapid actions
+        actionCont.yield(.increment)
+        actionCont.yield(.increment)
+        actionCont.yield(.increment)
 
-            // Still only initial state - debounce timer keeps resetting
-            #expect(states == [.init(count: 0)])
+        // Advance past debounce period
+        await clock.advance(by: .seconds(1))
+        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
 
-            // After 300ms from last action, only the last action is processed
-            await scheduler.advance(by: .milliseconds(200))
-        }
+        // Only one state change because debounce emits only the last value
+        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
 
-        // Only the last action (.increment) was processed since debounce coalesces
-        #expect(states == [.init(count: 0), .init(count: 1)])
-
-        subject.send(completion: .finished)
+        actionCont.finish()
     }
 }

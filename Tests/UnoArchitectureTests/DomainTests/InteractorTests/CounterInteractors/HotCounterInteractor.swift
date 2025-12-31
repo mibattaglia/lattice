@@ -20,13 +20,11 @@ struct HotCounterInteractor: Interactor {
                 state.count += 1
                 return .state
             case let .observe(publisher):
-                return .observe { state in
-                    let statePublisher =
-                        publisher
-                        .map { int in
-                            DomainState(count: state.count + int)
-                        }
-                    return statePublisher.eraseToAnyPublisher()
+                return .observe { state, send in
+                    let stateStream = publisher.values
+                    for await value in stateStream {
+                        await send(DomainState(count: state.count + value))
+                    }
                 }
             }
         }

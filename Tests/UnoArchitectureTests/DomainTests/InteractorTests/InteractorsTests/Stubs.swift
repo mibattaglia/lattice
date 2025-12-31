@@ -1,4 +1,3 @@
-import Combine
 import UnoArchitecture
 
 /// Takes an input and doubles it
@@ -8,10 +7,16 @@ struct DoubleInteractor: Interactor {
 
     var body: some InteractorOf<Self> { self }
 
-    func interact(_ upstream: AnyPublisher<Int, Never>) -> AnyPublisher<Int, Never> {
-        upstream
-            .map { $0 * 2 }
-            .eraseToAnyPublisher()
+    func interact(_ upstream: AsyncStream<Int>) -> AsyncStream<Int> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await value in upstream {
+                    continuation.yield(value * 2)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }
 
@@ -22,9 +27,15 @@ struct TripleInteractor: Interactor {
 
     var body: some InteractorOf<Self> { self }
 
-    func interact(_ upstream: AnyPublisher<Int, Never>) -> AnyPublisher<Int, Never> {
-        upstream
-            .map { $0 * 3 }
-            .eraseToAnyPublisher()
+    func interact(_ upstream: AsyncStream<Int>) -> AsyncStream<Int> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await value in upstream {
+                    continuation.yield(value * 3)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }

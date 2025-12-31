@@ -36,7 +36,8 @@ import SwiftUI
 /// ``ViewModel`` exposes
 /// * `viewState` – a data structure distilled down for presentation purposes.
 /// * `sendViewEvent(_:)` – a method to deliver user events back to the architecture.
-public protocol ViewModel: ObservableObject {
+@MainActor
+public protocol ViewModel: ObservableObject, Sendable {
     associatedtype ViewEventType
     associatedtype ViewStateType
 
@@ -46,31 +47,28 @@ public protocol ViewModel: ObservableObject {
 }
 
 /// A type-erased wrapper around any ``ViewModel``.
+@MainActor
 public final class AnyViewModel<ViewEvent, ViewState>: ViewModel {
-    public var viewState: ViewState {
-        viewStateGetter()
-    }
-    private let viewStateGetter: () -> ViewState
-    private let viewEventSender: (ViewEvent) -> Void
+    public var viewState: ViewState { viewStateGetter() }
+
+    private let viewStateGetter: @MainActor () -> ViewState
+    private let viewEventSender: @MainActor (ViewEvent) -> Void
     private var cancellable: AnyCancellable?
 
     /// Creates a type-erased wrapper around `base`.
     ///
     /// - Note: The wrapper relays `objectWillChange` so that SwiftUI updates continue to work.
-    public init<VM: ViewModel>(_ base: VM) where VM.ViewEventType == ViewEvent, VM.ViewStateType == ViewState {
-        self.viewEventSender = base.sendViewEvent(_:)
+    public init<VM: ViewModel>(_ base: VM)
+    where VM.ViewEventType == ViewEvent, VM.ViewStateType == ViewState {
+        self.viewEventSender = { [weak base] event in base?.sendViewEvent(event) }
         self.viewStateGetter = { [weak base] in
             guard let base else {
-                fatalError(
-                    """
-                    Underlying ViewModel with types '\(ViewEvent.self)', '\(ViewState.self)' has been deallocated.
-                    """
-                )
+                fatalError("Underlying ViewModel deallocated")
             }
             return base.viewState
         }
-        self.cancellable = base
-            .objectWillChange
+
+        self.cancellable = base.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }

@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// A *result builder* that composes multiple ``Interactor`` values into a single
@@ -20,12 +19,12 @@ import Foundation
 /// }
 /// ```
 @resultBuilder
-public enum InteractorBuilder<State, Action> {
+public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     /// Builds an interactor from an array literal `[...]`.
     public static func buildArray(
-        _ reducers: [some Interactor<State, Action>]
+        _ interactors: [some Interactor<State, Action>]
     ) -> some Interactor<State, Action> {
-        Interactors.MergeMany(interactors: reducers)
+        Interactors.MergeMany(interactors: interactors)
     }
 
     /// Builds an empty block.
@@ -69,7 +68,7 @@ public enum InteractorBuilder<State, Action> {
     public static func buildExpression(
         _ expression: any Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = expression.eraseToAnyInteractor()
+        let erased: AnyInteractor<State, Action> = expression.eraseToAnyInteractorUnchecked()
         return erased
     }
 
@@ -80,14 +79,14 @@ public enum InteractorBuilder<State, Action> {
     public static func buildLimitedAvailability(
         _ wrapped: some Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = wrapped.eraseToAnyInteractor()
+        let erased: AnyInteractor<State, Action> = wrapped.eraseToAnyInteractorUnchecked()
         return erased
     }
 
     public static func buildOptional(_ wrapped: (any Interactor<State, Action>)?) -> AnyInteractor<
         State, Action
     > {
-        wrapped?.eraseToAnyInteractor() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
+        wrapped?.eraseToAnyInteractorUnchecked() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
     }
 
     public static func buildPartialBlock<I: Interactor<State, Action>>(first: I) -> I {
