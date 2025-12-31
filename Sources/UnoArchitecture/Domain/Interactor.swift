@@ -2,7 +2,6 @@ import AsyncAlgorithms
 import Foundation
 
 /// A type that transforms a stream of **actions** into a stream of **domain state**.
-//@MainActor
 public protocol Interactor<DomainState, Action> {
     associatedtype DomainState: Sendable
     associatedtype Action: Sendable

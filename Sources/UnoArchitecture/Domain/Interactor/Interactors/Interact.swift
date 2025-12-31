@@ -3,7 +3,6 @@ import Foundation
 
 /// A primitive used *inside* an ``Interactor``'s ``Interactor/body-swift.property`` for
 /// handling incoming **actions** and emitting new **state** via an ``Emission``.
-//@MainActor
 public struct Interact<State: Sendable, Action: Sendable>: Interactor, @unchecked Sendable {
     public typealias Handler = @MainActor (inout State, Action) -> Emission<State>
 

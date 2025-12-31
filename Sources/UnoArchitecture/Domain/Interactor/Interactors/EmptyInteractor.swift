@@ -1,6 +1,5 @@
 import Foundation
 
-//@MainActor
 public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
     public typealias DomainState = State
     public typealias Action = Action
