@@ -1,9 +1,10 @@
 import Foundation
 
-/// A type that transforms domain **state** into **view state**.
+/// A type that transforms domain **state** into **view state** via in-place mutation.
 ///
-/// `ViewStateReducer` is a **stateless** transformer that converts complex domain state
-/// into simplified view state suitable for UI rendering.
+/// `ViewStateReducer` mutates an existing view state based on domain state, preserving
+/// `_$id` stability for `@ObservableState` types. This enables efficient SwiftUI observation
+/// where only changed properties trigger view updates.
 ///
 /// ## Purpose
 ///
@@ -12,6 +13,7 @@ import Foundation
 /// - **Separation of concerns**: Domain logic stays independent of UI requirements
 /// - **Testability**: View state transformations can be tested in isolation
 /// - **Performance**: Only view-relevant data is observed by SwiftUI
+/// - **Observation stability**: `_$id` is preserved across reduce calls
 ///
 /// ## Usage
 ///
@@ -21,12 +23,10 @@ import Foundation
 /// @ViewStateReducer<CounterDomainState, CounterViewState>
 /// struct CounterViewStateReducer: Sendable {
 ///     var body: some ViewStateReducerOf<Self> {
-///         BuildViewState { domainState in
-///             CounterViewState(
-///                 count: domainState.count,
-///                 displayText: "Count: \(domainState.count)",
-///                 canDecrement: domainState.count > 0
-///             )
+///         BuildViewState { domainState, viewState in
+///             viewState.count = domainState.count
+///             viewState.displayText = "Count: \(domainState.count)"
+///             viewState.canDecrement = domainState.count > 0
 ///         }
 ///     }
 /// }
@@ -52,15 +52,15 @@ public protocol ViewStateReducer<DomainState, ViewState> {
     associatedtype ViewState
     associatedtype Body: ViewStateReducer
 
-    /// A declarative description of this ViewStateReducer that consumes DomainState and returns ViewState.
+    /// A declarative description of this ViewStateReducer that consumes DomainState and mutates ViewState.
     ///
     /// **Note:** ``ViewStateReducerBuilder`` is provided to allow a familiar API to the one exposed
     /// in ``Interactor``. Composition of ViewStateReducers is currently not supported.
     @ViewStateReducerBuilder<DomainState, ViewState>
     var body: Body { get }
 
-    /// Transforms domain state into view state synchronously.
-    func reduce(_ domainState: DomainState) -> ViewState
+    /// Mutates view state in-place based on domain state.
+    func reduce(_ domainState: DomainState, into viewState: inout ViewState)
 }
 
 extension ViewStateReducer where Body.DomainState == Never {
@@ -71,15 +71,15 @@ extension ViewStateReducer where Body.DomainState == Never {
 
 extension ViewStateReducer {
     public static func buildViewState(
-        reducerBlock: @escaping (DomainState) -> ViewState
+        reducerBlock: @escaping (DomainState, inout ViewState) -> Void
     ) -> BuildViewState<DomainState, ViewState> {
         BuildViewState(reducerBlock: reducerBlock)
     }
 }
 
 extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> {
-    public func reduce(_ domainState: DomainState) -> ViewState {
-        self.body.reduce(domainState)
+    public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
+        self.body.reduce(domainState, into: &viewState)
     }
 }
 
@@ -87,17 +87,19 @@ public typealias ViewStateReducerOf<V: ViewStateReducer> = ViewStateReducer<V.Do
 
 /// A type-erased wrapper around any ``ViewStateReducer``.
 public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer, Sendable {
-    private let reduceFunc: @Sendable (DomainState) -> ViewState
+    private let reduceFunc: @Sendable (DomainState, inout ViewState) -> Void
 
     public init<VS: ViewStateReducer & Sendable>(_ base: VS)
     where VS.DomainState == DomainState, VS.ViewState == ViewState {
-        self.reduceFunc = { base.reduce($0) }
+        self.reduceFunc = { domainState, viewState in
+            base.reduce(domainState, into: &viewState)
+        }
     }
 
     public var body: some ViewStateReducer<DomainState, ViewState> { self }
 
-    public func reduce(_ domainState: DomainState) -> ViewState {
-        reduceFunc(domainState)
+    public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
+        reduceFunc(domainState, &viewState)
     }
 }
 
