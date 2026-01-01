@@ -52,9 +52,9 @@
                     }
                   }
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 
@@ -114,9 +114,9 @@
                     }
                   }
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 
@@ -176,9 +176,9 @@
                     }
                   }
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 
@@ -235,9 +235,9 @@
                     }
                   }
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 
@@ -279,9 +279,9 @@
                 struct State {
                   var count = 0
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 
@@ -324,7 +324,7 @@
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .feature1(state):
                       return ._$id(for: state)._$tag(0)
@@ -336,10 +336,10 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .feature1(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature1(state)
                     case var .feature2(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature2(state)
                     }
                   }
@@ -361,7 +361,7 @@
                 enum Path {
                   case feature1(state: String)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .feature1(state):
                       return ._$id(for: state)._$tag(0)
@@ -371,7 +371,7 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .feature1(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature1(state: state)
                     }
                   }
@@ -395,7 +395,7 @@
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .feature1(state):
                       return ._$id(for: state)._$tag(0)
@@ -407,10 +407,10 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .feature1(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature1(state)
                     case var .feature2(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature2(state)
                     }
                   }
@@ -431,7 +431,7 @@
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .feature1(state):
                       return ._$id(for: state)._$tag(0)
@@ -443,10 +443,10 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .feature1(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature1(state)
                     case var .feature2(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .feature2(state)
                     }
                   }
@@ -473,7 +473,7 @@
                     case feature1(Feature1.State)
                     case feature2(Feature2.State)
 
-                    public var _$id: ComposableArchitecture.ObservableStateID {
+                    public var _$id: UnoArchitecture.ObservableStateID {
                       switch self {
                       case let .feature1(state):
                         return ._$id(for: state)._$tag(0)
@@ -485,10 +485,10 @@
                     public mutating func _$willModify() {
                       switch self {
                       case var .feature1(state):
-                        ComposableArchitecture._$willModify(&state)
+                        UnoArchitecture._$willModify(&state)
                         self = .feature1(state)
                       case var .feature2(state):
-                        ComposableArchitecture._$willModify(&state)
+                        UnoArchitecture._$willModify(&state)
                         self = .feature2(state)
                       }
                     }
@@ -513,7 +513,7 @@
                     case feature1(Feature1.State)
                     case feature2(Feature2.State)
 
-                    public var _$id: ComposableArchitecture.ObservableStateID {
+                    public var _$id: UnoArchitecture.ObservableStateID {
                       switch self {
                       case let .feature1(state):
                         return ._$id(for: state)._$tag(0)
@@ -525,10 +525,10 @@
                     public mutating func _$willModify() {
                       switch self {
                       case var .feature1(state):
-                        ComposableArchitecture._$willModify(&state)
+                        UnoArchitecture._$willModify(&state)
                         self = .feature1(state)
                       case var .feature2(state):
-                        ComposableArchitecture._$willModify(&state)
+                        UnoArchitecture._$willModify(&state)
                         self = .feature2(state)
                       }
                     }
@@ -551,7 +551,7 @@
                 public enum Path {
                   case foo(Int)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .foo(state):
                       return ._$id(for: state)._$tag(0)
@@ -561,7 +561,7 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .foo(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .foo(state)
                     }
                   }
@@ -583,7 +583,7 @@
                 public enum Path {
                   case foo(Int, String)
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case .foo:
                       return ObservableStateID()._$tag(0)
@@ -672,7 +672,7 @@
                     #endif
                   #endif
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     switch self {
                     case let .child(state):
                       return ._$id(for: state)._$tag(0)
@@ -697,22 +697,22 @@
                   public mutating func _$willModify() {
                     switch self {
                     case var .child(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .child(state)
                     #if os(macOS)
                     case var .mac(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .mac(state)
                     #elseif os(tvOS)
                     case var .tv(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .tv(state)
                     #endif
 
                     #if DEBUG
                     #if INNER
                     case var .inner(state):
-                      ComposableArchitecture._$willModify(&state)
+                      UnoArchitecture._$willModify(&state)
                       self = .inner(state)
                     #endif
                     #endif
@@ -750,9 +750,9 @@
                   @FetchOne
                   var fetchOne: Int
 
-                  var _$observationRegistrar = ComposableArchitecture.ObservationStateRegistrar()
+                  var _$observationRegistrar = UnoArchitecture.ObservationStateRegistrar()
 
-                  public var _$id: ComposableArchitecture.ObservableStateID {
+                  public var _$id: UnoArchitecture.ObservableStateID {
                     _$observationRegistrar.id
                   }
 

@@ -20,7 +20,7 @@ import SwiftSyntaxMacros
 #endif
 
 public struct ObservableStateMacro {
-    static let moduleName = "ComposableArchitecture"
+    static let moduleName = "UnoArchitecture"
 
     static let conformanceName = "ObservableState"
     static var qualifiedConformanceName: String {

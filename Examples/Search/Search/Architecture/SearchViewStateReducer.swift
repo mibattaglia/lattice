@@ -4,10 +4,10 @@ import UnoArchitecture
 @ViewStateReducer<SearchDomainState, SearchViewState>
 struct SearchViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState { domainState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .noResults:
-                return .none
+                viewState = .none
             case .results(let model):
                 let listItems = model.results.map { result in
                     SearchListItem(
@@ -17,7 +17,7 @@ struct SearchViewStateReducer {
                         weather: weatherState(from: result.forecast)
                     )
                 }
-                return .loaded(SearchListContent(listItems: listItems))
+                viewState = .loaded(SearchListContent(listItems: listItems))
             }
         }
     }

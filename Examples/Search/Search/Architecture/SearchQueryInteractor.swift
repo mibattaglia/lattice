@@ -13,7 +13,7 @@ struct SearchQueryInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact(initialValue: .none) { state, event in
             switch event {
-            case let .query(query):
+            case .query(let query):
                 guard !query.isEmpty else {
                     state = .none
                     return .state

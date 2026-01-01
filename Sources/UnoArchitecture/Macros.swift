@@ -1,3 +1,5 @@
+import Observation
+
 /// Generates conformance to the ``Interactor`` protocol.
 ///
 /// Apply this macro to a struct to make it an interactor:
@@ -128,3 +130,21 @@ public macro ViewModel<ViewStateType, ViewEventType>() =
 public macro subscribe<DomainEvent, DomainState, ViewState>(
     _: (ViewModelBuilder<DomainEvent, DomainState, ViewState>) -> Void
 ) = #externalMacro(module: "UnoArchitectureMacros", type: "SubscribeMacro")
+
+/// Defines and implements conformance of the Observable protocol.
+@attached(extension, conformances: Observable, ObservableState)
+@attached(
+    member, names: named(_$id), named(_$observationRegistrar), named(_$willModify),
+    named(shouldNotifyObservers))
+@attached(memberAttribute)
+public macro ObservableState() =
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservableStateMacro")
+
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_))
+public macro ObservationStateTracked() =
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateTrackedMacro")
+
+@attached(accessor, names: named(willSet))
+public macro ObservationStateIgnored() =
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateIgnoredMacro")

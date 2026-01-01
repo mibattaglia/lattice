@@ -15,9 +15,10 @@ final class AsyncCounterInteractorTests {
 
         harness.send(.increment)
         harness.send(.async)
-        await scheduler.advance(by: .seconds(0.5))
+        await scheduler.advance(by: .seconds(0.51))
         await Task.yield()
         harness.send(.increment)
+        await scheduler.advance(by: .seconds(0.51))
         await Task.yield()
         harness.finish()
 

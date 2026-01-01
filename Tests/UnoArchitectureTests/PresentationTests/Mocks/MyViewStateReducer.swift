@@ -4,14 +4,14 @@ import UnoArchitecture
 @ViewStateReducer<MyDomainState, MyViewState>
 struct MyViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState { domainState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .error(let code):
-                return .error(title: reduceErrorCode(code))
+                viewState = .error(title: reduceErrorCode(code))
             case .loading:
-                return .loading
+                viewState = .loading
             case .success(let content):
-                return .success(reduceContent(content))
+                viewState = .success(reduceContent(content))
             }
         }
     }

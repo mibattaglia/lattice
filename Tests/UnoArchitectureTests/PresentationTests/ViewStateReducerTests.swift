@@ -20,14 +20,19 @@ struct ViewStateReducerTests {
             .error(title: "Unknown error."),
         ]
 
-        let actual = inputs.map { myReducer.reduce($0) }
+        let actual = inputs.map { domainState -> MyViewState in
+            var viewState: MyViewState = .loading
+            myReducer.reduce(domainState, into: &viewState)
+            return viewState
+        }
         #expect(actual == expected)
     }
 
     @Test
     func reduceLoading() {
-        let actual = myReducer.reduce(.loading)
-        #expect(actual == .loading)
+        var viewState: MyViewState = .error(title: "initial")
+        myReducer.reduce(.loading, into: &viewState)
+        #expect(viewState == .loading)
     }
 
     @Test
@@ -47,7 +52,8 @@ struct ViewStateReducerTests {
             )
         )
 
-        let actual = myReducer.reduce(input)
-        #expect(actual == expected)
+        var viewState: MyViewState = .loading
+        myReducer.reduce(input, into: &viewState)
+        #expect(viewState == expected)
     }
 }

@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "swift-uno-architecture",
-    platforms: [.iOS(.v16), .watchOS(.v10), .macOS(.v14)],
+    platforms: [.iOS(.v17), .watchOS(.v10), .macOS(.v14)],
     products: [
         .library(
             name: "UnoArchitecture",
@@ -37,6 +37,8 @@ let package = Package(
             url: "https://github.com/pointfreeco/swift-clocks",
             .upToNextMajor(from: "1.0.0")
         ),
+        .package(url: "https://github.com/apple/swift-collections", from: "1.1.0"),
+        .package(url: "https://github.com/pointfreeco/swift-identified-collections", from: "1.1.0"),
     ],
     targets: [
         .target(
@@ -47,6 +49,8 @@ let package = Package(
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "Clocks", package: "swift-clocks"),
+                .product(name: "IdentifiedCollections", package: "swift-identified-collections"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
             ]
         ),
         .macro(

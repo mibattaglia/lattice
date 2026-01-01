@@ -146,7 +146,7 @@ extension SubscribeMacro: ExpressionMacro {
         // Values are captured in the Task's capture list to transfer Sendable ownership
         let pipeline: String
         if let reducerExpr = configuration.viewStateReducer?.trimmedDescription {
-            // With ViewStateReducer: reduce domain state to view state
+            // With ViewStateReducer: reduce domain state into view state via inout mutation
             pipeline = """
                 ({
                     let interactor = \(interactorExpr.trimmedDescription)
@@ -157,7 +157,8 @@ extension SubscribeMacro: ExpressionMacro {
                         for await domainState in interactor.interact(stream) {
                             guard !Task.isCancelled else { break }
                             await MainActor.run { [weak self] in
-                                self?.viewState = viewStateReducer.reduce(domainState)
+                                guard let self else { return }
+                                viewStateReducer.reduce(domainState, into: &self.viewState)
                             }
                         }
                     }

@@ -1,5 +1,5 @@
 {
-  "originHash" : "e898128e5b481a32b843d067eb4fcb3aa5a06c1b5894fde50dba9a579825a3ff",
+  "originHash" : "372eef67b02d793aadfa07c09610b7648753973ef74240d508db360bfe53eb6d",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -62,6 +62,15 @@
       "state" : {
         "revision" : "82645ec760917961cfa08c9c0c7104a57a0fa4b1",
         "version" : "1.3.3"
+      }
+    },
+    {
+      "identity" : "swift-identified-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-identified-collections",
+      "state" : {
+        "revision" : "322d9ffeeba85c9f7c4984b39422ec7cc3c56597",
+        "version" : "1.1.1"
       }
     },
     {
