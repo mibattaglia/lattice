@@ -111,7 +111,7 @@ extension ViewStateReducerMacro: MemberAttributeMacro {
                 return []
             }
             for attribute in body.attributes {
-                guard case let .attribute(attributeSyntax) = attribute,
+                guard case .attribute(let attributeSyntax) = attribute,
                     let attributeName = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self)?.name.text
                 else {
                     continue

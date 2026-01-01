@@ -101,8 +101,10 @@ extension Interactors {
     /// - Note: Use the `when(stateIs:actionIs:stateAction:run:)` method on any interactor
     ///   rather than constructing `When` directly.
     public struct When<Parent: Interactor & Sendable, Child: Interactor & Sendable>: Interactor, Sendable
-    where Parent.DomainState: Sendable, Parent.Action: Sendable,
-          Child.DomainState: Sendable, Child.Action: Sendable {
+    where
+        Parent.DomainState: Sendable, Parent.Action: Sendable,
+        Child.DomainState: Sendable, Child.Action: Sendable
+    {
         public typealias DomainState = Parent.DomainState
         public typealias Action = Parent.Action
 

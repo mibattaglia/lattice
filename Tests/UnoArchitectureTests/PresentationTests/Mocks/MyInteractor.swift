@@ -1,5 +1,5 @@
-import UnoArchitecture
 import Foundation
+import UnoArchitecture
 
 enum MyEvent: Equatable {
     case load

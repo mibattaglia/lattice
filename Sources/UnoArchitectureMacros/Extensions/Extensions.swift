@@ -42,7 +42,7 @@ extension VariableDeclSyntax {
     func accessorsMatching(_ predicate: (TokenKind) -> Bool) -> [AccessorDeclSyntax] {
         let accessors: [AccessorDeclListSyntax.Element] = bindings.compactMap { patternBinding in
             switch patternBinding.accessorBlock?.accessors {
-            case let .accessors(accessors):
+            case .accessors(let accessors):
                 return accessors
             default:
                 return nil
@@ -200,10 +200,10 @@ extension FunctionDeclSyntax {
         for parameter in signature.parameterClause.parameters {
             parameters.append(
                 parameter.firstName.text + ":"
-                + (parameter.type.genericSubstitution(genericParameterClause?.parameters) ?? ""))
+                    + (parameter.type.genericSubstitution(genericParameterClause?.parameters) ?? ""))
         }
         let returnType =
-        signature.returnClause?.type.genericSubstitution(genericParameterClause?.parameters) ?? "Void"
+            signature.returnClause?.type.genericSubstitution(genericParameterClause?.parameters) ?? "Void"
         return SignatureStandin(
             isInstance: isInstance, identifier: name.text, parameters: parameters, returnType: returnType)
     }
@@ -287,12 +287,12 @@ extension DeclGroupSyntax {
 
 extension AttributedTypeSyntax {
     var isInout: Bool {
-#if canImport(SwiftSyntax600)
-        self.specifiers.contains(
-            where: { $0.as(SimpleTypeSpecifierSyntax.self)?.specifier.tokenKind == .keyword(.inout) }
-        ) == true
-#else
-        self.specifier?.tokenKind == .keyword(.inout)
-#endif
+        #if canImport(SwiftSyntax600)
+            self.specifiers.contains(
+                where: { $0.as(SimpleTypeSpecifierSyntax.self)?.specifier.tokenKind == .keyword(.inout) }
+            ) == true
+        #else
+            self.specifier?.tokenKind == .keyword(.inout)
+        #endif
     }
 }

@@ -16,7 +16,7 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 #if !canImport(SwiftSyntax600)
-import SwiftSyntaxMacroExpansion
+    import SwiftSyntaxMacroExpansion
 #endif
 
 public struct ObservableStateMacro {
@@ -54,27 +54,27 @@ public struct ObservableStateMacro {
 
     static func registrarVariable(_ observableType: TokenSyntax) -> DeclSyntax {
         return
-      """
-      @\(raw: ignoredMacroName) var \(raw: registrarVariableName) = \(raw: qualifiedRegistrarTypeName)()
-      """
+            """
+            @\(raw: ignoredMacroName) var \(raw: registrarVariableName) = \(raw: qualifiedRegistrarTypeName)()
+            """
     }
 
     static func idVariable() -> DeclSyntax {
         return
-      """
-      public var _$id: \(raw: qualifiedIDName) {
-      \(raw: registrarVariableName).id
-      }
-      """
+            """
+            public var _$id: \(raw: qualifiedIDName) {
+            \(raw: registrarVariableName).id
+            }
+            """
     }
 
     static func willModifyFunction() -> DeclSyntax {
         return
-      """
-      public mutating func _$willModify() {
-      \(raw: registrarVariableName)._$willModify()
-      }
-      """
+            """
+            public mutating func _$willModify() {
+            \(raw: registrarVariableName)._$willModify()
+            }
+            """
     }
 
     static func shouldNotifyObserversNonEquatableFunction(
@@ -82,9 +82,9 @@ public struct ObservableStateMacro {
     ) -> DeclSyntax {
         let memberGeneric = context.makeUniqueName("Member")
         return
-      """
-       private nonisolated func shouldNotifyObservers<\(memberGeneric)>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { true }
-      """
+            """
+             private nonisolated func shouldNotifyObservers<\(memberGeneric)>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { true }
+            """
     }
 
     static func shouldNotifyObserversEquatableFunction(
@@ -92,9 +92,9 @@ public struct ObservableStateMacro {
     ) -> DeclSyntax {
         let memberGeneric = context.makeUniqueName("Member")
         return
-      """
-      private nonisolated func shouldNotifyObservers<\(memberGeneric): Equatable>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs != rhs }
-      """
+            """
+            private nonisolated func shouldNotifyObservers<\(memberGeneric): Equatable>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs != rhs }
+            """
     }
 
     static func shouldNotifyObserversNonEquatableObjectFunction(
@@ -102,9 +102,9 @@ public struct ObservableStateMacro {
     ) -> DeclSyntax {
         let memberGeneric = context.makeUniqueName("Member")
         return
-      """
-       private nonisolated func shouldNotifyObservers<\(memberGeneric): AnyObject>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs !== rhs }
-      """
+            """
+             private nonisolated func shouldNotifyObservers<\(memberGeneric): AnyObject>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs !== rhs }
+            """
     }
 
     static func shouldNotifyObserversEquatableObjectFunction(
@@ -112,9 +112,9 @@ public struct ObservableStateMacro {
     ) -> DeclSyntax {
         let memberGeneric = context.makeUniqueName("Member")
         return
-      """
-      private nonisolated func shouldNotifyObservers<\(memberGeneric): Equatable & AnyObject>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs != rhs }
-      """
+            """
+            private nonisolated func shouldNotifyObservers<\(memberGeneric): Equatable & AnyObject>(_ lhs: \(memberGeneric), _ rhs: \(memberGeneric)) -> Bool { lhs != rhs }
+            """
     }
 
     static var ignoredAttribute: AttributeSyntax {
@@ -180,19 +180,19 @@ extension DeclModifierListSyntax {
     func privatePrefixed(_ prefix: String) -> DeclModifierListSyntax {
         let modifier: DeclModifierSyntax = DeclModifierSyntax(name: "private", trailingTrivia: .space)
         return [modifier]
-        + filter {
-            switch $0.name.tokenKind {
-            case .keyword(let keyword):
-                switch keyword {
-                case .fileprivate, .private, .internal, .public, .package:
-                    return false
+            + filter {
+                switch $0.name.tokenKind {
+                case .keyword(let keyword):
+                    switch keyword {
+                    case .fileprivate, .private, .internal, .public, .package:
+                        return false
+                    default:
+                        return true
+                    }
                 default:
                     return true
                 }
-            default:
-                return true
             }
-        }
     }
 
     init(keyword: Keyword) {
@@ -245,7 +245,7 @@ extension PatternBindingListSyntax {
 
 extension VariableDeclSyntax {
     func privatePrefixed(_ prefix: String, addingAttribute attribute: AttributeSyntax)
-    -> VariableDeclSyntax
+        -> VariableDeclSyntax
     {
         let newAttributes = attributes + [.attribute(attribute)]
         return VariableDeclSyntax(
@@ -269,32 +269,32 @@ extension VariableDeclSyntax {
 }
 
 extension ObservableStateMacro: MemberMacro {
-#if canImport(SwiftSyntax601)
-    public static func expansion(
-        of node: AttributeSyntax,
-        providingMembersOf declaration: some DeclGroupSyntax,
-        conformingTo protocols: [TypeSyntax],
-        in context: some MacroExpansionContext
-    ) throws -> [DeclSyntax] {
-        try _expansion(
-            of: node,
-            providingMembersOf: declaration,
-            conformingTo: protocols,
-            in: context
-        )
-    }
-#else
-    public static func expansion<
-        Declaration: DeclGroupSyntax,
-        Context: MacroExpansionContext
-    >(
-        of node: AttributeSyntax,
-        providingMembersOf declaration: Declaration,
-        in context: Context
-    ) throws -> [DeclSyntax] {
-        try _expansion(of: node, providingMembersOf: declaration, conformingTo: [], in: context)
-    }
-#endif
+    #if canImport(SwiftSyntax601)
+        public static func expansion(
+            of node: AttributeSyntax,
+            providingMembersOf declaration: some DeclGroupSyntax,
+            conformingTo protocols: [TypeSyntax],
+            in context: some MacroExpansionContext
+        ) throws -> [DeclSyntax] {
+            try _expansion(
+                of: node,
+                providingMembersOf: declaration,
+                conformingTo: protocols,
+                in: context
+            )
+        }
+    #else
+        public static func expansion<
+            Declaration: DeclGroupSyntax,
+            Context: MacroExpansionContext
+        >(
+            of node: AttributeSyntax,
+            providingMembersOf declaration: Declaration,
+            in context: Context
+        ) throws -> [DeclSyntax] {
+            try _expansion(of: node, providingMembersOf: declaration, conformingTo: [], in: context)
+        }
+    #endif
 
     private static func _expansion(
         of node: AttributeSyntax,
@@ -400,26 +400,26 @@ enum ObservableStateCase {
 
     var getCase: String {
         switch self {
-        case let .element(element, tag):
+        case .element(let element, let tag):
             if let parameters = element.parameterClause?.parameters, parameters.count == 1 {
                 return """
-          case let .\(element.name.text)(state):
-          return ._$id(for: state)._$tag(\(tag))
-          """
+                    case let .\(element.name.text)(state):
+                    return ._$id(for: state)._$tag(\(tag))
+                    """
             } else {
                 return """
-          case .\(element.name.text):
-          return ObservableStateID()._$tag(\(tag))
-          """
+                    case .\(element.name.text):
+                    return ObservableStateID()._$tag(\(tag))
+                    """
             }
-        case let .ifConfig(configs):
+        case .ifConfig(let configs):
             return
-            configs
+                configs
                 .map {
-          """
-          \($0.poundKeyword.text) \($0.condition?.trimmedDescription ?? "")
-          \($0.cases.map(\.getCase).joined(separator: "\n"))
-          """
+                    """
+                    \($0.poundKeyword.text) \($0.condition?.trimmedDescription ?? "")
+                    \($0.cases.map(\.getCase).joined(separator: "\n"))
+                    """
                 }
                 .joined(separator: "\n") + "#endif\n"
         }
@@ -427,30 +427,30 @@ enum ObservableStateCase {
 
     var willModifyCase: String {
         switch self {
-        case let .element(element, _):
+        case .element(let element, _):
             if let parameters = element.parameterClause?.parameters,
-               parameters.count == 1,
-               let parameter = parameters.first
+                parameters.count == 1,
+                let parameter = parameters.first
             {
                 return """
-          case var .\(element.name.text)(state):
-          \(ObservableStateMacro.moduleName)._$willModify(&state)
-          self = .\(element.name.text)(\(parameter.firstName.map { "\($0): " } ?? "")state)
-          """
+                    case var .\(element.name.text)(state):
+                    \(ObservableStateMacro.moduleName)._$willModify(&state)
+                    self = .\(element.name.text)(\(parameter.firstName.map { "\($0): " } ?? "")state)
+                    """
             } else {
                 return """
-          case .\(element.name.text):
-          break
-          """
+                    case .\(element.name.text):
+                    break
+                    """
             }
-        case let .ifConfig(configs):
+        case .ifConfig(let configs):
             return
-            configs
+                configs
                 .map {
-          """
-          \($0.poundKeyword.text) \($0.condition?.trimmedDescription ?? "")
-          \($0.cases.map(\.willModifyCase).joined(separator: "\n"))
-          """
+                    """
+                    \($0.poundKeyword.text) \($0.condition?.trimmedDescription ?? "")
+                    \($0.cases.map(\.willModifyCase).joined(separator: "\n"))
+                    """
                 }
                 .joined(separator: "\n") + "#endif\n"
         }
@@ -475,20 +475,20 @@ extension ObservableStateMacro {
         }
 
         return [
-      """
-      public var _$id: \(raw: qualifiedIDName) {
-      switch self {
-      \(raw: getCases.joined(separator: "\n"))
-      }
-      }
-      """,
-      """
-      public mutating func _$willModify() {
-      switch self {
-      \(raw: willModifyCases.joined(separator: "\n"))
-      }
-      }
-      """,
+            """
+            public var _$id: \(raw: qualifiedIDName) {
+            switch self {
+            \(raw: getCases.joined(separator: "\n"))
+            }
+            }
+            """,
+            """
+            public mutating func _$willModify() {
+            switch self {
+            \(raw: willModifyCases.joined(separator: "\n"))
+            }
+            }
+            """,
         ]
     }
 }
@@ -514,7 +514,7 @@ extension ObservableStateMacro: MemberAttributeMacro {
         in context: Context
     ) throws -> [AttributeSyntax] {
         guard let property = member.as(VariableDeclSyntax.self), property.isValidForObservation,
-              property.identifier != nil
+            property.identifier != nil
         else {
             return []
         }
@@ -571,7 +571,7 @@ extension VariableDeclSyntax {
         context: C
     ) {
         if let attribute = self.firstAttribute(for: name),
-           let type = attribute.attributeName.as(IdentifierTypeSyntax.self)
+            let type = attribute.attributeName.as(IdentifierTypeSyntax.self)
         {
             context.diagnose(
                 Diagnostic(
@@ -582,12 +582,12 @@ extension VariableDeclSyntax {
                         oldNode: attribute,
                         newNode: attribute.with(
                             \.attributeName,
-                             TypeSyntax(
+                            TypeSyntax(
                                 type.with(
                                     \.name,
-                                     .identifier(rename, trailingTrivia: type.name.trailingTrivia)
+                                    .identifier(rename, trailingTrivia: type.name.trailingTrivia)
                                 )
-                             )
+                            )
                         )
                     )
                 )
@@ -612,9 +612,9 @@ extension ObservableStateMacro: ExtensionMacro {
 
         return [
             ("""
-      \(declaration.attributes.availability)extension \(raw: type.trimmedDescription): \
-      \(raw: qualifiedConformanceName), Observation.Observable {}
-      """ as DeclSyntax)
+            \(declaration.attributes.availability)extension \(raw: type.trimmedDescription): \
+            \(raw: qualifiedConformanceName), Observation.Observable {}
+            """ as DeclSyntax)
             .cast(ExtensionDeclSyntax.self)
         ]
     }
@@ -630,8 +630,8 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
         in context: Context
     ) throws -> [AccessorDeclSyntax] {
         guard let property = declaration.as(VariableDeclSyntax.self),
-              property.isValidForObservation,
-              let identifier = property.identifier?.trimmed
+            property.isValidForObservation,
+            let identifier = property.identifier?.trimmed
         else {
             return []
         }
@@ -645,36 +645,36 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
         }
 
         let initAccessor: AccessorDeclSyntax =
-      """
-      @storageRestrictions(initializes: _\(identifier))
-      init(initialValue) {
-      _\(identifier) = initialValue
-      }
-      """
+            """
+            @storageRestrictions(initializes: _\(identifier))
+            init(initialValue) {
+            _\(identifier) = initialValue
+            }
+            """
 
         let getAccessor: AccessorDeclSyntax =
-      """
-      get {
-      \(raw: ObservableStateMacro.registrarVariableName).access(self, keyPath: \\.\(identifier))
-      return _\(identifier)
-      }
-      """
+            """
+            get {
+            \(raw: ObservableStateMacro.registrarVariableName).access(self, keyPath: \\.\(identifier))
+            return _\(identifier)
+            }
+            """
 
         let setAccessor: AccessorDeclSyntax =
-      """
-      set {
-      \(raw: ObservableStateMacro.registrarVariableName).mutate(self, keyPath: \\.\(identifier), &_\(identifier), newValue, _$isIdentityEqual, shouldNotifyObservers)
-      }
-      """
+            """
+            set {
+            \(raw: ObservableStateMacro.registrarVariableName).mutate(self, keyPath: \\.\(identifier), &_\(identifier), newValue, _$isIdentityEqual, shouldNotifyObservers)
+            }
+            """
         let modifyAccessor: AccessorDeclSyntax = """
-      _modify {
-        let oldValue = _$observationRegistrar.willModify(self, keyPath: \\.\(identifier), &_\(identifier))
-        defer {
-          _$observationRegistrar.didModify(self, keyPath: \\.\(identifier), &_\(identifier), oldValue, _$isIdentityEqual)
-        }
-        yield &_\(identifier)
-      }
-      """
+            _modify {
+              let oldValue = _$observationRegistrar.willModify(self, keyPath: \\.\(identifier), &_\(identifier))
+              defer {
+                _$observationRegistrar.didModify(self, keyPath: \\.\(identifier), &_\(identifier), oldValue, _$isIdentityEqual)
+              }
+              yield &_\(identifier)
+            }
+            """
 
         return [initAccessor, getAccessor, setAccessor, modifyAccessor]
     }
@@ -690,7 +690,7 @@ extension ObservationStateTrackedMacro: PeerMacro {
         in context: Context
     ) throws -> [DeclSyntax] {
         guard let property = declaration.as(VariableDeclSyntax.self),
-              property.isValidForObservation
+            property.isValidForObservation
         else {
             return []
         }

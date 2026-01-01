@@ -92,10 +92,10 @@ public macro ViewStateReducer() = #externalMacro(module: "UnoArchitectureMacros"
     member,
     names:
         named(viewState),
-        named(viewEventContinuation),
-        named(subscriptionTask),
-        named(sendViewEvent),
-        named(deinit)
+    named(viewEventContinuation),
+    named(subscriptionTask),
+    named(sendViewEvent),
+    named(deinit)
 )
 @attached(extension, conformances: ViewModel)
 public macro ViewModel<ViewStateType, ViewEventType>() =

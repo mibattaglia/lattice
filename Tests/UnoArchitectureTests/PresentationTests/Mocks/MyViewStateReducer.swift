@@ -1,16 +1,16 @@
-import UnoArchitecture
 import Foundation
+import UnoArchitecture
 
 @ViewStateReducer<MyDomainState, MyViewState>
 struct MyViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
         Self.buildViewState { domainState in
             switch domainState {
-            case let .error(code):
+            case .error(let code):
                 return .error(title: reduceErrorCode(code))
             case .loading:
                 return .loading
-            case let .success(content):
+            case .success(let content):
                 return .success(reduceContent(content))
             }
         }

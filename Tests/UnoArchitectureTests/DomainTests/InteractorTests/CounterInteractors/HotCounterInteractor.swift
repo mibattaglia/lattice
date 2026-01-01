@@ -19,7 +19,7 @@ struct HotCounterInteractor: Interactor {
             case .increment:
                 state.count += 1
                 return .state
-            case let .observe(publisher):
+            case .observe(let publisher):
                 return .observe { state, send in
                     let stateStream = publisher.values
                     for await value in stateStream {
