@@ -1,4 +1,5 @@
 import Testing
+
 @testable import UnoArchitecture
 
 @Suite
@@ -16,7 +17,7 @@ struct InteractorTestHarnessTests {
             CounterInteractor.State(count: 0),
             CounterInteractor.State(count: 1),
             CounterInteractor.State(count: 2),
-            CounterInteractor.State(count: 1)
+            CounterInteractor.State(count: 1),
         ])
     }
 

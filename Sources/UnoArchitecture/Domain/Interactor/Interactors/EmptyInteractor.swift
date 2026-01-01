@@ -18,7 +18,7 @@ public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Se
                 $0.finish()
             } else {
                 let task = Task {
-                    for await _ in upstream { }
+                    for await _ in upstream {}
                 }
                 $0.onTermination = { _ in task.cancel() }
                 $0.finish()

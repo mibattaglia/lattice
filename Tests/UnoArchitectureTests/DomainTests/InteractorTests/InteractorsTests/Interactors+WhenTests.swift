@@ -50,9 +50,9 @@ struct WhenTests {
                 return .state
             }
         }
-            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-                CounterInteractor()
-            }
+        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+            CounterInteractor()
+        }
 
         let recorder = AsyncStreamRecorder<ParentState>()
         let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
@@ -95,9 +95,9 @@ struct WhenTests {
                 return .state
             }
         }
-            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-                CounterInteractor()
-            }
+        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+            CounterInteractor()
+        }
 
         let recorder = AsyncStreamRecorder<ParentState>()
         let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
@@ -136,9 +136,9 @@ struct WhenTests {
                 return .state
             }
         }
-            .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-                CounterInteractor()
-            }
+        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
+            CounterInteractor()
+        }
 
         let recorder = AsyncStreamRecorder<ParentState>()
         let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
@@ -180,24 +180,26 @@ struct WhenTests {
                 return .state
             }
         }
-            .when(stateIs: \.counter1, actionIs: \.counter1, stateAction: \.counter1StateChanged) {
-                CounterInteractor()
-            }
-            .when(stateIs: \.counter2, actionIs: \.counter2, stateAction: \.counter2StateChanged) {
-                Interact<CounterInteractor.State, CounterInteractor.Action>(initialValue: CounterInteractor.State(count: 10)) { state, action in
-                    switch action {
-                    case .increment:
-                        state.count += 1
-                        return .state
-                    case .decrement:
-                        state.count -= 1
-                        return .state
-                    case .reset:
-                        state.count = 10
-                        return .state
-                    }
+        .when(stateIs: \.counter1, actionIs: \.counter1, stateAction: \.counter1StateChanged) {
+            CounterInteractor()
+        }
+        .when(stateIs: \.counter2, actionIs: \.counter2, stateAction: \.counter2StateChanged) {
+            Interact<CounterInteractor.State, CounterInteractor.Action>(
+                initialValue: CounterInteractor.State(count: 10)
+            ) { state, action in
+                switch action {
+                case .increment:
+                    state.count += 1
+                    return .state
+                case .decrement:
+                    state.count -= 1
+                    return .state
+                case .reset:
+                    state.count = 10
+                    return .state
                 }
             }
+        }
 
         let recorder = AsyncStreamRecorder<ParentStateWithTwo>()
         let (actionStream, actionCont) = AsyncStream<ParentActionWithTwo>.makeStream()

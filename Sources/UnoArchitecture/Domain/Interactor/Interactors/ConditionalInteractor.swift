@@ -1,7 +1,8 @@
 import Foundation
 
 extension Interactors {
-    public enum Conditional<First: Interactor, Second: Interactor<First.DomainState, First.Action>>: Interactor, @unchecked Sendable
+    public enum Conditional<First: Interactor, Second: Interactor<First.DomainState, First.Action>>: Interactor,
+        @unchecked Sendable
     where First.DomainState: Sendable, First.Action: Sendable {
         case first(First)
         case second(Second)

@@ -166,4 +166,3 @@ extension Interactor {
         UncheckedSendableInteractor(self).eraseToAnyInteractor()
     }
 }
-

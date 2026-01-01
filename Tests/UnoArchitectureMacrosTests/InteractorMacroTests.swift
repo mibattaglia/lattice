@@ -113,12 +113,12 @@
                     var body: some InteractorOf<Self> {
                         EmptyInteractor()
                     }
-                
+
                     typealias DomainState = Int?
-                
+
                     typealias Action = String
                 }
-                
+
                 extension MyInteractor: UnoArchitecture.Interactor {
                 }
                 """

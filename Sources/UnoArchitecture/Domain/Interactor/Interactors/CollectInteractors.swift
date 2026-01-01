@@ -1,7 +1,8 @@
 import Foundation
 
 extension Interactors {
-    public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor, @unchecked Sendable
+    public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor,
+        @unchecked Sendable
     where State == Interactors.DomainState, Action == Interactors.Action {
         private let interactors: Interactors
 

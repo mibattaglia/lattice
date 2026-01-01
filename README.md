@@ -253,6 +253,16 @@ func testDebounce() async throws {
 }
 ```
 
+## Development
+
+After cloning, configure git to use the project's hooks:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This enables the pre-push hook which auto-formats Swift files with `swift-format`.
+
 ## Requirements
 
 - iOS 16.0+ / macOS 14.0+ / watchOS 10.0+

@@ -6,7 +6,7 @@
     final class ViewModelMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
-//                record: .failed,
+                //                record: .failed,
                 macros: [
                     ViewModelMacro.self,
                     SubscribeMacro.self,
