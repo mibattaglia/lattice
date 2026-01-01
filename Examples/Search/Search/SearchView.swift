@@ -46,7 +46,7 @@ struct SearchView: View {
                 switch viewModel.viewState {
                 case .none:
                     EmptyView()
-                case let .loaded(listContent):
+                case .loaded(let listContent):
                     listView(listContent)
                         .transition(.opacity)
                 }

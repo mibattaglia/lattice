@@ -19,11 +19,14 @@ struct SearchInteractor: Sendable {
                 return .state
             case .search:
                 return .state
-            case let .locationTapped(id):
-                let tappedRowIndex = state[dynamicMember: \.results]?.results.firstIndex(where: { "\($0.weatherModel.id)" == id })
+            case .locationTapped(let id):
+                let tappedRowIndex = state[dynamicMember: \.results]?.results.firstIndex(where: {
+                    "\($0.weatherModel.id)" == id
+                })
 
                 guard let tappedRowIndex,
-                      let tappedRow = state[dynamicMember: \.results]?.results[tappedRowIndex] else {
+                    let tappedRow = state[dynamicMember: \.results]?.results[tappedRowIndex]
+                else {
                     return .state
                 }
                 state.modify(\.results) { domainState in
@@ -34,7 +37,8 @@ struct SearchInteractor: Sendable {
                 }
                 return .perform { [weatherService] state, send in
                     var currentState = await state.current
-                    let weather = try? await weatherService.forecast(latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
+                    let weather = try? await weatherService.forecast(
+                        latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
                     if let weather {
                         currentState.modify(\.results) { domainState in
                             domainState.results[tappedRowIndex].isLoading = false

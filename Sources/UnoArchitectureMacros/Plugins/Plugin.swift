@@ -10,6 +10,6 @@ struct MacrosPlugin: CompilerPlugin {
         SubscribeMacro.self,
         ObservableStateMacro.self,
         ObservationStateIgnoredMacro.self,
-        ObservationStateTrackedMacro.self
+        ObservationStateTrackedMacro.self,
     ]
 }

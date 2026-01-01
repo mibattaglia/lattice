@@ -138,13 +138,13 @@ public macro subscribe<DomainEvent, DomainState, ViewState>(
     named(shouldNotifyObservers))
 @attached(memberAttribute)
 public macro ObservableState() =
-#externalMacro(module: "UnoArchitectureMacros", type: "ObservableStateMacro")
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservableStateMacro")
 
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_))
 public macro ObservationStateTracked() =
-#externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateTrackedMacro")
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateTrackedMacro")
 
 @attached(accessor, names: named(willSet))
 public macro ObservationStateIgnored() =
-#externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateIgnoredMacro")
+    #externalMacro(module: "UnoArchitectureMacros", type: "ObservationStateIgnoredMacro")

@@ -76,9 +76,9 @@ public struct ObservableStateID: Equatable, Hashable, Sendable {
             var location: UUID {
                 get {
                     switch self {
-                    case let .location(location):
+                    case .location(let location):
                         return location
-                    case let .tag(_, id):
+                    case .tag(_, let id):
                         return id.location
                     }
                 }
@@ -138,7 +138,7 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
         }
 
         if let identifiable = C.Element.self as? any Identifiable.Type,
-           let result = openIdentifiable(identifiable)
+            let result = openIdentifiable(identifiable)
         {
             return result
         } else if let rhs = rhs as? C {
