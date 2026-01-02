@@ -9,12 +9,12 @@ enum TrendsDomainState: Equatable {
 }
 
 struct TrendsData: Equatable {
+    let lastUpdated: Date
     var dailyWorkoutStats: [DailyWorkoutStats]
     var dailyRecoveryStats: [DailyRecoveryStats]
-    let lastUpdated: Date
 }
 
-struct DailyWorkoutStats: Identifiable, Equatable {
+struct DailyWorkoutStats: Identifiable, Equatable, Sendable {
     let id: Date
     let date: Date
     let averageDuration: TimeInterval?
@@ -22,7 +22,7 @@ struct DailyWorkoutStats: Identifiable, Equatable {
     let workoutCount: Int
 }
 
-struct DailyRecoveryStats: Identifiable, Equatable {
+struct DailyRecoveryStats: Identifiable, Equatable, Sendable {
     let id: Date
     let date: Date
     let averageSleepHours: Double?

@@ -4,6 +4,7 @@ import UnoArchitecture
 @Interactor<TrendsDomainState, TrendsEvent>
 struct TrendsInteractor: Sendable {
     private let healthKitReader: HealthKitReader
+    private let daysToLoad = 90
 
     init(healthKitReader: HealthKitReader) {
         self.healthKitReader = healthKitReader
@@ -14,39 +15,40 @@ struct TrendsInteractor: Sendable {
             switch event {
             case .onAppear, .refresh:
                 state = .loading
-                return .perform { [healthKitReader] _, send in
-                    await loadTrendsData(healthKitReader: healthKitReader, send: send)
+                return .perform { [healthKitReader, daysToLoad] _, send in
+                    await loadData(healthKitReader: healthKitReader, days: daysToLoad, send: send)
                 }
             }
         }
     }
 
     @Sendable
-    private func loadTrendsData(
+    private func loadData(
         healthKitReader: HealthKitReader,
+        days: Int,
         send: Send<TrendsDomainState>
     ) async {
-        do {
-            let calendar = Calendar.current
-            let endDate = Date()
-            let startDate = calendar.date(byAdding: .day, value: -21, to: endDate)!
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let startDate = calendar.date(byAdding: .day, value: -days + 1, to: today)!
 
-            async let workouts = healthKitReader.queryWorkouts(from: startDate, to: endDate)
-            async let recovery = healthKitReader.queryRecoveryData(from: startDate, to: endDate)
+        do {
+            async let workouts = healthKitReader.queryWorkouts(from: startDate, to: today)
+            async let recovery = healthKitReader.queryRecoveryData(from: startDate, to: today)
 
             let (workoutResults, recoveryResults) = try await (workouts, recovery)
 
-            let dailyWorkoutStats = aggregateWorkoutsByDay(workoutResults, from: startDate, to: endDate)
-            let dailyRecoveryStats = aggregateRecoveryByDay(recoveryResults, from: startDate, to: endDate)
+            let dailyWorkoutStats = aggregateWorkoutsByDay(workoutResults, from: startDate, to: today)
+            let dailyRecoveryStats = aggregateRecoveryByDay(recoveryResults, from: startDate, to: today)
 
             let trendsData = TrendsData(
+                lastUpdated: Date(),
                 dailyWorkoutStats: dailyWorkoutStats,
-                dailyRecoveryStats: dailyRecoveryStats,
-                lastUpdated: Date()
+                dailyRecoveryStats: dailyRecoveryStats
             )
             await send(.loaded(trendsData))
         } catch {
-            await send(.error(error.localizedDescription))
+            await send(.error("Failed to load trends data"))
         }
     }
 

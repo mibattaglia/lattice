@@ -11,25 +11,28 @@ struct TrendsViewStateReducer {
                 viewState = .loading
 
             case .loaded(let data):
+                let workoutStats = data.dailyWorkoutStats.sorted { $0.date < $1.date }
+                let recoveryStats = data.dailyRecoveryStats.sorted { $0.date < $1.date }
+
                 if viewState.is(\.loaded) {
                     viewState.modify(\.loaded) { content in
                         content.lastUpdated = formatLastUpdated(data.lastUpdated)
-                        content.workoutDurationChart = buildWorkoutDurationChart(data.dailyWorkoutStats)
-                        content.caloriesChart = buildCaloriesChart(data.dailyWorkoutStats)
-                        content.sleepChart = buildSleepChart(data.dailyRecoveryStats)
-                        content.hrvChart = buildHRVChart(data.dailyRecoveryStats)
-                        content.rhrChart = buildRHRChart(data.dailyRecoveryStats)
-                        content.respiratoryRateChart = buildRespiratoryRateChart(data.dailyRecoveryStats)
+                        content.workoutDurationChart = buildWorkoutDurationChart(workoutStats)
+                        content.caloriesChart = buildCaloriesChart(workoutStats)
+                        content.sleepChart = buildSleepChart(recoveryStats)
+                        content.hrvChart = buildHRVChart(recoveryStats)
+                        content.rhrChart = buildRHRChart(recoveryStats)
+                        content.respiratoryRateChart = buildRespiratoryRateChart(recoveryStats)
                     }
                 } else {
                     viewState = .loaded(TrendsContent(
                         lastUpdated: formatLastUpdated(data.lastUpdated),
-                        workoutDurationChart: buildWorkoutDurationChart(data.dailyWorkoutStats),
-                        caloriesChart: buildCaloriesChart(data.dailyWorkoutStats),
-                        sleepChart: buildSleepChart(data.dailyRecoveryStats),
-                        hrvChart: buildHRVChart(data.dailyRecoveryStats),
-                        rhrChart: buildRHRChart(data.dailyRecoveryStats),
-                        respiratoryRateChart: buildRespiratoryRateChart(data.dailyRecoveryStats)
+                        workoutDurationChart: buildWorkoutDurationChart(workoutStats),
+                        caloriesChart: buildCaloriesChart(workoutStats),
+                        sleepChart: buildSleepChart(recoveryStats),
+                        hrvChart: buildHRVChart(recoveryStats),
+                        rhrChart: buildRHRChart(recoveryStats),
+                        respiratoryRateChart: buildRespiratoryRateChart(recoveryStats)
                     ))
                 }
 

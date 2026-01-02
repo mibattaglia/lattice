@@ -30,6 +30,29 @@ struct ChartData: Equatable {
     let color: Color
     let dataPoints: [ChartDataPoint]
     let hasData: Bool
+    let pointsByDay: [Date: ChartDataPoint]
+
+    init(
+        title: String,
+        averageValue: String,
+        unit: String,
+        color: Color,
+        dataPoints: [ChartDataPoint],
+        hasData: Bool
+    ) {
+        self.title = title
+        self.averageValue = averageValue
+        self.unit = unit
+        self.color = color
+        self.dataPoints = dataPoints
+        self.hasData = hasData
+
+        let calendar = Calendar.current
+        self.pointsByDay = Dictionary(
+            dataPoints.map { (calendar.startOfDay(for: $0.date), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
 }
 
 struct ChartDataPoint: Identifiable, Equatable {

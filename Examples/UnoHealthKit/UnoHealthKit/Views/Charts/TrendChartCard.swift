@@ -6,6 +6,9 @@ struct TrendChartCard: View {
     let chartType: ChartType
 
     @State private var selectedDate: Date?
+    @State private var scrollPosition: Date = Date()
+
+    private let visibleDays: TimeInterval = 14 * 24 * 60 * 60
 
     enum ChartType {
         case bar
@@ -17,9 +20,7 @@ struct TrendChartCard: View {
         guard let selectedDate else { return nil }
         let calendar = Calendar.current
         let targetDay = calendar.startOfDay(for: selectedDate)
-        return chartData.dataPoints.first {
-            calendar.startOfDay(for: $0.date) == targetDay
-        }
+        return chartData.pointsByDay[targetDay]
     }
 
     var body: some View {
@@ -32,6 +33,16 @@ struct TrendChartCard: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.systemGray6).opacity(0.15))
         )
+        .onAppear {
+            initializeScrollPosition()
+        }
+    }
+
+    private func initializeScrollPosition() {
+        if let lastDate = chartData.dataPoints.last?.date {
+            let calendar = Calendar.current
+            scrollPosition = calendar.date(byAdding: .day, value: -3, to: lastDate) ?? lastDate
+        }
     }
 
     private var headerView: some View {
@@ -89,6 +100,12 @@ struct TrendChartCard: View {
             }
         }
         .chartXSelection(value: $selectedDate)
+        .chartScrollableAxes(.horizontal)
+        .chartXVisibleDomain(length: visibleDays)
+        .chartScrollPosition(x: $scrollPosition)
+        .chartScrollTargetBehavior(
+            .valueAligned(unit: 7)
+        )
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
@@ -134,6 +151,15 @@ struct TrendChartCard: View {
             }
         }
         .chartXSelection(value: $selectedDate)
+        .chartScrollableAxes(.horizontal)
+        .chartXVisibleDomain(length: visibleDays)
+        .chartScrollPosition(x: $scrollPosition)
+        .chartScrollTargetBehavior(
+            .valueAligned(
+                matching: DateComponents(weekday: 1),
+                majorAlignment: .matching(DateComponents(weekday: 1))
+            )
+        )
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
@@ -186,6 +212,15 @@ struct TrendChartCard: View {
             }
         }
         .chartXSelection(value: $selectedDate)
+        .chartScrollableAxes(.horizontal)
+        .chartXVisibleDomain(length: visibleDays)
+        .chartScrollPosition(x: $scrollPosition)
+        .chartScrollTargetBehavior(
+            .valueAligned(
+                matching: DateComponents(weekday: 1),
+                majorAlignment: .matching(DateComponents(weekday: 1))
+            )
+        )
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
