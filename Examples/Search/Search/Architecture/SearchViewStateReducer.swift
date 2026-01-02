@@ -17,7 +17,13 @@ struct SearchViewStateReducer {
                         weather: weatherState(from: result.forecast)
                     )
                 }
-                viewState = .loaded(SearchListContent(listItems: listItems))
+                if viewState.is(\.none) {
+                    viewState = .loaded(.init(listItems: listItems))
+                } else {
+                    viewState.modify(\.loaded) { state in
+                        state.listItems = listItems
+                    }
+                }
             }
         }
     }

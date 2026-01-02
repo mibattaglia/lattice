@@ -1,14 +1,21 @@
 import Foundation
 import UnoArchitecture
+<<<<<<< Updated upstream
 
 @ObservableState
+=======
+import CasePaths
+
+@CasePathable
+>>>>>>> Stashed changes
 enum SearchViewState: Equatable {
     case none
     case loaded(SearchListContent)
 }
 
+@ObservableState
 struct SearchListContent: Equatable {
-    let listItems: [SearchListItem]
+    var listItems: [SearchListItem]
 }
 
 struct SearchListItem: Equatable, Identifiable {

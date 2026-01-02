@@ -2,17 +2,17 @@ import SwiftUI
 import UnoArchitecture
 
 struct TimelineView: View {
-    @StateObject private var viewModel: AnyViewModel<TimelineEvent, TimelineViewState>
+    @State private var viewModel: ViewModel<TimelineEvent, TimelineDomainState, TimelineViewState>
 
     init(healthKitReader: HealthKitReader) {
-        _viewModel = StateObject(
-            wrappedValue: TimelineViewModel(
-                interactor: TimelineInteractor(healthKitReader: healthKitReader)
+        _viewModel = State(
+            wrappedValue: ViewModel(
+                initialValue: TimelineViewState.loading,
+                TimelineInteractor(healthKitReader: healthKitReader)
                     .eraseToAnyInteractor(),
-                viewStateReducer: TimelineViewStateReducer()
+                TimelineViewStateReducer()
                     .eraseToAnyReducer()
             )
-            .erased()
         )
     }
 
@@ -64,16 +64,37 @@ struct TimelineView: View {
         .background(Color.black)
     }
 
+    @ViewBuilder
     private func timelineList(_ content: TimelineListContent) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                ForEach(content.sections) { section in
-                    sectionView(section)
+        if content.sections.isEmpty {
+            VStack(alignment: .center, spacing: 10) {
+                Image(systemName: "heart.text.square")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.red)
+
+                Group {
+                    Text("No Workouts or Recovery Data Found")
+                        .font(.title2.bold())
+                        .multilineTextAlignment(.center)
+
+                    Text("Log a workout or a sleep to see your data.")
+                        .multilineTextAlignment(.center)
                 }
+                .foregroundStyle(.white)
+                .padding(.horizontal)
             }
-            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    ForEach(content.sections) { section in
+                        sectionView(section)
+                    }
+                }
+                .padding()
+            }
+            .background(Color.black)
         }
-        .background(Color.black)
     }
 
     private func sectionView(_ section: TimelineSection) -> some View {

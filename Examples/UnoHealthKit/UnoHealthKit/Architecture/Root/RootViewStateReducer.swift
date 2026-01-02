@@ -4,18 +4,18 @@ import UnoArchitecture
 @ViewStateReducer<RootDomainState, RootViewState>
 struct RootViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState { domainState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .checkingPermission:
-                return .loading
+                viewState = .loading
             case .needsPermission:
-                return .permissionRequired
+                viewState = .permissionRequired
             case .requestingPermission:
-                return .requestingPermission
+                viewState = .requestingPermission
             case .permissionDenied:
-                return .permissionDenied
+                viewState = .permissionDenied
             case .authorized:
-                return .ready
+                viewState = .ready
             }
         }
     }

@@ -65,6 +65,15 @@
       }
     },
     {
+      "identity" : "swift-identified-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-identified-collections",
+      "state" : {
+        "revision" : "322d9ffeeba85c9f7c4984b39422ec7cc3c56597",
+        "version" : "1.1.1"
+      }
+    },
+    {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-syntax",

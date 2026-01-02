@@ -5,18 +5,25 @@ import UnoArchitecture
 @ViewStateReducer<TimelineDomainState, TimelineViewState>
 struct TimelineViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState { domainState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .loading:
-                return .loading
+                viewState = .loading
 
             case .loaded(let data):
                 let sections = groupEntriesBySections(data.entries)
                 let lastUpdated = formatLastUpdated(data.lastUpdated)
-                return .loaded(TimelineListContent(sections: sections, lastUpdated: lastUpdated))
+                if viewState.is(\.loading) {
+                    viewState = .loaded(TimelineListContent(sections: sections, lastUpdated: lastUpdated))
+                } else {
+                    viewState.modify(\.loaded) { loadedContent in
+                        loadedContent.sections = sections
+                        loadedContent.lastUpdated = lastUpdated
+                    }
+                }
 
             case .error(let message):
-                return .error(ErrorContent(message: message, canRetry: true))
+                viewState = .error(ErrorContent(message: message, canRetry: true))
             }
         }
     }

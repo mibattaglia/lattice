@@ -2,11 +2,11 @@ import SwiftUI
 import UnoArchitecture
 
 struct RootView: View {
-    @ObservedObject private var viewModel: AnyViewModel<RootEvent, RootViewState>
+    private let viewModel: ViewModel<RootEvent, RootDomainState, RootViewState>
     private let healthKitReader: HealthKitReader
 
     init(
-        viewModel: AnyViewModel<RootEvent, RootViewState>,
+        viewModel: ViewModel<RootEvent, RootDomainState, RootViewState>,
         healthKitReader: HealthKitReader
     ) {
         self.viewModel = viewModel
@@ -25,7 +25,18 @@ struct RootView: View {
             case .permissionDenied:
                 permissionDeniedView
             case .ready:
-                TimelineView(healthKitReader: healthKitReader)
+                TabView {
+                    TimelineView(healthKitReader: healthKitReader)
+                        .tabItem {
+                            Label("Timeline", systemImage: "clock.fill")
+                        }
+
+                    TrendsView(healthKitReader: healthKitReader)
+                        .tabItem {
+                            Label("Trends", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                }
+                .tint(.white)
             }
         }
         .onAppear {

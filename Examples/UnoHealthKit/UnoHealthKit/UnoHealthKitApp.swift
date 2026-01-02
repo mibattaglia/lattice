@@ -3,7 +3,7 @@ import UnoArchitecture
 
 @main
 struct UnoHealthKitApp: App {
-    @StateObject private var rootViewModel: AnyViewModel<RootEvent, RootViewState>
+    @State private var rootViewModel: ViewModel<RootEvent, RootDomainState, RootViewState>
 
     private let healthKitReader: HealthKitReader
 
@@ -11,14 +11,14 @@ struct UnoHealthKitApp: App {
         let reader = RealHealthKitReader()
         self.healthKitReader = reader
 
-        _rootViewModel = StateObject(
-            wrappedValue: RootViewModel(
-                interactor: RootInteractor(healthKitReader: reader)
+        _rootViewModel = State(
+            wrappedValue: ViewModel(
+                initialValue: RootViewState.loading,
+                RootInteractor(healthKitReader: reader)
                     .eraseToAnyInteractor(),
-                viewStateReducer: RootViewStateReducer()
+                RootViewStateReducer()
                     .eraseToAnyReducer()
             )
-            .erased()
         )
     }
 

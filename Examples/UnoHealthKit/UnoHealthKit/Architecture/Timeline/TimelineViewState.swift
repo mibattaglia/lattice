@@ -1,22 +1,29 @@
 import Foundation
+import UnoArchitecture
 
+@ObservableState
+@CasePathable
+@dynamicMemberLookup
 enum TimelineViewState: Equatable {
     case loading
     case loaded(TimelineListContent)
     case error(ErrorContent)
 }
 
+@ObservableState
 struct TimelineListContent: Equatable {
-    let sections: [TimelineSection]
-    let lastUpdated: String
+    var sections: [TimelineSection]
+    var lastUpdated: String
 }
 
+@ObservableState
 struct TimelineSection: Identifiable, Equatable {
     let id: String
     let title: String
     let items: [TimelineListItem]
 }
 
+@ObservableState
 enum TimelineListItem: Identifiable, Equatable {
     case workout(WorkoutListItem)
     case recovery(RecoveryListItem)
@@ -29,6 +36,7 @@ enum TimelineListItem: Identifiable, Equatable {
     }
 }
 
+@ObservableState
 struct WorkoutListItem: Identifiable, Equatable {
     let id: String
     let workoutType: String
@@ -64,6 +72,7 @@ struct WorkoutEventSummary: Equatable {
     }
 }
 
+@ObservableState
 struct RecoveryListItem: Identifiable, Equatable {
     let id: String
     let totalSleep: String?
