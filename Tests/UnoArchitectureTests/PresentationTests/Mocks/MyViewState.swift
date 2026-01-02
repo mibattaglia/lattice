@@ -1,5 +1,7 @@
 import Foundation
+import UnoArchitecture
 
+@ObservableState
 enum MyViewState: Equatable {
     case loading
     case error(title: String)

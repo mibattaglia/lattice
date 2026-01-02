@@ -3,9 +3,9 @@ import UnoArchitecture
 
 struct SearchView: View {
 
-    @ObservedObject private var viewModel: AnyViewModel<SearchEvent, SearchViewState>
+    private var viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>
 
-    init(viewModel: AnyViewModel<SearchEvent, SearchViewState>) {
+    init(viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>) {
         self.viewModel = viewModel
     }
 
@@ -88,30 +88,4 @@ struct SearchView: View {
         }
         .padding(.leading, 16)
     }
-}
-
-private final class MockViewModel: ViewModel {
-    @Published private(set) var viewState = SearchViewState.loaded(
-        SearchListContent(
-            listItems: [
-                SearchListItem(id: "1", name: "New York", isLoading: true),
-                SearchListItem(
-                    id: "2", name: "Yorkshire",
-                    weather: Weather(forecasts: [
-                        "Today, 18.4 - 30.5",
-                        "Sunday, 20.0 - 29.0",
-                        "Monday, 18.4 - 30.5",
-                        "Tuesday, 18.4 - 30.5",
-                    ])),
-                SearchListItem(id: "3", name: "Amsterdam"),
-                SearchListItem(id: "4", name: "San Francisco"),
-            ]
-        )
-    )
-
-    func sendViewEvent(_ event: SearchEvent) {}
-}
-
-#Preview {
-    SearchView(viewModel: MockViewModel().erased())
 }

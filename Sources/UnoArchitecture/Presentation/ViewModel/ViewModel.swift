@@ -1,5 +1,12 @@
-import Combine
+import Observation
 import SwiftUI
+
+@MainActor
+protocol _ViewModel {
+    associatedtype ViewState: ObservableState
+
+    var viewState: ViewState { get }
+}
 
 /// A generic class that binds a SwiftUI view to your domain/business logic.
 ///
@@ -73,19 +80,20 @@ import SwiftUI
 /// }
 /// ```
 @MainActor
-public final class ViewModel<Action, DomainState, ViewState>: ObservableObject
-where Action: Sendable, DomainState: Sendable {
-    @Published public private(set) var viewState: ViewState
-
+public final class ViewModel<Action, DomainState, ViewState>: Observable, _ViewModel
+where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
+    private var _viewState: ViewState
     private var viewEventContinuation: AsyncStream<Action>.Continuation?
     private var subscriptionTask: Task<Void, Never>?
+
+    private let _$observationRegistrar = ObservationRegistrar()
 
     public init(
         initialValue: @autoclosure () -> ViewState,
         _ interactor: AnyInteractor<DomainState, Action>,
         _ viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     ) {
-        self.viewState = initialValue()
+        self._viewState = initialValue()
 
         let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
         self.viewEventContinuation = continuation
@@ -104,7 +112,7 @@ where Action: Sendable, DomainState: Sendable {
         _ initialValue: @autoclosure () -> ViewState,
         _ interactor: AnyInteractor<ViewState, Action>
     ) where DomainState == ViewState {
-        self.viewState = initialValue()
+        self._viewState = initialValue()
 
         let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
         self.viewEventContinuation = continuation
@@ -113,6 +121,22 @@ where Action: Sendable, DomainState: Sendable {
             guard !Task.isCancelled else { return }
             for await viewState in interactor.interact(stream) {
                 self.viewState = viewState
+            }
+        }
+    }
+
+    public private(set) var viewState: ViewState {
+        get {
+            _$observationRegistrar.access(self, keyPath: \.viewState)
+            return _viewState
+        }
+        set {
+            if _viewState._$id == newValue._$id {
+                _viewState = newValue
+            } else {
+                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {
+                    _viewState = newValue
+                }
             }
         }
     }
@@ -127,4 +151,4 @@ where Action: Sendable, DomainState: Sendable {
     }
 }
 
-public typealias DirectViewModel<Action: Sendable, State: Sendable> = ViewModel<Action, State, State>
+public typealias DirectViewModel<Action: Sendable, State: Sendable & ObservableState> = ViewModel<Action, State, State>

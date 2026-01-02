@@ -3,6 +3,7 @@ import Testing
 
 @testable import UnoArchitecture
 
+@ObservableState
 struct FeatureState: Equatable {
     var count = 0
     var name = "Dracula"

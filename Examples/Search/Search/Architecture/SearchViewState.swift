@@ -1,5 +1,7 @@
 import Foundation
+import UnoArchitecture
 
+@ObservableState
 enum SearchViewState: Equatable {
     case none
     case loaded(SearchListContent)
