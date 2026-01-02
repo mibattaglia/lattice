@@ -17,11 +17,7 @@ struct SearchInteractor: Sendable {
             case .searchResultsChanged(let results):
                 state = .results(results)
                 return .state
-            case let .search(query):
-                switch query {
-                case let .query(s):
-                    print(s)
-                }
+            case .search:
                 return .state
             case .locationTapped(let id):
                 let tappedRowIndex = state[dynamicMember: \.results]?.results.firstIndex(where: {
