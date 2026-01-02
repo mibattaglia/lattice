@@ -79,10 +79,11 @@ extension Bindable {
     public subscript<Action, DomainState, ViewState, Member>(
         dynamicMember keyPath: KeyPath<ViewState, Member>
     ) -> _ViewModelBinding<Action, DomainState, ViewState, Member>
-    where Value == ViewModel<Action, DomainState, ViewState>,
-          Action: Sendable,
-          DomainState: Sendable,
-          ViewState: ObservableState
+    where
+        Value == ViewModel<Action, DomainState, ViewState>,
+        Action: Sendable,
+        DomainState: Sendable,
+        ViewState: ObservableState
     {
         _ViewModelBinding(
             viewModel: self.wrappedValue,
@@ -102,10 +103,11 @@ extension Bindable {
     public subscript<Action, DomainState, ViewState, Case>(
         dynamicMember keyPath: KeyPath<ViewState.AllCasePaths, AnyCasePath<ViewState, Case>>
     ) -> _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
-    where Value == ViewModel<Action, DomainState, ViewState>,
-          Action: Sendable,
-          DomainState: Sendable,
-          ViewState: ObservableState & CasePathable
+    where
+        Value == ViewModel<Action, DomainState, ViewState>,
+        Action: Sendable,
+        DomainState: Sendable,
+        ViewState: ObservableState & CasePathable
     {
         _ViewModelCaseBinding(
             viewModel: self.wrappedValue,
