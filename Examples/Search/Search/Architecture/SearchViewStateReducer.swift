@@ -7,7 +7,7 @@ struct SearchViewStateReducer {
         Self.buildViewState { domainState, viewState in
             switch domainState {
             case .noResults:
-                viewState = .none
+                viewState = .loaded(SearchListContent(query: "", listItems: []))
             case .results(let model):
                 let listItems = model.results.map { result in
                     SearchListItem(
@@ -17,7 +17,14 @@ struct SearchViewStateReducer {
                         weather: weatherState(from: result.forecast)
                     )
                 }
-                viewState = .loaded(SearchListContent(listItems: listItems))
+                if viewState.is(\.loaded) {
+                    viewState.modify(\.loaded) { content in
+                        content.query = model.query
+                        content.listItems = listItems
+                    }
+                } else {
+                    viewState = .loaded(SearchListContent(query: model.query, listItems: listItems))
+                }
             }
         }
     }

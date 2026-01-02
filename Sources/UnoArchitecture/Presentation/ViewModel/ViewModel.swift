@@ -79,6 +79,7 @@ protocol _ViewModel {
 ///     }
 /// }
 /// ```
+@dynamicMemberLookup
 @MainActor
 public final class ViewModel<Action, DomainState, ViewState>: Observable, _ViewModel
 where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
@@ -139,6 +140,10 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
                 }
             }
         }
+    }
+
+    public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
+        self.viewState[keyPath: keyPath]
     }
 
     public func sendViewEvent(_ event: Action) {

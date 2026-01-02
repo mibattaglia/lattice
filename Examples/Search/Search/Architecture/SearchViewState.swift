@@ -1,14 +1,20 @@
+import CasePaths
 import Foundation
 import UnoArchitecture
 
+/// NB: this being an enum is probably overkill, but I wanted to show off the
+/// power of observing enums and binding to enums in this demo.
+@CasePathable
 @ObservableState
+@dynamicMemberLookup
 enum SearchViewState: Equatable {
     case none
     case loaded(SearchListContent)
 }
 
 struct SearchListContent: Equatable {
-    let listItems: [SearchListItem]
+    var query: String
+    var listItems: [SearchListItem]
 }
 
 struct SearchListItem: Equatable, Identifiable {

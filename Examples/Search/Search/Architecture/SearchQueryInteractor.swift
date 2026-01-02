@@ -27,7 +27,7 @@ struct SearchQueryInteractor: Sendable {
                                 forecast: nil
                             )
                         }
-                        await send(SearchDomainState.ResultState(results: weatherResults))
+                        await send(SearchDomainState.ResultState(query: query, results: weatherResults))
                     } catch {
                         print("Search error: \(error)")
                         await send(SearchDomainState.ResultState.none)

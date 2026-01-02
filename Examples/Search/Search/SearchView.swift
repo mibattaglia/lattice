@@ -3,13 +3,11 @@ import UnoArchitecture
 
 struct SearchView: View {
 
-    private var viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>
+    @Bindable private var viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>
 
     init(viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>) {
         self.viewModel = viewModel
     }
-
-    @State var search = ""
 
     var body: some View {
         NavigationStack {
@@ -17,7 +15,7 @@ struct SearchView: View {
                 Text(
                     """
                     This view provides a simple example on how to debounced
-                    search events with Uno. 
+                    search events with Uno.
 
                     Data Flow:
                      - Keystrokes are debounced by 300ms
@@ -32,14 +30,11 @@ struct SearchView: View {
 
                     TextField(
                         "New York, San Francisco, ...",
-                        text: $search
+                        text: $viewModel.loaded.query.sending(\.search.query)
                     )
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .onChange(of: search) { oldValue, newValue in
-                        viewModel.sendViewEvent(.search(.query(newValue)))
-                    }
                 }
                 .padding(.horizontal, 16)
 
@@ -47,8 +42,12 @@ struct SearchView: View {
                 case .none:
                     EmptyView()
                 case .loaded(let listContent):
-                    listView(listContent)
-                        .transition(.opacity)
+                    if listContent.listItems.isEmpty {
+                        EmptyView()
+                    } else {
+                        listView(listContent)
+                            .transition(.opacity)
+                    }
                 }
 
                 Spacer()

@@ -12,10 +12,11 @@ enum SearchDomainState: Equatable {
             var forecast: ForecastDomainModel?
         }
 
+        var query: String
         var results: [ResultItem]
 
         static var none: Self {
-            ResultState(results: [])
+            ResultState(query: "", results: [])
         }
     }
 }
