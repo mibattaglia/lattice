@@ -81,6 +81,10 @@ let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
 )
 ```
 
+This pattern is useful when you have a simple feature that does not need complex 
+mappings between your feature's domain and the rendering instructions for your
+feature's view.
+
 **Full Pattern** (with ViewStateReducer):
 
 ```swift
@@ -91,6 +95,14 @@ let viewModel = ViewModel(
     CounterViewStateReducer().eraseToAnyViewStateReducer()
 )
 ```
+
+You'll want to use the full pattern with an `Interactor` and `ViewStateReducer`
+when you have complex state to manage in your feature. 
+
+One of the main tenet's of Uno is that a feature's ViewState should be simple
+(think mainly primitives like strings, colors, etc.). The `ViewStateReducer` pattern
+is helpful when transforming a complex accumulated model into simple rendering instructions
+for your view.  
 
 ### 4. Connect to SwiftUI
 
@@ -132,6 +144,16 @@ struct CounterView: View {
 +---------------------+
 |  ViewStateReducer   |  <-- @ViewStateReducer macro (optional with DirectViewModel)
 +---------------------+
+           | flows back to ViewModel
+           v
++---------------------+
+|     ViewModel       | 
++---------------------+
+           | setting `ViewState` triggers a re-render
+           v
++---------------------+
+|    SwiftUI View     |
++----------+----------+
 ```
 
 **Data Flow**:
