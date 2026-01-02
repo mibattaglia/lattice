@@ -6,8 +6,6 @@ struct MacrosPlugin: CompilerPlugin {
     let providingMacros: [any Macro.Type] = [
         InteractorMacro.self,
         ViewStateReducerMacro.self,
-        ViewModelMacro.self,
-        SubscribeMacro.self,
         ObservableStateMacro.self,
         ObservationStateIgnoredMacro.self,
         ObservationStateTrackedMacro.self,

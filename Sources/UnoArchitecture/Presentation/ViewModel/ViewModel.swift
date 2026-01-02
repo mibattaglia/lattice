@@ -1,9 +1,9 @@
 import Combine
 import SwiftUI
 
-/// A type that binds a SwiftUI view to your domain/business logic.
+/// A generic class that binds a SwiftUI view to your domain/business logic.
 ///
-/// A `ViewModel` is a coordinator that connects UI events to the interactor system
+/// `ViewModel` is a coordinator that connects UI events to the interactor system
 /// and publishes view state changes back to SwiftUI. It serves as the main entry point
 /// for a feature's architecture.
 ///
@@ -17,32 +17,44 @@ import SwiftUI
 /// 4. The ``ViewStateReducer`` transforms domain state to view state
 /// 5. View observes `viewState` changes and re-renders
 ///
-/// ## Declaring a ViewModel
+/// ## Initialization Patterns
 ///
-/// Use the `@ViewModel` macro for a concise declaration:
+/// ### Full Initialization (with ViewStateReducer)
+///
+/// Use this pattern when domain state differs from view state and requires transformation:
 ///
 /// ```swift
-/// @MainActor
-/// @ViewModel<CounterViewState, CounterEvent>
-/// final class CounterViewModel {
-///     init(
-///         interactor: AnyInteractor<CounterDomainState, CounterEvent>,
-///         viewStateReducer: AnyViewStateReducer<CounterDomainState, CounterViewState>
-///     ) {
-///         self.viewState = .initial
-///         #subscribe { builder in
-///             builder
-///                 .interactor(interactor)
-///                 .viewStateReducer(viewStateReducer)
-///         }
-///     }
-/// }
+/// let viewModel = ViewModel(
+///     initialValue: CounterViewState(count: 0, displayText: ""),
+///     CounterInteractor().eraseToAnyInteractor(),
+///     CounterViewStateReducer().eraseToAnyViewStateReducer()
+/// )
+/// ```
+///
+/// ### Direct Initialization (DomainState == ViewState)
+///
+/// Use this pattern when the interactor's output can be used directly as view state:
+///
+/// ```swift
+/// let viewModel = ViewModel(
+///     CounterState(count: 0),
+///     CounterInteractor().eraseToAnyInteractor()
+/// )
+/// ```
+///
+/// Or use the ``DirectViewModel`` typealias for clarity:
+///
+/// ```swift
+/// let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+///     CounterState(count: 0),
+///     CounterInteractor().eraseToAnyInteractor()
+/// )
 /// ```
 ///
 /// ## Key Components
 ///
-/// - `viewState`: A data structure optimized for view rendering
-/// - `sendViewEvent(_:)`: Method to send user events to the architecture
+/// - `viewState`: A published property optimized for view rendering
+/// - `sendViewEvent(_:)`: Method to dispatch user actions to the architecture
 ///
 /// ## SwiftUI Integration
 ///
@@ -50,7 +62,7 @@ import SwiftUI
 ///
 /// ```swift
 /// struct CounterView: View {
-///     @StateObject var viewModel: CounterViewModel
+///     @StateObject var viewModel: ViewModel<CounterAction, CounterState, CounterViewState>
 ///
 ///     var body: some View {
 ///         Text("Count: \(viewModel.viewState.count)")
@@ -61,61 +73,58 @@ import SwiftUI
 /// }
 /// ```
 @MainActor
-public protocol ViewModel: ObservableObject, Sendable {
-    /// The type of events sent from the view.
-    associatedtype ViewEventType
-    /// The type of state observed by the view.
-    associatedtype ViewStateType
+public final class ViewModel<Action, DomainState, ViewState>: ObservableObject
+where Action: Sendable, DomainState: Sendable {
+    @Published public private(set) var viewState: ViewState
 
-    /// The current view state, observed by SwiftUI for rendering.
-    var viewState: ViewStateType { get }
+    private var viewEventContinuation: AsyncStream<Action>.Continuation?
+    private var subscriptionTask: Task<Void, Never>?
 
-    /// Sends a view event to the architecture for processing.
-    ///
-    /// - Parameter event: The event triggered by user interaction.
-    func sendViewEvent(_ event: ViewEventType)
-}
+    public init(
+        initialValue: @autoclosure () -> ViewState,
+        _ interactor: AnyInteractor<DomainState, Action>,
+        _ viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
+    ) {
+        self.viewState = initialValue()
 
-/// A type-erased wrapper around any ``ViewModel``.
-///
-/// Use `AnyViewModel` when you need to store view models with different concrete
-/// types but the same `ViewEvent` and `ViewState` types.
-@MainActor
-public final class AnyViewModel<ViewEvent, ViewState>: ViewModel {
-    public var viewState: ViewState { viewStateGetter() }
-
-    private let viewStateGetter: @MainActor () -> ViewState
-    private let viewEventSender: @MainActor (ViewEvent) -> Void
-    private var cancellable: AnyCancellable?
-
-    /// Creates a type-erased wrapper around `base`.
-    ///
-    /// - Note: The wrapper relays `objectWillChange` so that SwiftUI updates continue to work.
-    public init<VM: ViewModel>(_ base: VM)
-    where VM.ViewEventType == ViewEvent, VM.ViewStateType == ViewState {
-        self.viewEventSender = { [weak base] event in base?.sendViewEvent(event) }
-        self.viewStateGetter = { [weak base] in
-            guard let base else {
-                fatalError("Underlying ViewModel deallocated")
+        let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
+        self.viewEventContinuation = continuation
+        self.subscriptionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await domainState in interactor.interact(stream) {
+                guard !Task.isCancelled else {
+                    break
+                }
+                viewStateReducer.reduce(domainState, into: &self.viewState)
             }
-            return base.viewState
         }
+    }
 
-        self.cancellable = base.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
+    public init(
+        _ initialValue: @autoclosure () -> ViewState,
+        _ interactor: AnyInteractor<ViewState, Action>
+    ) where DomainState == ViewState {
+        self.viewState = initialValue()
+
+        let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
+        self.viewEventContinuation = continuation
+        self.subscriptionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            for await viewState in interactor.interact(stream) {
+                self.viewState = viewState
             }
+        }
     }
 
-    /// Forwards the view event to the underlying view model.
-    public func sendViewEvent(_ event: ViewEvent) {
-        viewEventSender(event)
+    public func sendViewEvent(_ event: Action) {
+        viewEventContinuation?.yield(event)
+    }
+
+    deinit {
+        viewEventContinuation?.finish()
+        subscriptionTask?.cancel()
     }
 }
 
-extension ViewModel {
-    /// Erases `self` to ``AnyViewModel``.
-    public func erased() -> AnyViewModel<ViewEventType, ViewStateType> {
-        AnyViewModel(self)
-    }
-}
+public typealias DirectViewModel<Action: Sendable, State: Sendable> = ViewModel<Action, State, State>

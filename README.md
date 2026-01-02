@@ -9,7 +9,7 @@ A lightweight, pure Swift library for building complex features using MVVM with 
 - **Declarative Composition**: Result builders for composing interactors
 - **Type-Safe**: Strong generic constraints ensure compile-time safety
 - **Testable**: First-class testing support with `InteractorTestHarness` and `AsyncStreamRecorder`
-- **SwiftUI Integration**: `@ViewModel` macro for seamless view binding
+- **SwiftUI Integration**: Generic `ViewModel` class for seamless view binding
 - **Swift 6 Ready**: Full concurrency safety with `@MainActor` isolation
 
 ## Installation
@@ -69,22 +69,27 @@ struct CounterInteractor: Sendable {
 
 ### 3. Create a ViewModel
 
+The `ViewModel` class connects your interactor to SwiftUI. There are two initialization patterns:
+
+**Direct Pattern** (when DomainState == ViewState):
+
 ```swift
-@MainActor
-@ViewModel<CounterViewState, CounterAction>
-final class CounterViewModel {
-    init(
-        interactor: AnyInteractor<CounterState, CounterAction>,
-        viewStateReducer: AnyViewStateReducer<CounterState, CounterViewState>
-    ) {
-        self.viewState = CounterViewState(count: 0)
-        #subscribe { builder in
-            builder
-                .interactor(interactor)
-                .viewStateReducer(viewStateReducer)
-        }
-    }
-}
+// Use DirectViewModel when your interactor output is your view state
+let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+    CounterState(count: 0),
+    CounterInteractor().eraseToAnyInteractor()
+)
+```
+
+**Full Pattern** (with ViewStateReducer):
+
+```swift
+// Use the full ViewModel when you need to transform domain state to view state
+let viewModel = ViewModel(
+    initialValue: CounterViewState(count: 0, displayText: ""),
+    CounterInteractor().eraseToAnyInteractor(),
+    CounterViewStateReducer().eraseToAnyViewStateReducer()
+)
 ```
 
 ### 4. Connect to SwiftUI
@@ -115,7 +120,7 @@ struct CounterView: View {
            | sendViewEvent()
            v
 +---------------------+
-|     ViewModel       |  <-- @ViewModel macro
+|     ViewModel       |  <-- Generic ViewModel<Action, DomainState, ViewState>
 +----------+----------+
            |
            v
@@ -125,7 +130,7 @@ struct CounterView: View {
            |
            v
 +---------------------+
-|  ViewStateReducer   |  <-- @ViewStateReducer macro
+|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional with DirectViewModel)
 +---------------------+
 ```
 

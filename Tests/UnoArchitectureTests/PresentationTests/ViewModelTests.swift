@@ -8,7 +8,7 @@ import Testing
 struct ViewModelTests {
     private let interactor: MyInteractor
     private let viewStateReducer: MyViewStateReducer
-    private let viewModel: MyViewModel
+    private let viewModel: ViewModel<MyEvent, MyDomainState, MyViewState>
 
     private static let now = Date(timeIntervalSince1970: 1_748_377_205)
 
@@ -16,9 +16,10 @@ struct ViewModelTests {
         let capturedNow = Self.now
         self.interactor = MyInteractor(dateFactory: { capturedNow })
         self.viewStateReducer = MyViewStateReducer()
-        self.viewModel = MyViewModel(
-            interactor: interactor.eraseToAnyInteractorUnchecked(),
-            viewStateReducer: viewStateReducer.eraseToAnyReducer()
+        self.viewModel = ViewModel(
+            initialValue: .loading,
+            interactor.eraseToAnyInteractorUnchecked(),
+            viewStateReducer.eraseToAnyReducer()
         )
     }
 
