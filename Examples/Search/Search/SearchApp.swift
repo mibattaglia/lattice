@@ -3,18 +3,18 @@ import UnoArchitecture
 
 @main
 struct SearchApp: App {
-    @StateObject private var viewModel: AnyViewModel<SearchEvent, SearchViewState>
+    @State private var viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>
 
     init() {
         let weatherService = RealWeatherService()
-        _viewModel = StateObject(
-            wrappedValue: SearchViewModel(
-                interactor: SearchInteractor(weatherService: weatherService)
+        _viewModel = State(
+            wrappedValue: ViewModel(
+                initialValue: SearchViewState.none,
+                SearchInteractor(weatherService: weatherService)
                     .eraseToAnyInteractor(),
-                viewStateReducer: SearchViewStateReducer()
+                SearchViewStateReducer()
                     .eraseToAnyReducer()
             )
-            .erased()
         )
     }
 
