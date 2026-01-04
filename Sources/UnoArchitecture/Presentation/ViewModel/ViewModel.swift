@@ -19,10 +19,11 @@ protocol _ViewModel {
 /// The data flow is unidirectional:
 ///
 /// 1. View calls `sendViewEvent(_:)` with user actions
-/// 2. Events are forwarded to the ``Interactor``
-/// 3. The interactor emits domain state
+/// 2. The ``Interactor`` processes the action synchronously and returns an ``Emission``
+/// 3. State mutations are applied immediately
 /// 4. The ``ViewStateReducer`` transforms domain state to view state
-/// 5. View observes `viewState` changes and re-renders
+/// 5. Any async effects from the emission are spawned as tasks
+/// 6. View observes `viewState` changes and re-renders
 ///
 /// ## Initialization Patterns
 ///
@@ -32,9 +33,9 @@ protocol _ViewModel {
 ///
 /// ```swift
 /// let viewModel = ViewModel(
-///     initialValue: CounterViewState(count: 0, displayText: ""),
-///     CounterInteractor().eraseToAnyInteractor(),
-///     CounterViewStateReducer().eraseToAnyViewStateReducer()
+///     initialDomainState: CounterDomainState(count: 0),
+///     interactor: CounterInteractor().eraseToAnyInteractor(),
+///     viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
 /// )
 /// ```
 ///
@@ -44,8 +45,8 @@ protocol _ViewModel {
 ///
 /// ```swift
 /// let viewModel = ViewModel(
-///     CounterState(count: 0),
-///     CounterInteractor().eraseToAnyInteractor()
+///     initialState: CounterState(count: 0),
+///     interactor: CounterInteractor().eraseToAnyInteractor()
 /// )
 /// ```
 ///
@@ -53,30 +54,43 @@ protocol _ViewModel {
 ///
 /// ```swift
 /// let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
-///     CounterState(count: 0),
-///     CounterInteractor().eraseToAnyInteractor()
+///     initialState: CounterState(count: 0),
+///     interactor: CounterInteractor().eraseToAnyInteractor()
 /// )
 /// ```
 ///
 /// ## Key Components
 ///
 /// - `viewState`: A published property optimized for view rendering
-/// - `sendViewEvent(_:)`: Method to dispatch user actions to the architecture
+/// - `sendViewEvent(_:)`: Method to dispatch user actions, returns ``EventTask``
 ///
 /// ## SwiftUI Integration
 ///
-/// Use `@StateObject` or `@ObservedObject` to observe the view model:
+/// Use `@State` to hold the view model:
 ///
 /// ```swift
 /// struct CounterView: View {
-///     @StateObject var viewModel: ViewModel<CounterAction, CounterState, CounterViewState>
+///     @State var viewModel = ViewModel(
+///         initialState: CounterState(count: 0),
+///         interactor: CounterInteractor().eraseToAnyInteractor()
+///     )
 ///
 ///     var body: some View {
-///         Text("Count: \(viewModel.viewState.count)")
+///         Text("Count: \(viewModel.count)")
 ///         Button("Increment") {
 ///             viewModel.sendViewEvent(.increment)
 ///         }
 ///     }
+/// }
+/// ```
+///
+/// ## Awaiting Effects
+///
+/// Use ``EventTask/finish()`` to await effect completion:
+///
+/// ```swift
+/// .refreshable {
+///     await viewModel.sendViewEvent(.refresh).finish()
 /// }
 /// ```
 @dynamicMemberLookup
@@ -84,46 +98,58 @@ protocol _ViewModel {
 public final class ViewModel<Action, DomainState, ViewState>: Observable, _ViewModel
 where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     private var _viewState: ViewState
-    private var viewEventContinuation: AsyncStream<Action>.Continuation?
-    private var subscriptionTask: Task<Void, Never>?
+    private var domainState: DomainState
+    private var effectTasks: [Task<Void, Never>] = []
+
+    private let interactor: AnyInteractor<DomainState, Action>
+    private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
+    private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
 
     private let _$observationRegistrar = ObservationRegistrar()
 
+    /// Creates a ViewModel with separate domain and view state.
+    ///
+    /// The view state is automatically inflated by running the reducer with the initial domain state.
+    ///
+    /// - Parameters:
+    ///   - initialDomainState: The initial domain state value.
+    ///   - interactor: The interactor that processes actions.
+    ///   - viewStateReducer: The reducer that transforms domain state to view state.
+    ///   - initialViewState: A closure that provides the initial view state structure.
     public init(
-        initialValue: @autoclosure () -> ViewState,
-        _ interactor: AnyInteractor<DomainState, Action>,
-        _ viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
+        initialDomainState: DomainState,
+        initialViewState: @autoclosure () -> ViewState,
+        interactor: AnyInteractor<DomainState, Action>,
+        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>,
+        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) {
-        self._viewState = initialValue()
+        self.interactor = interactor
+        self.viewStateReducer = viewStateReducer
+        self.domainState = initialDomainState
+        self.areStatesEqual = areStatesEqual
 
-        let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
-        self.viewEventContinuation = continuation
-        self.subscriptionTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await domainState in interactor.interact(stream) {
-                guard !Task.isCancelled else {
-                    break
-                }
-                viewStateReducer.reduce(domainState, into: &self.viewState)
-            }
-        }
+        var viewState = initialViewState()
+        viewStateReducer.reduce(initialDomainState, into: &viewState)
+        self._viewState = viewState
     }
 
+    /// Creates a ViewModel where domain state is used directly as view state.
+    ///
+    /// - Parameters:
+    ///   - initialState: The initial state value (serves as both domain and view state).
+    ///   - interactor: The interactor that processes actions.
     public init(
-        _ initialValue: @autoclosure () -> ViewState,
-        _ interactor: AnyInteractor<ViewState, Action>
+        initialState: ViewState,
+        interactor: AnyInteractor<ViewState, Action>,
+        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) where DomainState == ViewState {
-        self._viewState = initialValue()
-
-        let (stream, continuation) = AsyncStream.makeStream(of: Action.self)
-        self.viewEventContinuation = continuation
-        self.subscriptionTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard !Task.isCancelled else { return }
-            for await viewState in interactor.interact(stream) {
-                self.viewState = viewState
-            }
-        }
+        self.interactor = interactor
+        self.viewStateReducer = BuildViewState<ViewState, ViewState> { domainState, viewState in
+            viewState = domainState
+        }.eraseToAnyReducer()
+        self.domainState = initialState
+        self._viewState = initialState
+        self.areStatesEqual = areStatesEqual
     }
 
     public private(set) var viewState: ViewState {
@@ -146,14 +172,123 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         self.viewState[keyPath: keyPath]
     }
 
-    public func sendViewEvent(_ event: Action) {
-        viewEventContinuation?.yield(event)
+    /// Sends an action to the interactor and returns a task handle.
+    ///
+    /// - Parameter event: The action to send.
+    /// - Returns: An ``EventTask`` representing the spawned effects.
+    @discardableResult
+    public func sendViewEvent(_ event: Action) -> EventTask {
+        let originalDomainState = domainState
+        let emission = interactor.interact(state: &domainState, action: event)
+        if !areStatesEqual(originalDomainState, domainState) {
+            viewStateReducer.reduce(domainState, into: &viewState)
+        }
+
+        let tasks = spawnTasks(from: emission)
+        effectTasks.append(contentsOf: tasks)
+
+        guard !tasks.isEmpty else {
+            return EventTask(rawValue: nil)
+        }
+
+        let compositeTask = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for task in tasks {
+                    group.addTask { await task.value }
+                }
+            }
+        }
+
+        return EventTask(rawValue: compositeTask)
+    }
+
+    private func spawnTasks(from emission: Emission<DomainState>) -> [Task<Void, Never>] {
+        switch emission.kind {
+        case .state:
+            return []
+
+        case .perform(let work):
+            let dynamicState = makeDynamicState()
+            let send = makeSend()
+            let task = Task {
+                await work(dynamicState, send)
+            }
+            return [task]
+
+        case .observe(let stream):
+            let dynamicState = makeDynamicState()
+            let send = makeSend()
+            let task = Task {
+                await stream(dynamicState, send)
+            }
+            return [task]
+
+        case .merge(let emissions):
+            return emissions.flatMap { spawnTasks(from: $0) }
+        }
+    }
+
+    private func makeDynamicState() -> DynamicState<DomainState> {
+        DynamicState { [weak self] in
+            guard let self else {
+                fatalError("ViewModel deallocated during effect execution")
+            }
+            return await MainActor.run { self.domainState }
+        }
+    }
+
+    private func makeSend() -> Send<DomainState> {
+        Send { [weak self] newState in
+            guard let self, !areStatesEqual(domainState, newState) else { return }
+            self.domainState = newState
+            self.viewStateReducer.reduce(newState, into: &self.viewState)
+        }
     }
 
     deinit {
-        viewEventContinuation?.finish()
-        subscriptionTask?.cancel()
+        effectTasks.forEach { $0.cancel() }
     }
 }
 
+extension ViewModel where DomainState: Equatable {
+    public convenience init(
+        initialDomainState: DomainState,
+        initialViewState: @autoclosure () -> ViewState,
+        interactor: AnyInteractor<DomainState, Action>,
+        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
+    ) {
+        self.init(
+            initialDomainState: initialDomainState,
+            initialViewState: initialViewState(),
+            interactor: interactor,
+            viewStateReducer: viewStateReducer,
+            areStatesEqual: { lhs, rhs in lhs == rhs }
+        )
+    }
+
+    public convenience init(
+        initialState: ViewState,
+        interactor: AnyInteractor<ViewState, Action>
+    ) where DomainState == ViewState {
+        self.init(
+            initialDomainState: initialState,
+            initialViewState: initialState,
+            interactor: interactor,
+            viewStateReducer: BuildViewState<ViewState, ViewState> { domainState, viewState in
+                viewState = domainState
+            }.eraseToAnyReducer(),
+            areStatesEqual: { lhs, rhs in lhs == rhs }
+        )
+    }
+}
+
+/// A convenience typealias for ViewModels where domain state equals view state.
+///
+/// Usage:
+/// ```swift
+/// let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+///     CounterState(count: 0),
+///     CounterInteractor().eraseToAnyInteractor()
+/// )
+/// ```
 public typealias DirectViewModel<Action: Sendable, State: Sendable & ObservableState> = ViewModel<Action, State, State>

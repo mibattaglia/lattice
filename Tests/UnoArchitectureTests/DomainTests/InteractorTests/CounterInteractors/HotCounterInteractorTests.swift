@@ -9,23 +9,27 @@ import Testing
 final class HotCounterInteractorTests {
 
     @Test func asyncWork() async throws {
-        let harness = await InteractorTestHarness(HotCounterInteractor())
+        let harness = InteractorTestHarness(
+            initialState: HotCounterInteractor.DomainState(count: 0),
+            interactor: HotCounterInteractor()
+        )
 
         harness.send(.increment)
-        try await harness.waitForStates(count: 2)
 
         let intPublisher = CurrentValueSubject<Int, Never>(1)
-        harness.send(.observe(intPublisher.eraseToAnyPublisher()))
-        try await harness.waitForStates(count: 3)
+        let observeTask = harness.send(.observe(intPublisher.eraseToAnyPublisher()))
+
+        // Allow the CurrentValueSubject's initial value (1) to propagate
+        try await Task.sleep(for: .milliseconds(50))
 
         intPublisher.send(2)
-        try await harness.waitForStates(count: 4)
+        try await Task.sleep(for: .milliseconds(50))
 
         harness.send(.increment)
         intPublisher.send(completion: .finished)
-        harness.finish()
+        await observeTask.finish()
 
-        try await harness.assertStates([
+        try harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

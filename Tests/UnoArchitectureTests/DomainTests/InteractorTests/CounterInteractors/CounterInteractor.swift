@@ -15,7 +15,7 @@ struct CounterInteractor {
     }
 
     var body: some Interactor<State, Action> {
-        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1

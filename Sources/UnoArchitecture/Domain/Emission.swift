@@ -7,7 +7,7 @@ import Foundation
 ///
 /// ## Usage
 ///
-/// There are three emission types:
+/// There are four emission types:
 ///
 /// ### `.state` - Synchronous Emission
 ///
@@ -48,6 +48,14 @@ import Foundation
 /// }
 /// ```
 ///
+/// ### `.merge` - Combine Multiple Emissions
+///
+/// Combines multiple emissions into one, used by higher-order interactors:
+///
+/// ```swift
+/// return .merge([emission1, emission2])
+/// ```
+///
 /// - Note: Both `.perform` and `.observe` receive a ``DynamicState`` for reading the latest
 ///   state and a ``Send`` callback for emitting updates.
 public struct Emission<State: Sendable>: Sendable {
@@ -71,6 +79,12 @@ public struct Emission<State: Sendable>: Sendable {
         ///
         /// - Note: Semantically equivalent to `.perform` but indicates long-running observation.
         case observe(stream: @Sendable (DynamicState<State>, Send<State>) async -> Void)
+
+        /// Combine multiple emissions into one.
+        ///
+        /// Used by higher-order interactors like ``Interactors/Merge`` to combine
+        /// the emissions from multiple child interactors.
+        case merge([Emission<State>])
     }
 
     let kind: Kind
@@ -100,5 +114,21 @@ public struct Emission<State: Sendable>: Sendable {
         _ stream: @escaping @Sendable (DynamicState<State>, Send<State>) async -> Void
     ) -> Emission {
         Emission(kind: .observe(stream: stream))
+    }
+
+    /// Creates an emission that combines multiple emissions.
+    ///
+    /// - Parameter emissions: The emissions to combine.
+    /// - Returns: An emission that will execute all child emissions.
+    public static func merge(_ emissions: [Emission<State>]) -> Emission {
+        Emission(kind: .merge(emissions))
+    }
+
+    /// Combines this emission with another.
+    ///
+    /// - Parameter other: The emission to merge with.
+    /// - Returns: A merged emission containing both.
+    public func merging(with other: Emission<State>) -> Emission<State> {
+        .merge([self, other])
     }
 }

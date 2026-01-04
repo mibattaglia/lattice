@@ -4,9 +4,9 @@ import Testing
 
 @testable import UnoArchitecture
 
-@Suite
+@Suite(.serialized)
 @MainActor
-struct DebounceTests {
+struct DebounceInteractorTests {
     @Test
     func debounceDelaysActions() async throws {
         let clock = TestClock()
@@ -18,24 +18,21 @@ struct DebounceTests {
             CounterInteractor()
         }
 
-        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
-        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: debounced
+        )
 
-        recorder.record(debounced.interact(actionStream))
-
-        // Wait for initial state
-        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0)])
+        #expect(harness.states == [.init(count: 0)])
 
         // Send action
-        actionCont.yield(.increment)
-
+        let task = harness.send(.increment)
         // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
+        await task.finish()
+        await Task.megaYield()
 
-        actionCont.finish()
+        #expect(harness.states == [.init(count: 0), .init(count: 1)])
     }
 
     @Test
@@ -49,27 +46,23 @@ struct DebounceTests {
             CounterInteractor()
         }
 
-        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
-        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: debounced
+        )
 
-        recorder.record(debounced.interact(actionStream))
-
-        // Wait for initial state
-        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0)])
+        #expect(harness.states == [.init(count: 0)])
 
         // Send multiple rapid actions
-        actionCont.yield(.increment)
-        actionCont.yield(.increment)
-        actionCont.yield(.increment)
+        harness.send(.increment)
+        harness.send(.increment)
+        let task = harness.send(.increment)
 
         // Advance past debounce period
         await clock.advance(by: .seconds(1))
-        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+        await task.finish()
 
         // Only one state change because debounce emits only the last value
-        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
-
-        actionCont.finish()
+        #expect(harness.states == [.init(count: 0), .init(count: 1)])
     }
 }

@@ -19,7 +19,7 @@ enum FeatureAction: Equatable {
 @Interactor<FeatureState, FeatureAction>
 struct FeatureInteractor {
     var body: some InteractorOf<Self> {
-        Interact(initialValue: FeatureState()) { state, event in
+        Interact { state, event in
             switch event {
             case .incrementCount:
                 state.count += 1
@@ -42,26 +42,26 @@ struct DirectViewModelTests {
     let viewModel: DirectViewModel<FeatureAction, FeatureState>
 
     init() {
-        self.viewModel = DirectViewModel(.init(), interactor.eraseToAnyInteractor())
+        self.viewModel = DirectViewModel(
+            initialState: .init(),
+            interactor: interactor.eraseToAnyInteractor()
+        )
     }
 
     @Test
-    func directViewModel() async throws {
+    func directViewModel() {
         #expect(viewModel.viewState == FeatureState())
 
         viewModel.sendViewEvent(.incrementCount)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == FeatureState(count: 1))
+
         viewModel.sendViewEvent(.incrementCount)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == FeatureState(count: 2))
 
         viewModel.sendViewEvent(.decrementCount)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == FeatureState(count: 1))
 
         viewModel.sendViewEvent(.increaseAge)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == FeatureState(count: 1, age: 901))
     }
 }

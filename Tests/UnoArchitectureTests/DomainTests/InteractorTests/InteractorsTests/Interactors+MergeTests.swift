@@ -7,21 +7,37 @@ import Testing
 @MainActor
 struct MergeTests {
     @Test
-    func mergeTwo() async throws {
+    func mergeTwo() throws {
+        var results: [Int] = []
+
         let merge = Interactors.Merge(
             TripleInteractor(),
             DoubleInteractor()
         )
 
-        let recorder = AsyncStreamRecorder<Int>()
-        let (actionStream, actionCont) = AsyncStream<Int>.makeStream()
+        var state = 0
 
-        recorder.record(merge.interact(actionStream))
+        // TripleInteractor processes first: state = 3 * 3 = 9
+        _ = TripleInteractor().interact(state: &state, action: 3)
+        results.append(state)
 
-        actionCont.yield(3)
-        actionCont.finish()
+        state = 0
+        // DoubleInteractor processes: state = 3 * 2 = 6
+        _ = DoubleInteractor().interact(state: &state, action: 3)
+        results.append(state)
 
-        try await recorder.waitForEmissions(count: 2, timeout: .milliseconds(500))
-        #expect(recorder.values == [9, 6])
+        #expect(results == [9, 6])
+
+        // Also verify merge calls both
+        state = 0
+        let emission = merge.interact(state: &state, action: 3)
+        // Final state is from last interactor (DoubleInteractor)
+        #expect(state == 6)
+        // Emission should be merged
+        if case .merge(let emissions) = emission.kind {
+            #expect(emissions.count == 2)
+        } else {
+            Issue.record("Expected merged emissions")
+        }
     }
 }

@@ -4,6 +4,7 @@ import UnoArchitecture
 enum MyEvent: Equatable {
     case load
     case incrementCount
+    case fetchData
 }
 
 @Interactor<MyDomainState, MyEvent>
@@ -11,7 +12,7 @@ struct MyInteractor: Interactor {
     let dateFactory: @Sendable () -> Date
 
     var body: some InteractorOf<Self> {
-        Interact(initialValue: .loading) { domainState, event in
+        Interact { domainState, event in
             switch event {
             case .incrementCount:
                 domainState.modify(\.success) { content in
@@ -28,6 +29,20 @@ struct MyInteractor: Interactor {
                     )
                 )
                 return .state
+
+            case .fetchData:
+                domainState.modify(\.success) { content in
+                    content.isLoading = true
+                }
+                return .perform { state, send in
+                    try? await Task.sleep(for: .milliseconds(10))
+                    var current = await state.current
+                    current.modify(\.success) { content in
+                        content.isLoading = false
+                        content.count = 42
+                    }
+                    await send(current)
+                }
             }
         }
     }
