@@ -33,7 +33,8 @@ extension Interactors {
 
         public var body: some Interactor<Element.DomainState, Element.Action> { self }
 
-        public func interact(state: inout Element.DomainState, action: Element.Action) -> Emission<Element.DomainState> {
+        public func interact(state: inout Element.DomainState, action: Element.Action) -> Emission<Element.DomainState>
+        {
             let emissions = interactors.map { interactor in
                 interactor.interact(state: &state, action: action)
             }

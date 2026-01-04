@@ -87,7 +87,7 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         self.interactor = interactor.eraseToAnyInteractor()
         self.state = initialState
         self.stateHistory = [initialState]
-        self.areStatesEqual = { lhs, rhs in lhs == rhs}
+        self.areStatesEqual = { lhs, rhs in lhs == rhs }
     }
 
     private func appendToHistory() {
