@@ -1,24 +1,24 @@
-import Combine
-import CombineSchedulers
 import UnoArchitecture
 
 @Interactor<SearchDomainState.ResultState, SearchQueryEvent>
 struct SearchQueryInteractor: Sendable {
     private let weatherService: WeatherService
+    private let debouncer = Debouncer<ContinuousClock, SearchQueryEvent?>(for: .milliseconds(300))
 
     init(weatherService: WeatherService) {
         self.weatherService = weatherService
     }
 
     var body: some InteractorOf<Self> {
-        Interact(initialValue: .none) { state, event in
+        Interact { state, event in
             switch event {
             case .query(let query):
                 guard !query.isEmpty else {
                     state = .none
-                    return .state
+                    return .none
                 }
-                return .perform { [weatherService] _, send in
+                state.query = query
+                return .perform { [weatherService] in
                     do {
                         let weatherModels = try await weatherService.searchWeather(query: query)
                         let weatherResults = weatherModels.results.map { weatherModel in
@@ -27,12 +27,20 @@ struct SearchQueryInteractor: Sendable {
                                 forecast: nil
                             )
                         }
-                        await send(SearchDomainState.ResultState(query: query, results: weatherResults))
+                        return .searchCompleted(query: query, results: weatherResults)
                     } catch {
                         print("Search error: \(error)")
-                        await send(SearchDomainState.ResultState.none)
+                        return .searchFailed
                     }
                 }
+                .debounce(using: debouncer)
+
+            case .searchCompleted(let query, let results):
+                state.results = results
+                return .none
+
+            case .searchFailed:
+                return .none
             }
         }
     }

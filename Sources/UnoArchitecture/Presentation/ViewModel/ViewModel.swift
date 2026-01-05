@@ -99,7 +99,7 @@ public final class ViewModel<Action, DomainState, ViewState>: Observable, _ViewM
 where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     private var _viewState: ViewState
     private var domainState: DomainState
-    private var effectTasks: [Task<Void, Never>] = []
+    private var effectTasks: [UUID: Task<Void, Never>] = [:]
 
     private let interactor: AnyInteractor<DomainState, Action>
     private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
@@ -184,28 +184,39 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
             viewStateReducer.reduce(domainState, into: &viewState)
         }
 
-        let tasks = spawnTasks(from: emission)
-        effectTasks.append(contentsOf: tasks)
+        let spawnedTasks = spawnTasks(from: emission)
+        let spawnedUUIDs = Set(spawnedTasks.keys)
+        effectTasks.merge(spawnedTasks) { _, new in new }
 
-        guard !tasks.isEmpty else {
+        guard !spawnedTasks.isEmpty else {
             return EventTask(rawValue: nil)
         }
 
-        let compositeTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                for task in tasks {
-                    group.addTask { await task.value }
+        let taskList = Array(spawnedTasks.values)
+        let compositeTask = Task { [weak self] in
+            await withTaskCancellationHandler {
+                await withTaskGroup(of: Void.self) { group in
+                    for task in taskList {
+                        group.addTask { await task.value }
+                    }
                 }
+            } onCancel: {
+                for task in taskList {
+                    task.cancel()
+                }
+            }
+            for uuid in spawnedUUIDs {
+                self?.effectTasks[uuid] = nil
             }
         }
 
         return EventTask(rawValue: compositeTask)
     }
 
-    private func spawnTasks(from emission: Emission<Action>) -> [Task<Void, Never>] {
+    private func spawnTasks(from emission: Emission<Action>) -> [UUID: Task<Void, Never>] {
         switch emission.kind {
         case .none:
-            return []
+            return [:]
 
         case .action(let action):
             let innerEmission = interactor.interact(state: &domainState, action: action)
@@ -213,6 +224,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
             return spawnTasks(from: innerEmission)
 
         case .perform(let work):
+            let uuid = UUID()
             let task = Task { [weak self] in
                 guard let action = await work() else { return }
                 guard !Task.isCancelled else { return }
@@ -220,13 +232,14 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
                     guard let self else { return }
                     let emission = self.interactor.interact(state: &self.domainState, action: action)
                     self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
-                    let tasks = self.spawnTasks(from: emission)
-                    self.effectTasks.append(contentsOf: tasks)
+                    let newTasks = self.spawnTasks(from: emission)
+                    self.effectTasks.merge(newTasks) { _, new in new }
                 }
             }
-            return [task]
+            return [uuid: task]
 
         case .observe(let stream):
+            let uuid = UUID()
             let task = Task { [weak self] in
                 for await action in await stream() {
                     guard !Task.isCancelled else { break }
@@ -234,20 +247,24 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
                         guard let self else { return }
                         let emission = self.interactor.interact(state: &self.domainState, action: action)
                         self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
-                        let tasks = self.spawnTasks(from: emission)
-                        self.effectTasks.append(contentsOf: tasks)
+                        let newTasks = self.spawnTasks(from: emission)
+                        self.effectTasks.merge(newTasks) { _, new in new }
                     }
                 }
             }
-            return [task]
+            return [uuid: task]
 
         case .merge(let emissions):
-            return emissions.flatMap { spawnTasks(from: $0) }
+            return emissions.reduce(into: [:]) { result, emission in
+                result.merge(spawnTasks(from: emission)) { _, new in new }
+            }
         }
     }
 
     deinit {
-        effectTasks.forEach { $0.cancel() }
+        for task in effectTasks.values {
+            task.cancel()
+        }
     }
 }
 

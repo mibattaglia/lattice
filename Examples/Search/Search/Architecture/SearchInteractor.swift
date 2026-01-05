@@ -1,58 +1,69 @@
-import Combine
-import CombineSchedulers
-import Foundation
 import UnoArchitecture
 
 @Interactor<SearchDomainState, SearchEvent>
 struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
+    private let searchQueryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
 
     init(weatherService: WeatherService) {
         self.weatherService = weatherService
+        self.searchQueryInteractor = SearchQueryInteractor(weatherService: weatherService)
+            .eraseToAnyInteractor()
     }
 
     var body: some InteractorOf<Self> {
-        Interact(initialValue: .noResults) { state, event in
+        Interact { state, event in
             switch event {
             case .searchResultsChanged(let results):
+                print("results changed")
                 state = .results(results)
-                return .state
-            case .search:
-                return .state
-            case .locationTapped(let id):
-                let tappedRowIndex = state[dynamicMember: \.results]?.results.firstIndex(where: {
-                    "\($0.weatherModel.id)" == id
-                })
+                return .none
 
-                guard let tappedRowIndex,
-                    let tappedRow = state[dynamicMember: \.results]?.results[tappedRowIndex]
-                else {
-                    return .state
+            case .search:
+                return .none
+
+            case .locationTapped(let id):
+                guard case .results(var resultState) = state else {
+                    return .none
                 }
-                state.modify(\.results) { domainState in
-                    var currentRow = domainState.results[tappedRowIndex]
-                    if !currentRow.isLoading {
-                        currentRow.isLoading = true
-                    }
+
+                guard let tappedRowIndex = resultState.results.firstIndex(where: {
+                    "\($0.weatherModel.id)" == id
+                }) else {
+                    return .none
                 }
-                return .perform { [weatherService] state, send in
-                    var currentState = await state.current
+
+                let tappedRow = resultState.results[tappedRowIndex]
+
+                guard !tappedRow.isLoading else {
+                    return .none
+                }
+
+                resultState.results[tappedRowIndex].isLoading = true
+                state = .results(resultState)
+
+                return .perform { [weatherService] in
                     let weather = try? await weatherService.forecast(
-                        latitude: tappedRow.weatherModel.latitude, longitude: tappedRow.weatherModel.longitude)
-                    if let weather {
-                        currentState.modify(\.results) { domainState in
-                            domainState.results[tappedRowIndex].isLoading = false
-                            domainState.results[tappedRowIndex].forecast = weather
-                        }
-                    }
-                    await send(currentState)
+                        latitude: tappedRow.weatherModel.latitude,
+                        longitude: tappedRow.weatherModel.longitude
+                    )
+                    guard let weather else { return nil }
+                    return .forecastReceived(index: tappedRowIndex, forecast: weather)
                 }
+
+            case .forecastReceived(let index, let forecast):
+                guard case .results(var resultState) = state,
+                      index < resultState.results.count else {
+                    return .none
+                }
+                resultState.results[index].isLoading = false
+                resultState.results[index].forecast = forecast
+                state = .results(resultState)
+                return .none
             }
         }
-        .when(stateIs: \.results, actionIs: \.search, stateAction: \.searchResultsChanged) {
-            DebounceInteractor(for: .milliseconds(300)) {
-                SearchQueryInteractor(weatherService: weatherService)
-            }
+        .when(state: \.results, action: \.search) {
+            searchQueryInteractor
         }
     }
 }

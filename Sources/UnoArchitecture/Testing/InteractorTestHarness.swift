@@ -65,7 +65,7 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     private let interactor: AnyInteractor<State, Action>
     private var stateHistory: [State] = []
     private var actionHistory: [Action] = []
-    private var effectTasks: [Task<Void, Never>] = []
+    private var effectTasks: [UUID: Task<Void, Never>] = [:]
     private let areStatesEqual: (_ lhs: State, _ rhs: State) -> Bool
 
     /// Creates a test harness for the given interactor.
@@ -115,17 +115,29 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         let emission = interactor.interact(state: &state, action: action)
         appendToHistory()
 
-        let tasks = spawnTasks(from: emission)
+        let spawnedTasks = spawnTasks(from: emission)
+        let spawnedUUIDs = Set(spawnedTasks.keys)
+        effectTasks.merge(spawnedTasks) { _, new in new }
 
-        guard !tasks.isEmpty else {
+        guard !spawnedTasks.isEmpty else {
             return EventTask(rawValue: nil)
         }
 
-        let compositeTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                for task in tasks {
-                    group.addTask { await task.value }
+        let taskList = Array(spawnedTasks.values)
+        let compositeTask = Task { [weak self] in
+            await withTaskCancellationHandler {
+                await withTaskGroup(of: Void.self) { group in
+                    for task in taskList {
+                        group.addTask { await task.value }
+                    }
                 }
+            } onCancel: {
+                for task in taskList {
+                    task.cancel()
+                }
+            }
+            for uuid in spawnedUUIDs {
+                self?.effectTasks[uuid] = nil
             }
         }
 
@@ -148,16 +160,17 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         await send(action).finish()
     }
 
-    private func spawnTasks(from emission: Emission<Action>) -> [Task<Void, Never>] {
+    private func spawnTasks(from emission: Emission<Action>) -> [UUID: Task<Void, Never>] {
         switch emission.kind {
         case .none:
-            return []
+            return [:]
 
         case .action(let action):
             _ = send(action)
-            return []
+            return [:]
 
         case .perform(let work):
+            let uuid = UUID()
             let task = Task { [weak self] in
                 guard let action = await work() else { return }
                 guard !Task.isCancelled else { return }
@@ -165,10 +178,10 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
                     _ = self?.send(action)
                 }
             }
-            effectTasks.append(task)
-            return [task]
+            return [uuid: task]
 
         case .observe(let stream):
+            let uuid = UUID()
             let task = Task { [weak self] in
                 for await action in await stream() {
                     guard !Task.isCancelled else { break }
@@ -177,11 +190,12 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
                     }
                 }
             }
-            effectTasks.append(task)
-            return [task]
+            return [uuid: task]
 
         case .merge(let emissions):
-            return emissions.flatMap { spawnTasks(from: $0) }
+            return emissions.reduce(into: [:]) { result, emission in
+                result.merge(spawnTasks(from: emission)) { _, new in new }
+            }
         }
     }
 
@@ -277,6 +291,8 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     }
 
     deinit {
-        effectTasks.forEach { $0.cancel() }
+        for task in effectTasks.values {
+            task.cancel()
+        }
     }
 }
