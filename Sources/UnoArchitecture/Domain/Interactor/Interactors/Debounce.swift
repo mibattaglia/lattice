@@ -65,4 +65,4 @@ extension Interactors.Debounce where C == ContinuousClock {
 }
 
 public typealias DebounceInteractor<C: Clock & Sendable, Child: Interactor & Sendable> = Interactors.Debounce<C, Child>
-    where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable
+where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable

@@ -44,8 +44,9 @@ struct EmissionDebounceTests {
         let emission3 = Emission<TestAction>.perform { .result(3) }.debounce(using: debouncer)
 
         guard case .perform(let work1) = emission1.kind,
-              case .perform(let work2) = emission2.kind,
-              case .perform(let work3) = emission3.kind else {
+            case .perform(let work2) = emission2.kind,
+            case .perform(let work3) = emission3.kind
+        else {
             Issue.record("Expected .perform emissions")
             return
         }
@@ -151,7 +152,8 @@ struct EmissionDebounceTests {
         #expect(emissions.count == 2)
 
         guard case .perform(let work1) = emissions[0].kind,
-              case .perform(let work2) = emissions[1].kind else {
+            case .perform(let work2) = emissions[1].kind
+        else {
             Issue.record("Expected .perform emissions inside merge")
             return
         }

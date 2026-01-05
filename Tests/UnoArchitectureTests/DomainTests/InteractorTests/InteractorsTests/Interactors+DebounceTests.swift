@@ -55,12 +55,13 @@ struct DebounceInteractorTests {
         harness.send(.increment)
 
         // All three increments processed immediately
-        #expect(harness.states == [
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 3)
-        ])
+        #expect(
+            harness.states == [
+                .init(count: 0),
+                .init(count: 1),
+                .init(count: 2),
+                .init(count: 3),
+            ])
     }
 
     @Test
