@@ -1,233 +1,323 @@
-//import CasePaths
-//import Foundation
-//import Testing
-//
-//@testable import UnoArchitecture
-//
-//// MARK: - Test Domain Models
-//
-//struct ParentState: Equatable, Sendable {
-//    var counter: CounterInteractor.State
-//    var otherProperty: String
-//}
-//
-//@CasePathable
-//enum ParentAction: Sendable {
-//    case counter(CounterInteractor.Action)
-//    case counterStateChanged(CounterInteractor.State)
-//    case otherAction
-//}
-//
-//struct ParentStateWithTwo: Equatable, Sendable {
-//    var counter1: CounterInteractor.State
-//    var counter2: CounterInteractor.State
-//}
-//
-//@CasePathable
-//enum ParentActionWithTwo: Sendable {
-//    case counter1(CounterInteractor.Action)
-//    case counter1StateChanged(CounterInteractor.State)
-//    case counter2(CounterInteractor.Action)
-//    case counter2StateChanged(CounterInteractor.State)
-//}
-//
-//// MARK: - Tests
-//
-//@Suite
-//@MainActor
-//struct WhenTests {
-//
-//    @Test
-//    func whenKeyPathBasicFunctionality() async throws {
-//        let interactor = Interact<ParentState, ParentAction>(
-//            initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
-//        ) { state, action in
-//            switch action {
-//            case .counterStateChanged(let counterState):
-//                state.counter = counterState
-//                return .state
-//            case .counter, .otherAction:
-//                return .state
-//            }
-//        }
-//        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-//            CounterInteractor()
-//        }
-//
-//        let recorder = AsyncStreamRecorder<ParentState>()
-//        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
-//
-//        recorder.record(interactor.interact(actionStream))
-//
-//        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-//
-//        actionCont.yield(.counter(.increment))
-//
-//        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
-//        actionCont.finish()
-//
-//        // Should receive: initial state (count: 0) + state after increment (count: 1)
-//        // Child actions are filtered out - only state change actions reach parent
-//        #expect(recorder.values.count == 2)
-//
-//        // First state is initial parent state with child's initial state (count: 0)
-//        #expect(recorder.values[0].counter.count == 0)
-//        #expect(recorder.values[0].otherProperty == "test")
-//
-//        // Second state reflects the increment via stateChanged
-//        #expect(recorder.values[1].counter.count == 1)
-//        #expect(recorder.values[1].otherProperty == "test")
-//    }
-//
-//    @Test
-//    func whenFiltersNonChildActions() async throws {
-//        let interactor = Interact<ParentState, ParentAction>(
-//            initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
-//        ) { state, action in
-//            switch action {
-//            case .counterStateChanged(let counterState):
-//                state.counter = counterState
-//                return .state
-//            case .counter:
-//                return .state
-//            case .otherAction:
-//                state.otherProperty = "modified"
-//                return .state
-//            }
-//        }
-//        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-//            CounterInteractor()
-//        }
-//
-//        let recorder = AsyncStreamRecorder<ParentState>()
-//        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
-//
-//        recorder.record(interactor.interact(actionStream))
-//
-//        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-//
-//        actionCont.yield(.otherAction)
-//
-//        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
-//        actionCont.finish()
-//
-//        // Should receive: initial state + state after otherAction
-//        #expect(recorder.values.count == 2)
-//
-//        // First state is initial
-//        #expect(recorder.values[0].counter.count == 0)
-//        #expect(recorder.values[0].otherProperty == "test")
-//
-//        // Second state has modified otherProperty
-//        #expect(recorder.values[1].otherProperty == "modified")
-//        #expect(recorder.values[1].counter.count == 0)  // Counter unchanged
-//    }
-//
-//    @Test
-//    func whenMultipleChildActions() async throws {
-//        let interactor = Interact<ParentState, ParentAction>(
-//            initialValue: ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
-//        ) { state, action in
-//            switch action {
-//            case .counterStateChanged(let counterState):
-//                state.counter = counterState
-//                return .state
-//            case .counter, .otherAction:
-//                return .state
-//            }
-//        }
-//        .when(stateIs: \.counter, actionIs: \.counter, stateAction: \.counterStateChanged) {
-//            CounterInteractor()
-//        }
-//
-//        let recorder = AsyncStreamRecorder<ParentState>()
-//        let (actionStream, actionCont) = AsyncStream<ParentAction>.makeStream()
-//
-//        recorder.record(interactor.interact(actionStream))
-//
-//        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-//
-//        actionCont.yield(.counter(.increment))  // count: 0 -> 1
-//        actionCont.yield(.counter(.increment))  // count: 1 -> 2
-//        actionCont.yield(.counter(.decrement))  // count: 2 -> 1
-//
-//        try await recorder.waitForEmissions(count: 4, timeout: .seconds(2))  // initial + 3 state changes
-//        actionCont.finish()
-//
-//        #expect(recorder.values.count == 4)
-//
-//        // Child actions are filtered - only state changes reach parent
-//        let counterValues = recorder.values.map { $0.counter.count }
-//        #expect(counterValues == [0, 1, 2, 1])
-//    }
-//
-//    @Test
-//    func whenChainingMultipleModifiers() async throws {
-//        let interactor = Interact<ParentStateWithTwo, ParentActionWithTwo>(
-//            initialValue: ParentStateWithTwo(
-//                counter1: CounterInteractor.State(count: 0),
-//                counter2: CounterInteractor.State(count: 10)
-//            )
-//        ) { state, action in
-//            switch action {
-//            case .counter1StateChanged(let counterState):
-//                state.counter1 = counterState
-//                return .state
-//            case .counter2StateChanged(let counterState):
-//                state.counter2 = counterState
-//                return .state
-//            case .counter1, .counter2:
-//                return .state
-//            }
-//        }
-//        .when(stateIs: \.counter1, actionIs: \.counter1, stateAction: \.counter1StateChanged) {
-//            CounterInteractor()
-//        }
-//        .when(stateIs: \.counter2, actionIs: \.counter2, stateAction: \.counter2StateChanged) {
-//            Interact<CounterInteractor.State, CounterInteractor.Action>(
-//                initialValue: CounterInteractor.State(count: 10)
-//            ) { state, action in
-//                switch action {
-//                case .increment:
-//                    state.count += 1
-//                    return .state
-//                case .decrement:
-//                    state.count -= 1
-//                    return .state
-//                case .reset:
-//                    state.count = 10
-//                    return .state
-//                }
-//            }
-//        }
-//
-//        let recorder = AsyncStreamRecorder<ParentStateWithTwo>()
-//        let (actionStream, actionCont) = AsyncStream<ParentActionWithTwo>.makeStream()
-//
-//        recorder.record(interactor.interact(actionStream))
-//
-//        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-//
-//        actionCont.yield(.counter1(.increment))  // counter1: 0 -> 1
-//        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
-//
-//        actionCont.yield(.counter2(.decrement))  // counter2: 10 -> 9
-//        try await recorder.waitForEmissions(count: 3, timeout: .seconds(2))
-//
-//        actionCont.finish()
-//
-//        #expect(recorder.values.count == 3)
-//
-//        // Initial state
-//        #expect(recorder.values[0].counter1.count == 0)
-//        #expect(recorder.values[0].counter2.count == 10)
-//
-//        // After counter1 state changed
-//        #expect(recorder.values[1].counter1.count == 1)
-//        #expect(recorder.values[1].counter2.count == 10)
-//
-//        // After counter2 state changed
-//        #expect(recorder.values[2].counter1.count == 1)
-//        #expect(recorder.values[2].counter2.count == 9)
-//    }
-//}
+import CasePaths
+import Foundation
+import Testing
+
+@testable import UnoArchitecture
+
+// MARK: - Test Domain Models
+
+struct ParentState: Equatable, Sendable {
+    var counter: CounterInteractor.State
+    var otherProperty: String
+}
+
+@CasePathable
+enum ParentAction: Sendable, Equatable {
+    case counter(CounterInteractor.Action)
+    case otherAction
+}
+
+struct TwoCounterState: Equatable, Sendable {
+    var counter1: CounterInteractor.State
+    var counter2: CounterInteractor.State
+}
+
+@CasePathable
+enum TwoCounterAction: Sendable {
+    case counter1(CounterInteractor.Action)
+    case counter2(CounterInteractor.Action)
+}
+
+@CasePathable
+enum LoadingState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded(CounterInteractor.State)
+}
+
+@CasePathable
+enum LoadingAction: Sendable {
+    case startLoading
+    case loaded(CounterInteractor.Action)
+}
+
+// MARK: - KeyPath Tests
+
+@Suite
+@MainActor
+struct WhenKeyPathTests {
+
+    @Test
+    func basicFunctionality() async throws {
+        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+
+        let interactor = Interactors.When<ParentState, ParentAction, _>(
+            state: \.counter,
+            action: \.counter
+        ) {
+            CounterInteractor()
+        }
+
+        let emission = interactor.interact(state: &state, action: .counter(.increment))
+
+        #expect(state.counter.count == 1)
+        #expect(state.otherProperty == "test")
+
+        switch emission.kind {
+        case .none:
+            break
+        default:
+            Issue.record("Expected .none emission")
+        }
+    }
+
+    @Test
+    func ignoresNonChildActions() async throws {
+        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+
+        let interactor = Interactors.When<ParentState, ParentAction, _>(
+            state: \.counter,
+            action: \.counter
+        ) {
+            CounterInteractor()
+        }
+
+        let emission = interactor.interact(state: &state, action: .otherAction)
+
+        #expect(state.counter.count == 0)
+
+        switch emission.kind {
+        case .none:
+            break
+        default:
+            Issue.record("Expected .none emission")
+        }
+    }
+
+    @Test
+    func multipleActions() async throws {
+        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+
+        let interactor = Interactors.When<ParentState, ParentAction, _>(
+            state: \.counter,
+            action: \.counter
+        ) {
+            CounterInteractor()
+        }
+
+        _ = interactor.interact(state: &state, action: .counter(.increment))
+        #expect(state.counter.count == 1)
+
+        _ = interactor.interact(state: &state, action: .counter(.increment))
+        #expect(state.counter.count == 2)
+
+        _ = interactor.interact(state: &state, action: .counter(.decrement))
+        #expect(state.counter.count == 1)
+    }
+
+    @Test
+    func childEmissionMapsToParentAction() async throws {
+        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+
+        let childInteractor = Interact<CounterInteractor.State, CounterInteractor.Action> { state, action in
+            switch action {
+            case .increment:
+                state.count += 1
+                return .action(.decrement)
+            case .decrement:
+                state.count -= 1
+                return .none
+            case .reset:
+                state.count = 0
+                return .none
+            }
+        }
+
+        let interactor = Interactors.When<ParentState, ParentAction, _>(
+            state: \.counter,
+            action: \.counter
+        ) {
+            childInteractor
+        }
+
+        let emission = interactor.interact(state: &state, action: .counter(.increment))
+
+        #expect(state.counter.count == 1)
+
+        switch emission.kind {
+        case .action(let action):
+            #expect(action == .counter(.decrement))
+        default:
+            Issue.record("Expected .action emission, got \(emission.kind)")
+        }
+    }
+}
+
+// MARK: - Modifier Tests
+
+@Suite
+@MainActor
+struct WhenModifierTests {
+
+    @Test
+    func modifierCombinesWithParent() async throws {
+        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+
+        let interactor = Interact<ParentState, ParentAction> { state, action in
+            switch action {
+            case .otherAction:
+                state.otherProperty = "modified"
+                return .none
+            case .counter:
+                return .none
+            }
+        }
+        .when(state: \.counter, action: \.counter) {
+            CounterInteractor()
+        }
+
+        _ = interactor.interact(state: &state, action: .counter(.increment))
+        #expect(state.counter.count == 1)
+        #expect(state.otherProperty == "test")
+
+        _ = interactor.interact(state: &state, action: .otherAction)
+        #expect(state.otherProperty == "modified")
+    }
+
+    @Test
+    func multipleWhenModifiers() async throws {
+        var state = TwoCounterState(
+            counter1: CounterInteractor.State(count: 0),
+            counter2: CounterInteractor.State(count: 10)
+        )
+
+        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in .none }
+            .when(state: \.counter1, action: \.counter1) {
+                CounterInteractor()
+            }
+            .when(state: \.counter2, action: \.counter2) {
+                CounterInteractor()
+            }
+
+        _ = interactor.interact(state: &state, action: .counter1(.increment))
+        #expect(state.counter1.count == 1)
+        #expect(state.counter2.count == 10)
+
+        _ = interactor.interact(state: &state, action: .counter2(.decrement))
+        #expect(state.counter1.count == 1)
+        #expect(state.counter2.count == 9)
+    }
+}
+
+// MARK: - CasePath Tests
+
+@Suite
+@MainActor
+struct WhenCasePathTests {
+
+    @Test
+    func basicFunctionality() async throws {
+        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+
+        let interactor = Interactors.When<LoadingState, LoadingAction, _>(
+            state: \.loaded,
+            action: \.loaded
+        ) {
+            CounterInteractor()
+        }
+
+        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+
+        if case .loaded(let counter) = state {
+            #expect(counter.count == 1)
+        } else {
+            Issue.record("Expected .loaded state")
+        }
+
+        switch emission.kind {
+        case .none:
+            break
+        default:
+            Issue.record("Expected .none emission")
+        }
+    }
+
+    @Test
+    func ignoresWhenStateDoesNotMatch() async throws {
+        var state = LoadingState.idle
+
+        let interactor = Interactors.When<LoadingState, LoadingAction, _>(
+            state: \.loaded,
+            action: \.loaded
+        ) {
+            CounterInteractor()
+        }
+
+        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+
+        #expect(state == .idle)
+
+        switch emission.kind {
+        case .none:
+            break
+        default:
+            Issue.record("Expected .none emission")
+        }
+    }
+
+    @Test
+    func ignoresNonChildActions() async throws {
+        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+
+        let interactor = Interactors.When<LoadingState, LoadingAction, _>(
+            state: \.loaded,
+            action: \.loaded
+        ) {
+            CounterInteractor()
+        }
+
+        let emission = interactor.interact(state: &state, action: .startLoading)
+
+        if case .loaded(let counter) = state {
+            #expect(counter.count == 0)
+        } else {
+            Issue.record("Expected .loaded state")
+        }
+
+        switch emission.kind {
+        case .none:
+            break
+        default:
+            Issue.record("Expected .none emission")
+        }
+    }
+
+    @Test
+    func casePathModifier() async throws {
+        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+
+        let interactor = Interact<LoadingState, LoadingAction> { state, action in
+            switch action {
+            case .startLoading:
+                state = .loading
+                return .none
+            case .loaded:
+                return .none
+            }
+        }
+        .when(state: \.loaded, action: \.loaded) {
+            CounterInteractor()
+        }
+
+        _ = interactor.interact(state: &state, action: .loaded(.increment))
+
+        if case .loaded(let counter) = state {
+            #expect(counter.count == 1)
+        } else {
+            Issue.record("Expected .loaded state")
+        }
+
+        _ = interactor.interact(state: &state, action: .startLoading)
+        #expect(state == .loading)
+    }
+}
