@@ -3,8 +3,8 @@ import Foundation
 /// The core primitive for handling actions and emitting state within an ``Interactor``.
 ///
 /// `Interact` is the fundamental building block of the interactor system. It processes
-/// actions through a handler closure that returns an ``Emission`` describing how to
-/// emit the next state.
+/// actions through a handler closure that returns an ``Emission`` describing what
+/// actions to emit.
 ///
 /// ## Basic Usage
 ///
@@ -19,7 +19,7 @@ import Foundation
 ///             case .decrement:
 ///                 state.count -= 1
 ///             }
-///             return .state
+///             return .none
 ///         }
 ///     }
 /// }
@@ -27,11 +27,12 @@ import Foundation
 ///
 /// ## Emission Types
 ///
-/// The handler returns an ``Emission`` that controls how state is emitted:
+/// The handler returns an ``Emission`` that controls what happens next:
 ///
-/// - **`.state`**: Emit the mutated state immediately
-/// - **`.perform { state, send in ... }`**: Execute async work, then emit via `send`
-/// - **`.observe { state, send in ... }`**: Observe a stream, emitting for each element
+/// - **`.none`**: No action to emit, state was mutated synchronously
+/// - **`.action(action)`**: Emit a single action immediately
+/// - **`.perform { ... }`**: Execute async work, return an action when done
+/// - **`.observe { ... }`**: Observe a stream, emitting actions for each element
 ///
 /// ## Async Work Example
 ///
@@ -40,13 +41,14 @@ import Foundation
 ///     switch action {
 ///     case .fetchData:
 ///         state.isLoading = true
-///         return .perform { [api] state, send in
+///         return .perform { [api] in
 ///             let data = try await api.fetch()
-///             var currentState = await state.current
-///             currentState.isLoading = false
-///             currentState.data = data
-///             await send(currentState)
+///             return .dataLoaded(data)
 ///         }
+///     case .dataLoaded(let data):
+///         state.isLoading = false
+///         state.data = data
+///         return .none
 ///     }
 /// }
 /// ```
@@ -55,11 +57,10 @@ import Foundation
 ///
 /// - The handler receives an `inout State` that can be mutated directly
 /// - State mutations are applied before the emission is processed
-/// - For async work, use ``DynamicState`` to read the latest state
-/// - Use ``Send`` to emit state updates from async contexts
+/// - Effects return actions that are fed back through the interactor
 public struct Interact<State: Sendable, Action: Sendable>: Interactor, @unchecked Sendable {
     /// The type of the handler closure that processes actions.
-    public typealias Handler = (inout State, Action) -> Emission<State>
+    public typealias Handler = (inout State, Action) -> Emission<Action>
 
     private let handler: Handler
 
@@ -72,7 +73,7 @@ public struct Interact<State: Sendable, Action: Sendable>: Interactor, @unchecke
 
     public var body: some Interactor<State, Action> { self }
 
-    public func interact(state: inout State, action: Action) -> Emission<State> {
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
         handler(&state, action)
     }
 }

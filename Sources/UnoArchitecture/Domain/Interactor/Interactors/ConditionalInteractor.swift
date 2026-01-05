@@ -22,7 +22,7 @@ extension Interactors {
 
         public var body: some Interactor<First.DomainState, First.Action> { self }
 
-        public func interact(state: inout First.DomainState, action: First.Action) -> Emission<First.DomainState> {
+        public func interact(state: inout First.DomainState, action: First.Action) -> Emission<First.Action> {
             switch self {
             case .first(let first):
                 return first.interact(state: &state, action: action)

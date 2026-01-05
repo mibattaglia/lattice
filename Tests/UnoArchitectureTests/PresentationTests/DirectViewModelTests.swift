@@ -23,13 +23,13 @@ struct FeatureInteractor {
             switch event {
             case .incrementCount:
                 state.count += 1
-                return .state
+                return .none
             case .decrementCount:
                 state.count -= 1
-                return .state
+                return .none
             case .increaseAge:
                 state.age += 1
-                return .state
+                return .none
             }
         }
     }

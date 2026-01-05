@@ -15,7 +15,7 @@ extension Interactors {
 
         public var body: some Interactor<State, Action> { self }
 
-        public func interact(state: inout State, action: Action) -> Emission<State> {
+        public func interact(state: inout State, action: Action) -> Emission<Action> {
             interactors.interact(state: &state, action: action)
         }
     }

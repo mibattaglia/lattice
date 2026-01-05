@@ -1,6 +1,6 @@
 import Foundation
 
-/// An interactor that does nothing - ignores all actions and returns `.state`.
+/// An interactor that does nothing - ignores all actions and returns `.none`.
 ///
 /// Use this for conditional interactor composition where sometimes no processing is needed.
 ///
@@ -24,7 +24,7 @@ public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Se
 
     public var body: some InteractorOf<Self> { self }
 
-    public func interact(state: inout State, action: Action) -> Emission<State> {
-        .state
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
+        .none
     }
 }

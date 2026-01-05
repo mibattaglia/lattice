@@ -9,7 +9,7 @@ struct DoubleInteractor: Interactor, Sendable {
 
     func interact(state: inout Int, action: Int) -> Emission<Int> {
         state = action * 2
-        return .state
+        return .none
     }
 }
 
@@ -22,6 +22,6 @@ struct TripleInteractor: Interactor, Sendable {
 
     func interact(state: inout Int, action: Int) -> Emission<Int> {
         state = action * 3
-        return .state
+        return .none
     }
 }

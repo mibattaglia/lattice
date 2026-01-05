@@ -5,6 +5,7 @@ enum MyEvent: Equatable {
     case load
     case incrementCount
     case fetchData
+    case fetchDataCompleted(Int)
 }
 
 @Interactor<MyDomainState, MyEvent>
@@ -19,7 +20,7 @@ struct MyInteractor: Interactor {
                     content.count += 1
                     content.timestamp = dateFactory().timeIntervalSince1970
                 }
-                return .state
+                return .none
             case .load:
                 domainState = MyDomainState.success(
                     .init(
@@ -28,21 +29,23 @@ struct MyInteractor: Interactor {
                         isLoading: false
                     )
                 )
-                return .state
+                return .none
 
             case .fetchData:
                 domainState.modify(\.success) { content in
                     content.isLoading = true
                 }
-                return .perform { state, send in
+                return .perform {
                     try? await Task.sleep(for: .milliseconds(10))
-                    var current = await state.current
-                    current.modify(\.success) { content in
-                        content.isLoading = false
-                        content.count = 42
-                    }
-                    await send(current)
+                    return .fetchDataCompleted(42)
                 }
+
+            case .fetchDataCompleted(let count):
+                domainState.modify(\.success) { content in
+                    content.isLoading = false
+                    content.count = count
+                }
+                return .none
             }
         }
     }

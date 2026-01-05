@@ -32,7 +32,7 @@ extension Interactors {
 
         public var body: some Interactor<I0.DomainState, I0.Action> { self }
 
-        public func interact(state: inout I0.DomainState, action: I0.Action) -> Emission<I0.DomainState> {
+        public func interact(state: inout I0.DomainState, action: I0.Action) -> Emission<I0.Action> {
             let emission0 = i0.interact(state: &state, action: action)
             let emission1 = i1.interact(state: &state, action: action)
             return .merge([emission0, emission1])

@@ -202,46 +202,47 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         return EventTask(rawValue: compositeTask)
     }
 
-    private func spawnTasks(from emission: Emission<DomainState>) -> [Task<Void, Never>] {
+    private func spawnTasks(from emission: Emission<Action>) -> [Task<Void, Never>] {
         switch emission.kind {
-        case .state:
+        case .none:
             return []
 
+        case .action(let action):
+            let innerEmission = interactor.interact(state: &domainState, action: action)
+            viewStateReducer.reduce(domainState, into: &viewState)
+            return spawnTasks(from: innerEmission)
+
         case .perform(let work):
-            let dynamicState = makeDynamicState()
-            let send = makeSend()
-            let task = Task {
-                await work(dynamicState, send)
+            let task = Task { [weak self] in
+                guard let action = await work() else { return }
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    let emission = self.interactor.interact(state: &self.domainState, action: action)
+                    self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
+                    let tasks = self.spawnTasks(from: emission)
+                    self.effectTasks.append(contentsOf: tasks)
+                }
             }
             return [task]
 
         case .observe(let stream):
-            let dynamicState = makeDynamicState()
-            let send = makeSend()
-            let task = Task {
-                await stream(dynamicState, send)
+            let task = Task { [weak self] in
+                for await action in await stream() {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run {
+                        guard let self else { return }
+                        let emission = self.interactor.interact(state: &self.domainState, action: action)
+                        self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
+                        let tasks = self.spawnTasks(from: emission)
+                        self.effectTasks.append(contentsOf: tasks)
+                    }
+                }
             }
             return [task]
 
         case .merge(let emissions):
             return emissions.flatMap { spawnTasks(from: $0) }
-        }
-    }
-
-    private func makeDynamicState() -> DynamicState<DomainState> {
-        DynamicState { [weak self] in
-            guard let self else {
-                fatalError("ViewModel deallocated during effect execution")
-            }
-            return await MainActor.run { self.domainState }
-        }
-    }
-
-    private func makeSend() -> Send<DomainState> {
-        Send { [weak self] newState in
-            guard let self, !areStatesEqual(domainState, newState) else { return }
-            self.domainState = newState
-            self.viewStateReducer.reduce(newState, into: &self.viewState)
         }
     }
 

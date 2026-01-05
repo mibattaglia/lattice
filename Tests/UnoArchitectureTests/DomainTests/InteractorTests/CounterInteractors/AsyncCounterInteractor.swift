@@ -8,9 +8,9 @@ struct AsyncCounterInteractor {
         var count: Int
     }
 
-    enum Action: Sendable {
+    enum Action: Sendable, Equatable {
         case increment
-        case async
+        case asyncIncrement
     }
 
     var body: some Interactor<State, Action> {
@@ -18,10 +18,10 @@ struct AsyncCounterInteractor {
             switch action {
             case .increment:
                 state.count += 1
-                return .state
-            case .async:
-                return .perform { state, send in
-                    await send(AsyncCounterInteractor.DomainState(count: state.count + 1))
+                return .none
+            case .asyncIncrement:
+                return .perform {
+                    .increment
                 }
             }
         }

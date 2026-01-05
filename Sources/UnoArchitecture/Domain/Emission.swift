@@ -1,51 +1,58 @@
 import Foundation
 
-/// A descriptor that tells an ``Interactor`` _how_ to emit domain state downstream.
+/// Describes how an interactor emits actions after processing an action.
 ///
-/// `Emission` is returned from the handler closure in ``Interact`` to specify whether state
-/// should be emitted synchronously or via an asynchronous effect.
+/// `Emission` is returned from ``Interactor/interact(state:action:)`` to specify
+/// whether additional actions should be emitted, either synchronously or via async effects.
 ///
-/// ## Usage
+/// ## Emission Types
 ///
-/// There are four emission types:
+/// ### `.none` - No Action
 ///
-/// ### `.state` - Synchronous Emission
-///
-/// Emits the current state immediately after the handler returns:
+/// No action to emit. Used when state was mutated synchronously but no async work needed:
 ///
 /// ```swift
-/// Interact(initialValue: State()) { state, action in
+/// case .increment:
 ///     state.count += 1
-///     return .state
-/// }
+///     return .none
+/// ```
+///
+/// ### `.action` - Immediate Action
+///
+/// Emit a single action immediately. Processed synchronously before returning:
+///
+/// ```swift
+/// case .buttonTapped:
+///     return .action(.startLoading)
 /// ```
 ///
 /// ### `.perform` - One-Shot Async Work
 ///
-/// Executes async work and emits state via the `send` callback:
+/// Executes async work and returns an action:
 ///
 /// ```swift
-/// return .perform { state, send in
-///     let data = try await api.fetchData()
-///     var currentState = await state.current
-///     currentState.data = data
-///     currentState.isLoading = false
-///     await send(currentState)
-/// }
+/// case .fetchData:
+///     state.isLoading = true
+///     return .perform {
+///         let data = try await api.fetchData()
+///         return .dataLoaded(data)
+///     }
 /// ```
 ///
 /// ### `.observe` - Long-Running Observation
 ///
-/// Observes an async stream, emitting state for each element:
+/// Observes an async stream, emitting an action for each element:
 ///
 /// ```swift
-/// return .observe { state, send in
-///     for await location in locationManager.locations {
-///         var currentState = await state.current
-///         currentState.location = location
-///         await send(currentState)
+/// case .startLocationTracking:
+///     return .observe {
+///         AsyncStream { continuation in
+///             for await location in locationManager.locations {
+///                 continuation.yield(.locationUpdated(location))
+///             }
+///             continuation.finish()
+///         }
 ///     }
-/// }
 /// ```
 ///
 /// ### `.merge` - Combine Multiple Emissions
@@ -55,72 +62,103 @@ import Foundation
 /// ```swift
 /// return .merge([emission1, emission2])
 /// ```
-///
-/// - Note: Both `.perform` and `.observe` receive a ``DynamicState`` for reading the latest
-///   state and a ``Send`` callback for emitting updates.
-public struct Emission<State: Sendable>: Sendable {
+public struct Emission<Action: Sendable>: Sendable {
     /// The kind of emission to perform.
     public enum Kind: Sendable {
-        /// Immediately forward state as-is.
-        case state
+        /// No action to emit.
+        case none
 
-        /// Execute an asynchronous unit of work and emit state via the `Send` callback.
-        ///
-        /// The closure receives:
-        /// - `DynamicState`: For reading the current state at any point during execution
-        /// - `Send`: For emitting state updates back to the interactor
-        case perform(work: @Sendable (DynamicState<State>, Send<State>) async -> Void)
+        /// Emit a single action immediately.
+        case action(Action)
 
-        /// Observe a stream, emitting state for each element via the `Send` callback.
+        /// Execute async work and return an action.
         ///
-        /// The closure receives:
-        /// - `DynamicState`: For reading the current state at any point during execution
-        /// - `Send`: For emitting state updates back to the interactor
+        /// The work closure returns `Action?`. If `nil`, no action is emitted
+        /// (useful for cancelled operations or error handling).
+        case perform(work: @Sendable () async -> Action?)
+
+        /// Observe an async stream of actions.
         ///
-        /// - Note: Semantically equivalent to `.perform` but indicates long-running observation.
-        case observe(stream: @Sendable (DynamicState<State>, Send<State>) async -> Void)
+        /// The stream closure returns `AsyncStream<Action>`. Each action in the
+        /// stream is processed through the interactor.
+        case observe(stream: @Sendable () async -> AsyncStream<Action>)
 
         /// Combine multiple emissions into one.
         ///
         /// Used by higher-order interactors like ``Interactors/Merge`` to combine
         /// the emissions from multiple child interactors.
-        case merge([Emission<State>])
+        case merge([Emission<Action>])
     }
 
     let kind: Kind
 
-    /// Creates an emission that immediately forwards the current state.
-    public static var state: Emission {
-        Emission(kind: .state)
+    /// No action to emit.
+    public static var none: Emission {
+        Emission(kind: .none)
     }
 
-    /// Creates an emission that executes async work and emits state via callback.
+    /// Emit a single action immediately.
     ///
-    /// - Parameter work: An async closure that receives `DynamicState` for reading state
-    ///   and `Send` for emitting updates.
+    /// The action is processed synchronously by the interactor before returning
+    /// control to the caller.
+    ///
+    /// - Parameter action: The action to emit.
+    /// - Returns: An emission that immediately emits the action.
+    public static func action(_ action: Action) -> Emission {
+        Emission(kind: .action(action))
+    }
+
+    /// Execute async work and emit the resulting action.
+    ///
+    /// ```swift
+    /// return .perform {
+    ///     let data = await api.fetch()
+    ///     return .fetchCompleted(data)
+    /// }
+    /// ```
+    ///
+    /// Return `nil` to emit no action (e.g., for cancelled operations):
+    ///
+    /// ```swift
+    /// return .perform {
+    ///     guard !Task.isCancelled else { return nil }
+    ///     let data = await api.fetch()
+    ///     return .fetchCompleted(data)
+    /// }
+    /// ```
+    ///
+    /// - Parameter work: An async closure that returns an optional action.
     /// - Returns: An emission configured for one-shot async work.
-    public static func perform(
-        _ work: @escaping @Sendable (DynamicState<State>, Send<State>) async -> Void
-    ) -> Emission {
+    public static func perform(_ work: @escaping @Sendable () async -> Action?) -> Emission {
         Emission(kind: .perform(work: work))
     }
 
-    /// Creates an emission that observes an async stream and emits state for each element.
+    /// Observe an async stream and emit each action.
     ///
-    /// - Parameter stream: An async closure that receives `DynamicState` for reading state
-    ///   and `Send` for emitting updates. Typically used for long-running observations.
+    /// ```swift
+    /// return .observe {
+    ///     AsyncStream { continuation in
+    ///         for await location in locationManager.locations {
+    ///             continuation.yield(.locationUpdated(location))
+    ///         }
+    ///         continuation.finish()
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameter stream: An async closure that returns an `AsyncStream<Action>`.
     /// - Returns: An emission configured for stream observation.
-    public static func observe(
-        _ stream: @escaping @Sendable (DynamicState<State>, Send<State>) async -> Void
-    ) -> Emission {
+    public static func observe(_ stream: @escaping @Sendable () async -> AsyncStream<Action>) -> Emission {
         Emission(kind: .observe(stream: stream))
     }
 
-    /// Creates an emission that combines multiple emissions.
+    /// Combine multiple emissions into one.
+    ///
+    /// All emissions execute concurrently.
     ///
     /// - Parameter emissions: The emissions to combine.
     /// - Returns: An emission that will execute all child emissions.
-    public static func merge(_ emissions: [Emission<State>]) -> Emission {
+    public static func merge(_ emissions: [Emission<Action>]) -> Emission {
         Emission(kind: .merge(emissions))
     }
 
@@ -128,7 +166,56 @@ public struct Emission<State: Sendable>: Sendable {
     ///
     /// - Parameter other: The emission to merge with.
     /// - Returns: A merged emission containing both.
-    public func merging(with other: Emission<State>) -> Emission<State> {
+    public func merging(with other: Emission<Action>) -> Emission<Action> {
         .merge([self, other])
+    }
+}
+
+// MARK: - Action Mapping
+
+extension Emission {
+    /// Transforms the actions in this emission.
+    ///
+    /// Used by higher-order interactors like `When` to map child actions to parent actions:
+    ///
+    /// ```swift
+    /// let childEmission = child.interact(state: &childState, action: childAction)
+    /// return childEmission.map { .child($0) }
+    /// ```
+    ///
+    /// - Parameter transform: A closure that transforms actions.
+    /// - Returns: An emission with transformed actions.
+    public func map<ParentAction>(
+        _ transform: @escaping @Sendable (Action) -> ParentAction
+    ) -> Emission<ParentAction> {
+        switch kind {
+        case .none:
+            return .none
+
+        case .action(let action):
+            return .action(transform(action))
+
+        case .perform(let work):
+            return .perform {
+                guard let action = await work() else { return nil }
+                return transform(action)
+            }
+
+        case .observe(let stream):
+            return .observe {
+                let sourceStream = await stream()
+                return AsyncStream { continuation in
+                    Task {
+                        for await action in sourceStream {
+                            continuation.yield(transform(action))
+                        }
+                        continuation.finish()
+                    }
+                }
+            }
+
+        case .merge(let emissions):
+            return .merge(emissions.map { $0.map(transform) })
+        }
     }
 }

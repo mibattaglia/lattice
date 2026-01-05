@@ -21,7 +21,7 @@ import Foundation
 ///             case .decrement:
 ///                 state.count -= 1
 ///             }
-///             return .state
+///             return .none
 ///         }
 ///     }
 /// }
@@ -35,9 +35,9 @@ import Foundation
 /// For advanced scenarios, implement `interact(state:action:)` directly:
 ///
 /// ```swift
-/// func interact(state: inout DomainState, action: Action) -> Emission<DomainState> {
+/// func interact(state: inout DomainState, action: Action) -> Emission<Action> {
 ///     // Custom processing logic
-///     return .state
+///     return .none
 /// }
 /// ```
 ///
@@ -59,8 +59,8 @@ public protocol Interactor<DomainState, Action> {
     /// - Parameters:
     ///   - state: The current state, passed as `inout` for mutation.
     ///   - action: The action to process.
-    /// - Returns: An ``Emission`` describing how to emit state.
-    func interact(state: inout DomainState, action: Action) -> Emission<DomainState>
+    /// - Returns: An ``Emission`` describing actions to emit.
+    func interact(state: inout DomainState, action: Action) -> Emission<Action>
 }
 
 extension Interactor where Body.DomainState == Never {
@@ -71,7 +71,7 @@ extension Interactor where Body.DomainState == Never {
 
 extension Interactor where Body: Interactor<DomainState, Action> {
     /// The default implementation forwards to the `body` interactor.
-    public func interact(state: inout DomainState, action: Action) -> Emission<DomainState> {
+    public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
         body.interact(state: &state, action: action)
     }
 }
@@ -97,7 +97,7 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Actio
 ///     .eraseToAnyInteractor()
 /// ```
 public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
-    private let interactFunc: @Sendable (inout State, Action) -> Emission<State>
+    private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
 
     public init<I: Interactor & Sendable>(_ base: I) where I.DomainState == State, I.Action == Action {
         self.interactFunc = { state, action in base.interact(state: &state, action: action) }
@@ -105,7 +105,7 @@ public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Send
 
     public var body: some Interactor<State, Action> { self }
 
-    public func interact(state: inout State, action: Action) -> Emission<State> {
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
         interactFunc(&state, action)
     }
 }
@@ -139,7 +139,7 @@ public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked
 
     public var body: some Interactor<I.DomainState, I.Action> { self }
 
-    public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.DomainState> {
+    public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.Action> {
         wrapped.interact(state: &state, action: action)
     }
 }

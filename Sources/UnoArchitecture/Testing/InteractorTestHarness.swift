@@ -54,11 +54,17 @@ import Foundation
 /// ```swift
 /// try harness.assertLatestState(expectedState)
 /// ```
+///
+/// Assert actions received (including from effects):
+/// ```swift
+/// try harness.assertActions([.fetchData, .dataLoaded(data)])
+/// ```
 @MainActor
 public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     private var state: State
     private let interactor: AnyInteractor<State, Action>
     private var stateHistory: [State] = []
+    private var actionHistory: [Action] = []
     private var effectTasks: [Task<Void, Never>] = []
     private let areStatesEqual: (_ lhs: State, _ rhs: State) -> Bool
 
@@ -105,6 +111,7 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func send(_ action: Action) -> EventTask {
+        actionHistory.append(action)
         let emission = interactor.interact(state: &state, action: action)
         appendToHistory()
 
@@ -141,36 +148,35 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         await send(action).finish()
     }
 
-    private func spawnTasks(from emission: Emission<State>) -> [Task<Void, Never>] {
+    private func spawnTasks(from emission: Emission<Action>) -> [Task<Void, Never>] {
         switch emission.kind {
-        case .state:
+        case .none:
+            return []
+
+        case .action(let action):
+            _ = send(action)
             return []
 
         case .perform(let work):
-            let dynamicState = DynamicState { [weak self] in
-                guard let self else { fatalError("Test harness deallocated during effect execution") }
-                return await MainActor.run { self.state }
+            let task = Task { [weak self] in
+                guard let action = await work() else { return }
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    _ = self?.send(action)
+                }
             }
-            let send = Send { [weak self] newState in
-                guard let self else { return }
-                self.state = newState
-                self.appendToHistory()
-            }
-            let task = Task { await work(dynamicState, send) }
             effectTasks.append(task)
             return [task]
 
         case .observe(let stream):
-            let dynamicState = DynamicState { [weak self] in
-                guard let self else { fatalError("Test harness deallocated during effect execution") }
-                return await MainActor.run { self.state }
+            let task = Task { [weak self] in
+                for await action in await stream() {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run {
+                        _ = self?.send(action)
+                    }
+                }
             }
-            let send = Send { [weak self] newState in
-                guard let self else { return }
-                self.state = newState
-                self.appendToHistory()
-            }
-            let task = Task { await stream(dynamicState, send) }
             effectTasks.append(task)
             return [task]
 
@@ -182,6 +188,11 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     /// All recorded states in order of change.
     public var states: [State] {
         stateHistory
+    }
+
+    /// All actions received (including from effects).
+    public var receivedActions: [Action] {
+        actionHistory
     }
 
     /// The current state value.
@@ -230,6 +241,27 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         guard latestState == expected else {
             throw AssertionError(
                 message: "Latest state mismatch.\nExpected: \(expected)\nActual: \(String(describing: latestState))",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    /// Asserts that the received actions match the expected sequence.
+    ///
+    /// - Parameters:
+    ///   - expected: The expected sequence of actions.
+    ///   - file: The file where the assertion is called.
+    ///   - line: The line where the assertion is called.
+    /// - Throws: `AssertionError` if the actions do not match.
+    public func assertActions(
+        _ expected: [Action],
+        file: StaticString = #file,
+        line: UInt = #line
+    ) throws where Action: Equatable {
+        guard actionHistory == expected else {
+            throw AssertionError(
+                message: "Actions mismatch.\nExpected: \(expected)\nActual: \(actionHistory)",
                 file: file,
                 line: line
             )

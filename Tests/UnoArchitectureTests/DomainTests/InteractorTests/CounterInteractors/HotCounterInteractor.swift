@@ -10,6 +10,7 @@ struct HotCounterInteractor: Interactor {
 
     enum Action: Sendable {
         case increment
+        case addValue(Int)
         case observe(AnyPublisher<Int, Never>)
     }
 
@@ -18,12 +19,20 @@ struct HotCounterInteractor: Interactor {
             switch action {
             case .increment:
                 state.count += 1
-                return .state
+                return .none
+            case .addValue(let value):
+                state.count += value
+                return .none
             case .observe(let publisher):
-                return .observe { state, send in
-                    let stateStream = publisher.values
-                    for await value in stateStream {
-                        await send(DomainState(count: state.count + value))
+                return .observe {
+                    AsyncStream { continuation in
+                        let task = Task {
+                            for await value in publisher.values {
+                                continuation.yield(.addValue(value))
+                            }
+                            continuation.finish()
+                        }
+                        continuation.onTermination = { @Sendable _ in task.cancel() }
                     }
                 }
             }
