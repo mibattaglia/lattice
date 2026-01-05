@@ -7,18 +7,30 @@ import Testing
 @Suite
 struct DebouncerTests {
 
-    // MARK: - Test 1: Debounce delays execution
+    // MARK: - Basic Execution Tests
+
+    @Test
+    func debounceReturnsExecutedAfterDuration() async throws {
+        let clock = TestClock()
+        let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
+
+        let task = await debouncer.debounce { 42 }
+
+        await clock.advance(by: .milliseconds(300))
+
+        #expect(await task.value == .executed(42))
+    }
 
     @Test
     func debounceDelaysExecution() async throws {
         let clock = TestClock()
         let counter = Counter()
 
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
+        let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
 
-        // Schedule work
         let task = await debouncer.debounce {
             await counter.increment()
+            return await counter.value
         }
 
         // Work should NOT have executed yet
@@ -26,124 +38,110 @@ struct DebouncerTests {
 
         // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        await task.value
 
         // Now work should have executed
+        #expect(await task.value == .executed(1))
         #expect(await counter.value == 1)
     }
 
-    // MARK: - Test 2: Rapid actions are coalesced
+    // MARK: - Superseded Tests
 
     @Test
-    func debounceCoalescesRapidActions() async throws {
+    func onlyLastCallerGetsExecutedResult() async throws {
         let clock = TestClock()
-        let counter = Counter()
+        let debouncer = Debouncer<TestClock, String>(for: .milliseconds(300), clock: clock)
 
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
+        // Sequential calls ensure deterministic ordering via actor serialization
+        // Each call returns a Task immediately; we collect them without awaiting values
+        let task1 = await debouncer.debounce { "first" }
+        let task2 = await debouncer.debounce { "second" }
+        let task3 = await debouncer.debounce { "third" }
 
-        // Schedule work 3 times rapidly
-        await debouncer.debounce { await counter.increment() }
-        await debouncer.debounce { await counter.increment() }
-        let task = await debouncer.debounce { await counter.increment() }
-
-        // Work should NOT have executed yet
-        #expect(await counter.value == 0)
-
-        // Advance past debounce period
-        await clock.advance(by: .seconds(1))
-        await task.value
-
-        // Only ONE execution (coalesced)
-        #expect(await counter.value == 1)
-    }
-
-    // MARK: - Test 3: Only the last work closure executes
-
-    @Test
-    func debounceExecutesOnlyLastWork() async throws {
-        let clock = TestClock()
-        let result = ResultHolder()
-
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
-
-        // Schedule different work closures
-
-        await debouncer.debounce { await result.set("first") }
-        await debouncer.debounce { await result.set("second") }
-        let task = await debouncer.debounce { await result.set("third") }
-
-        // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        await task.value
 
-        // Only the LAST closure should have executed
-        #expect(await result.value == "third")
+        // First two are superseded, third executes
+        #expect(await task1.value == .superseded)
+        #expect(await task2.value == .superseded)
+        #expect(await task3.value == .executed("third"))
     }
 
-    // MARK: - Edge Case: Task cancelled externally
-
     @Test
-    func workDoesNotExecuteWhenTaskCancelled() async throws {
+    func onlyLastWorkClosureExecutes() async throws {
         let clock = TestClock()
+        let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
         let counter = Counter()
 
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
-
-        let task = await debouncer.debounce {
+        // Sequential calls ensure deterministic ordering via actor serialization
+        let task1 = await debouncer.debounce {
             await counter.increment()
+            return 1
+        }
+        let task2 = await debouncer.debounce {
+            await counter.increment()
+            return 2
+        }
+        let task3 = await debouncer.debounce {
+            await counter.increment()
+            return 3
         }
 
-        // Cancel task externally before debounce period elapses
-        task.cancel()
-
-        // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        await task.value
 
-        // Work should NOT have executed
-        #expect(await counter.value == 0)
+        // Only the third closure executed
+        #expect(await counter.value == 1)
+        #expect(await task1.value == .superseded)
+        #expect(await task2.value == .superseded)
+        #expect(await task3.value == .executed(3))
     }
 
-    // MARK: - Edge Case: Sequential calls with full gaps
+    // MARK: - Optional Value Tests
 
     @Test
-    func sequentialCallsWithGapsExecuteIndependently() async throws {
+    func executedNilIsDistinctFromSuperseded() async throws {
         let clock = TestClock()
-        let counter = Counter()
+        let debouncer = Debouncer<TestClock, Int?>(for: .milliseconds(300), clock: clock)
 
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
+        // Work that intentionally returns nil
+        let task = await debouncer.debounce { nil as Int? }
 
-        // First call
-        let task1 = await debouncer.debounce { await counter.increment() }
         await clock.advance(by: .milliseconds(300))
-        await task1.value
-        #expect(await counter.value == 1)
 
-        // Second call after first completed
-        let task2 = await debouncer.debounce { await counter.increment() }
-        await clock.advance(by: .milliseconds(300))
-        await task2.value
-        #expect(await counter.value == 2)
+        // .executed(nil) is NOT the same as .superseded
+        let value = await task.value
+        #expect(value == .executed(nil))
+
+        // Verify it's truly .executed, not .superseded
+        if case .executed(let inner) = value {
+            #expect(inner == nil)
+        } else {
+            Issue.record("Expected .executed(nil), got .superseded")
+        }
     }
 
-    // MARK: - Edge Case: Call mid-debounce resets timer
+    // MARK: - Timer Reset Tests
 
     @Test
     func callMidDebounceResetsTimer() async throws {
         let clock = TestClock()
         let result = ResultHolder()
 
-        let debouncer = Debouncer(for: .milliseconds(300), clock: clock)
+        let debouncer = Debouncer<TestClock, String>(for: .milliseconds(300), clock: clock)
 
-        // First call
-        await debouncer.debounce { await result.set("first") }
+        // First call - start debounce
+        let task1 = await debouncer.debounce {
+            await result.set("first")
+            return "first"
+        }
 
         // Advance partially (not enough to trigger)
         await clock.advance(by: .milliseconds(200))
         #expect(await result.value == "")
 
         // Second call resets the timer
-        let task = await debouncer.debounce { await result.set("second") }
+        let task2 = await debouncer.debounce {
+            await result.set("second")
+            return "second"
+        }
 
         // Advance another 200ms (total 400ms, but only 200ms since second call)
         await clock.advance(by: .milliseconds(200))
@@ -151,16 +149,74 @@ struct DebouncerTests {
 
         // Advance remaining 100ms to complete second debounce
         await clock.advance(by: .milliseconds(100))
-        await task.value
 
         // Only second work executed
         #expect(await result.value == "second")
+        #expect(await task1.value == .superseded)
+        #expect(await task2.value == .executed("second"))
+    }
+
+    // MARK: - Cancellation Tests
+
+    @Test
+    func newCallCancelsPreviousWork() async throws {
+        let clock = TestClock()
+        let counter = Counter()
+
+        let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
+
+        // First call starts debouncing
+        let task1 = await debouncer.debounce {
+            await counter.increment()
+            return 1
+        }
+
+        // Second call should cancel the first
+        let task2 = await debouncer.debounce {
+            await counter.increment()
+            return 2
+        }
+
+        // Advance past debounce period
+        await clock.advance(by: .milliseconds(300))
+
+        // Only second work executed, first was superseded
+        #expect(await counter.value == 1)
+        #expect(await task1.value == .superseded)
+        #expect(await task2.value == .executed(2))
+    }
+
+    // MARK: - Sequential Independent Calls
+
+    @Test
+    func sequentialCallsWithGapsExecuteIndependently() async throws {
+        let clock = TestClock()
+        let counter = Counter()
+
+        let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
+
+        // First call
+        let task1 = await debouncer.debounce {
+            await counter.increment()
+            return await counter.value
+        }
+        await clock.advance(by: .milliseconds(300))
+        #expect(await task1.value == .executed(1))
+        #expect(await counter.value == 1)
+
+        // Second call after first completed
+        let task2 = await debouncer.debounce {
+            await counter.increment()
+            return await counter.value
+        }
+        await clock.advance(by: .milliseconds(300))
+        #expect(await task2.value == .executed(2))
+        #expect(await counter.value == 2)
     }
 }
 
 // MARK: - Test Helpers
 
-/// Thread-safe counter for async tests
 private actor Counter {
     var value = 0
 
@@ -169,7 +225,6 @@ private actor Counter {
     }
 }
 
-/// Thread-safe result holder for async tests
 private actor ResultHolder {
     var value = ""
 
