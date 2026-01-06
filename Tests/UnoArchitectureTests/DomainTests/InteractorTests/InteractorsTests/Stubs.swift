@@ -1,41 +1,27 @@
 import UnoArchitecture
 
 /// Takes an input and doubles it
-struct DoubleInteractor: Interactor {
+struct DoubleInteractor: Interactor, Sendable {
     typealias DomainState = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }
 
-    func interact(_ upstream: AsyncStream<Int>) -> AsyncStream<Int> {
-        AsyncStream { continuation in
-            let task = Task {
-                for await value in upstream {
-                    continuation.yield(value * 2)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+    func interact(state: inout Int, action: Int) -> Emission<Int> {
+        state = action * 2
+        return .none
     }
 }
 
 /// Takes an input and triples it
-struct TripleInteractor: Interactor {
+struct TripleInteractor: Interactor, Sendable {
     typealias DomainState = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }
 
-    func interact(_ upstream: AsyncStream<Int>) -> AsyncStream<Int> {
-        AsyncStream { continuation in
-            let task = Task {
-                for await value in upstream {
-                    continuation.yield(value * 3)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+    func interact(state: inout Int, action: Int) -> Emission<Int> {
+        state = action * 3
+        return .none
     }
 }

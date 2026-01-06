@@ -14,7 +14,7 @@ import Foundation
 ///     }
 /// }
 /// ```
-public struct BuildViewState<DomainState, ViewState>: ViewStateReducer {
+public struct BuildViewState<DomainState, ViewState>: ViewStateReducer, @unchecked Sendable {
     private let reducerBlock: (DomainState, inout ViewState) -> Void
 
     public init(reducerBlock: @escaping (DomainState, inout ViewState) -> Void) {

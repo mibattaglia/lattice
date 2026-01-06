@@ -9,11 +9,10 @@ struct SearchApp: App {
         let weatherService = RealWeatherService()
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialValue: SearchViewState.loaded(.init(query: "", listItems: [])),
-                SearchInteractor(weatherService: weatherService)
-                    .eraseToAnyInteractor(),
-                SearchViewStateReducer()
-                    .eraseToAnyReducer()
+                initialDomainState: .results(.init(query: "", results: [])),
+                initialViewState: .loaded(.init(query: "", listItems: [])),
+                interactor: SearchInteractor(weatherService: weatherService).eraseToAnyInteractor(),
+                viewStateReducer: SearchViewStateReducer().eraseToAnyReducer()
             )
         )
     }

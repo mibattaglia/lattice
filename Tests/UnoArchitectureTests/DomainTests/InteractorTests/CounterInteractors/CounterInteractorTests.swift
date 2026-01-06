@@ -7,13 +7,15 @@ import Testing
 @MainActor
 final class CounterInteractorTests {
 
-    @Test func increment() async throws {
-        let harness = await InteractorTestHarness(CounterInteractor())
+    @Test func increment() throws {
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: CounterInteractor()
+        )
 
         harness.send(.increment, .increment, .increment)
-        harness.finish()
 
-        try await harness.assertStates([
+        try harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
@@ -21,14 +23,16 @@ final class CounterInteractorTests {
         ])
     }
 
-    @Test func decrement() async throws {
-        let harness = await InteractorTestHarness(CounterInteractor())
+    @Test func decrement() throws {
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: CounterInteractor()
+        )
 
         harness.send(.increment, .increment, .increment)
         harness.send(.decrement, .decrement, .decrement)
-        harness.finish()
 
-        try await harness.assertStates([
+        try harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),
@@ -39,14 +43,16 @@ final class CounterInteractorTests {
         ])
     }
 
-    @Test func reset() async throws {
-        let harness = await InteractorTestHarness(CounterInteractor())
+    @Test func reset() throws {
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: CounterInteractor()
+        )
 
         harness.send(.increment, .increment, .increment)
         harness.send(.reset)
-        harness.finish()
 
-        try await harness.assertStates([
+        try harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

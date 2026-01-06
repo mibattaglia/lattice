@@ -1,4 +1,3 @@
-import CombineSchedulers
 import Foundation
 import Testing
 
@@ -7,22 +6,20 @@ import Testing
 @Suite
 @MainActor
 final class AsyncCounterInteractorTests {
-    private let scheduler = DispatchQueue.test
 
     @Test func asyncWork() async throws {
-        let interactor = AsyncCounterInteractor(scheduler: scheduler.eraseToAnyScheduler())
-        let harness = await InteractorTestHarness(interactor)
+        let interactor = AsyncCounterInteractor()
+        let harness = InteractorTestHarness(
+            initialState: AsyncCounterInteractor.State(count: 0),
+            interactor: interactor
+        )
 
         harness.send(.increment)
-        harness.send(.async)
-        await scheduler.advance(by: .seconds(0.51))
+        await harness.send(.asyncIncrement).finish()
         await Task.yield()
         harness.send(.increment)
-        await scheduler.advance(by: .seconds(0.51))
-        await Task.yield()
-        harness.finish()
 
-        try await harness.assertStates([
+        try harness.assertStates([
             .init(count: 0),
             .init(count: 1),
             .init(count: 2),

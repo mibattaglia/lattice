@@ -17,32 +17,48 @@ struct ViewModelTests {
         self.interactor = MyInteractor(dateFactory: { capturedNow })
         self.viewStateReducer = MyViewStateReducer()
         self.viewModel = ViewModel(
-            initialValue: .loading,
-            interactor.eraseToAnyInteractorUnchecked(),
-            viewStateReducer.eraseToAnyReducer()
+            initialDomainState: .loading,
+            initialViewState: .loading,
+            interactor: interactor.eraseToAnyInteractorUnchecked(),
+            viewStateReducer: viewStateReducer.eraseToAnyReducer()
         )
     }
 
     @Test
-    func testBasics() async throws {
+    func testSynchronousActions() {
         let initialViewState = MyViewState.loading
         #expect(viewModel.viewState == initialViewState)
 
         viewModel.sendViewEvent(.load)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == viewStateFactory(count: 0))
 
         viewModel.sendViewEvent(.incrementCount)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(viewModel.viewState == viewStateFactory(count: 1))
     }
 
-    private func viewStateFactory(count: Int) -> MyViewState {
+    @Test
+    func testAsyncEffectAwaiting() async {
+        viewModel.sendViewEvent(.load)
+        #expect(viewModel.viewState == viewStateFactory(count: 0))
+
+        let eventTask = viewModel.sendViewEvent(.fetchData)
+
+        // Synchronous state update happens immediately (isLoading = true)
+        #expect(viewModel.viewState == viewStateFactory(count: 0, isLoading: true))
+
+        // Await the effect to complete
+        await eventTask.finish()
+
+        // Async effect has completed (count = 42, isLoading = false)
+        #expect(viewModel.viewState == viewStateFactory(count: 42, isLoading: false))
+    }
+
+    private func viewStateFactory(count: Int, isLoading: Bool = false) -> MyViewState {
         MyViewState.success(
             .init(
                 count: count,
                 dateDisplayString: "4:20 PM",
-                isLoading: false
+                isLoading: isLoading
             )
         )
     }

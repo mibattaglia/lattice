@@ -6,14 +6,17 @@ import Testing
 @MainActor
 struct InteractorTestHarnessTests {
     @Test
-    func sendActionsAndAssertStates() async throws {
-        let harness = await InteractorTestHarness(CounterInteractor())
+    func sendActionsAndAssertStates() throws {
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: CounterInteractor()
+        )
 
         harness.send(.increment)
         harness.send(.increment)
         harness.send(.decrement)
 
-        try await harness.assertStates([
+        try harness.assertStates([
             CounterInteractor.State(count: 0),
             CounterInteractor.State(count: 1),
             CounterInteractor.State(count: 2),
@@ -22,13 +25,15 @@ struct InteractorTestHarnessTests {
     }
 
     @Test
-    func assertLatestState() async throws {
-        let harness = await InteractorTestHarness(CounterInteractor())
+    func assertLatestState() throws {
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: CounterInteractor()
+        )
 
         harness.send(.increment)
         harness.send(.increment)
 
-        try await harness.waitForStates(count: 3)
-        try await harness.assertLatestState(CounterInteractor.State(count: 2))
+        try harness.assertLatestState(CounterInteractor.State(count: 2))
     }
 }

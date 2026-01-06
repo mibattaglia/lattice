@@ -1,28 +1,30 @@
 import Foundation
 
+/// An interactor that does nothing - ignores all actions and returns `.none`.
+///
+/// Use this for conditional interactor composition where sometimes no processing is needed.
+///
+/// ## Usage
+///
+/// ```swift
+/// var body: some InteractorOf<Self> {
+///     if enableLogging {
+///         LoggingInteractor()
+///     } else {
+///         EmptyInteractor()
+///     }
+/// }
+/// ```
 public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
     public typealias DomainState = State
     public typealias Action = Action
 
-    private let completeImmediately: Bool
-
-    public init(completeImmediately: Bool = true) {
-        self.completeImmediately = completeImmediately
-    }
+    /// Creates an empty interactor.
+    public init() {}
 
     public var body: some InteractorOf<Self> { self }
 
-    public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<State> {
-        AsyncStream {
-            if completeImmediately {
-                $0.finish()
-            } else {
-                let task = Task {
-                    for await _ in upstream {}
-                }
-                $0.onTermination = { _ in task.cancel() }
-                $0.finish()
-            }
-        }
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
+        .none
     }
 }

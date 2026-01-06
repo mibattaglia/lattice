@@ -1,12 +1,10 @@
-import AsyncAlgorithms
 import Foundation
 
-/// A type that transforms a stream of **actions** into a stream of **domain state**.
+/// A type that processes **actions** and produces **domain state**.
 ///
 /// An `Interactor` is the core unit of a feature's business logic. It plays a role similar to a
-/// "reducer" in other architectures, but instead of synchronously returning new state it returns
-/// an `AsyncStream` of state values. This makes it trivial to express asynchronous work (such as
-/// network requests, timers, etc.) and to merge the results of multiple `Interactor`s together.
+/// "reducer" in other architectures, processing actions synchronously and returning an `Emission`
+/// that describes how to emit state (immediately or via an async effect).
 ///
 /// ## Declaring an Interactor
 ///
@@ -16,14 +14,14 @@ import Foundation
 /// @Interactor<CounterState, CounterAction>
 /// struct CounterInteractor: Sendable {
 ///     var body: some InteractorOf<Self> {
-///         Interact(initialValue: CounterState()) { state, action in
+///         Interact { state, action in
 ///             switch action {
 ///             case .increment:
 ///                 state.count += 1
 ///             case .decrement:
 ///                 state.count -= 1
 ///             }
-///             return .state
+///             return .none
 ///         }
 ///     }
 /// }
@@ -34,22 +32,16 @@ import Foundation
 ///
 /// ## Custom Implementation
 ///
-/// For advanced scenarios requiring direct stream control, implement `interact(_:)` directly:
+/// For advanced scenarios, implement `interact(state:action:)` directly:
 ///
 /// ```swift
-/// func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<DomainState> {
-///     AsyncStream { continuation in
-///         Task {
-///             for await action in upstream {
-///                 // Custom stream handling
-///             }
-///             continuation.finish()
-///         }
-///     }
+/// func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+///     // Custom processing logic
+///     return .none
 /// }
 /// ```
 ///
-/// - Note: Custom `interact(_:)` implementations take precedence over `body`.
+/// - Note: Custom `interact(state:action:)` implementations take precedence over `body`.
 public protocol Interactor<DomainState, Action> {
     /// The type of state produced downstream.
     associatedtype DomainState: Sendable
@@ -62,11 +54,13 @@ public protocol Interactor<DomainState, Action> {
     @InteractorBuilder<DomainState, Action>
     var body: Body { get }
 
-    /// Transforms the upstream action stream into a stream of domain state.
+    /// Processes an action by mutating state and returning an emission.
     ///
-    /// - Parameter upstream: An `AsyncStream` of actions coming from the view layer.
-    /// - Returns: An `AsyncStream` that emits new `DomainState` values.
-    func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<DomainState>
+    /// - Parameters:
+    ///   - state: The current state, passed as `inout` for mutation.
+    ///   - action: The action to process.
+    /// - Returns: An ``Emission`` describing actions to emit.
+    func interact(state: inout DomainState, action: Action) -> Emission<Action>
 }
 
 extension Interactor where Body.DomainState == Never {
@@ -77,8 +71,8 @@ extension Interactor where Body.DomainState == Never {
 
 extension Interactor where Body: Interactor<DomainState, Action> {
     /// The default implementation forwards to the `body` interactor.
-    public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<DomainState> {
-        self.body.interact(upstream)
+    public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+        body.interact(state: &state, action: action)
     }
 }
 
@@ -103,16 +97,16 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Actio
 ///     .eraseToAnyInteractor()
 /// ```
 public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
-    private let interactFunc: @Sendable (AsyncStream<Action>) -> AsyncStream<State>
+    private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
 
     public init<I: Interactor & Sendable>(_ base: I) where I.DomainState == State, I.Action == Action {
-        self.interactFunc = { upstream in base.interact(upstream) }
+        self.interactFunc = { state, action in base.interact(state: &state, action: action) }
     }
 
     public var body: some Interactor<State, Action> { self }
 
-    public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<State> {
-        interactFunc(upstream)
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
+        interactFunc(&state, action)
     }
 }
 
@@ -145,8 +139,8 @@ public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked
 
     public var body: some Interactor<I.DomainState, I.Action> { self }
 
-    public func interact(_ upstream: AsyncStream<I.Action>) -> AsyncStream<I.DomainState> {
-        wrapped.interact(upstream)
+    public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.Action> {
+        wrapped.interact(state: &state, action: action)
     }
 }
 

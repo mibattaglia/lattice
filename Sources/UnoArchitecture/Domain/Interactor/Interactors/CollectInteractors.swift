@@ -1,6 +1,9 @@
 import Foundation
 
 extension Interactors {
+    /// An interactor that wraps an interactor builder result.
+    ///
+    /// `CollectInteractors` enables creating interactors inline using the builder syntax.
     public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor,
         @unchecked Sendable
     where State == Interactors.DomainState, Action == Interactors.Action {
@@ -12,8 +15,8 @@ extension Interactors {
 
         public var body: some Interactor<State, Action> { self }
 
-        public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<State> {
-            interactors.interact(upstream)
+        public func interact(state: inout State, action: Action) -> Emission<Action> {
+            interactors.interact(state: &state, action: action)
         }
     }
 }

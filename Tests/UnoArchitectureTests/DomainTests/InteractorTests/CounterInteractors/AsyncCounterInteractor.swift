@@ -1,4 +1,3 @@
-import CombineSchedulers
 import Foundation
 
 @testable import UnoArchitecture
@@ -9,27 +8,20 @@ struct AsyncCounterInteractor {
         var count: Int
     }
 
-    enum Action: Sendable {
+    enum Action: Sendable, Equatable {
         case increment
-        case async
-    }
-
-    private let scheduler: AnySchedulerOf<DispatchQueue>
-
-    init(scheduler: AnySchedulerOf<DispatchQueue>) {
-        self.scheduler = scheduler
+        case asyncIncrement
     }
 
     var body: some Interactor<State, Action> {
-        Interact<State, Action>(initialValue: State(count: 0)) { state, action in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
-                return .state
-            case .async:
-                return .perform { state, send in
-                    try? await scheduler.sleep(for: .seconds(0.5))
-                    await send(AsyncCounterInteractor.DomainState(count: state.count + 1))
+                return .none
+            case .asyncIncrement:
+                return .perform {
+                    .increment
                 }
             }
         }

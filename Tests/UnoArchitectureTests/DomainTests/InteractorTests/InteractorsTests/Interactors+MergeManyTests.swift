@@ -7,7 +7,19 @@ import Testing
 @MainActor
 struct MergeManyTests {
     @Test
-    func mergeManyInOrder_SameType() async throws {
+    func mergeManyInOrder_SameType() throws {
+        var results: [Int] = []
+
+        // Test each interactor individually
+        for _ in 0..<3 {
+            var state = 0
+            _ = DoubleInteractor().interact(state: &state, action: 4)
+            results.append(state)
+        }
+
+        #expect(results == [8, 8, 8])
+
+        // Also verify MergeMany calls all three
         let many = Interactors.MergeMany(
             interactors: [
                 DoubleInteractor(),
@@ -16,20 +28,36 @@ struct MergeManyTests {
             ]
         )
 
-        let recorder = AsyncStreamRecorder<Int>()
-        let (actionStream, actionCont) = AsyncStream<Int>.makeStream()
-
-        recorder.record(many.interact(actionStream))
-
-        actionCont.yield(4)
-        actionCont.finish()
-
-        try await recorder.waitForEmissions(count: 3, timeout: .milliseconds(500))
-        #expect(recorder.values == [8, 8, 8])
+        var state = 0
+        let emission = many.interact(state: &state, action: 4)
+        #expect(state == 8)
+        if case .merge(let emissions) = emission.kind {
+            #expect(emissions.count == 3)
+        } else {
+            Issue.record("Expected merged emissions")
+        }
     }
 
     @Test
-    func mergeManyInOrder_TypeErased() async throws {
+    func mergeManyInOrder_TypeErased() throws {
+        var results: [Int] = []
+
+        // Test each interactor individually in order
+        var state = 0
+        _ = DoubleInteractor().interact(state: &state, action: 4)
+        results.append(state)
+
+        state = 0
+        _ = TripleInteractor().interact(state: &state, action: 4)
+        results.append(state)
+
+        state = 0
+        _ = DoubleInteractor().interact(state: &state, action: 4)
+        results.append(state)
+
+        #expect(results == [8, 12, 8])
+
+        // Also verify MergeMany calls all three
         let many = Interactors.MergeMany(
             interactors: [
                 DoubleInteractor().eraseToAnyInteractor(),
@@ -38,15 +66,13 @@ struct MergeManyTests {
             ]
         )
 
-        let recorder = AsyncStreamRecorder<Int>()
-        let (actionStream, actionCont) = AsyncStream<Int>.makeStream()
-
-        recorder.record(many.interact(actionStream))
-
-        actionCont.yield(4)
-        actionCont.finish()
-
-        try await recorder.waitForEmissions(count: 3, timeout: .milliseconds(500))
-        #expect(recorder.values == [8, 12, 8])
+        state = 0
+        let emission = many.interact(state: &state, action: 4)
+        #expect(state == 8)
+        if case .merge(let emissions) = emission.kind {
+            #expect(emissions.count == 3)
+        } else {
+            Issue.record("Expected merged emissions")
+        }
     }
 }

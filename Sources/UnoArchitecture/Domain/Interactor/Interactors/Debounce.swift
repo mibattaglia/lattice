@@ -1,102 +1,68 @@
-import AsyncAlgorithms
 import Foundation
 
 extension Interactors {
-    /// An interactor that debounces actions before forwarding them to a child interactor.
+    /// An interactor that debounces the effects of a child interactor.
     ///
-    /// `Debounce` delays forwarding actions until a specified time has passed without
-    /// receiving new actions. This is useful for scenarios like search-as-you-type,
-    /// where you want to wait for the user to stop typing before making a request.
-    ///
-    /// ## Usage
+    /// Actions are processed immediately through the child (state changes right away),
+    /// but the child's emissions are debounced - only the last effect executes after
+    /// the debounce duration elapses with no new actions.
     ///
     /// ```swift
     /// var body: some InteractorOf<Self> {
-    ///     DebounceInteractor(for: .milliseconds(300)) {
+    ///     Interactors.Debounce(for: .milliseconds(300)) {
     ///         SearchInteractor()
     ///     }
     /// }
     /// ```
     ///
-    /// ## Testing
+    /// ## Behavior
     ///
-    /// Inject a `TestClock` for deterministic time control in tests:
+    /// 1. Action arrives → processed immediately, state changes
+    /// 2. Child's emission is debounced
+    /// 3. Another action arrives → new emission cancels previous pending effect
+    /// 4. After quiet period → last effect executes
     ///
-    /// ```swift
-    /// let clock = TestClock()
-    /// let interactor = DebounceInteractor(for: .seconds(1), clock: clock) {
-    ///     SearchInteractor()
-    /// }
-    /// // Advance time manually with clock.advance(by:)
-    /// ```
-    ///
-    /// - Note: Uses `swift-async-algorithms` debounce operator internally.
+    /// - Note: State changes happen immediately. Only effects are debounced.
     public struct Debounce<C: Clock, Child: Interactor & Sendable>: Interactor, Sendable
     where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable {
         public typealias DomainState = Child.DomainState
         public typealias Action = Child.Action
 
         private let child: Child
-        private let duration: C.Duration
-        private let clock: C
+        private let debouncer: Debouncer<C, Action?>
 
-        /// Creates a debouncing interactor with a custom clock.
+        /// Creates a debouncing interactor.
         ///
         /// - Parameters:
-        ///   - duration: The time to wait after the last action before forwarding.
+        ///   - duration: How long to wait after the last action before executing effects.
         ///   - clock: The clock to use for timing. Inject `TestClock` for testing.
         ///   - child: A closure that returns the child interactor to wrap.
         public init(for duration: C.Duration, clock: C, child: () -> Child) {
-            self.duration = duration
-            self.clock = clock
             self.child = child()
+            self.debouncer = Debouncer(for: duration, clock: clock)
         }
 
         public var body: some InteractorOf<Self> { self }
 
-        public func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<DomainState> {
-            AsyncStream { continuation in
-                let task = Task {
-                    let debouncedActions = upstream.debounce(for: duration, clock: clock)
-                    let (childStream, childCont) = AsyncStream<Action>.makeStream()
-
-                    let forwardTask = Task {
-                        for try await action in debouncedActions {
-                            childCont.yield(action)
-                        }
-                        childCont.finish()
-                    }
-
-                    for await state in child.interact(childStream) {
-                        continuation.yield(state)
-                    }
-
-                    forwardTask.cancel()
-                    continuation.finish()
-                }
-                continuation.onTermination = { @Sendable _ in task.cancel() }
-            }
+        public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+            // Process child actions immediately
+            child.interact(state: &state, action: action)
+                // Emissions are debounced
+                .debounce(using: debouncer)
         }
     }
 }
 
 extension Interactors.Debounce where C == ContinuousClock {
-    /// Creates a debouncing interactor using the system clock.
+    /// Creates a debouncing interactor using the continuous clock.
     ///
     /// - Parameters:
-    ///   - duration: The time to wait after the last action before forwarding.
+    ///   - duration: How long to wait after the last action before executing effects.
     ///   - child: A closure that returns the child interactor to wrap.
     public init(for duration: Duration, child: () -> Child) {
         self.init(for: duration, clock: ContinuousClock(), child: child)
     }
 }
 
-/// A convenience typealias for ``Interactors/Debounce``.
-///
-/// Usage:
-/// ```swift
-/// DebounceInteractor(for: .milliseconds(300)) {
-///     SearchInteractor()
-/// }
-/// ```
 public typealias DebounceInteractor<C: Clock & Sendable, Child: Interactor & Sendable> = Interactors.Debounce<C, Child>
+where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable

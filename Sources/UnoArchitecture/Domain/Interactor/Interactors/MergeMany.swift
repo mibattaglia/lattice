@@ -16,8 +16,8 @@ extension Interactors {
     /// }
     /// ```
     ///
-    /// Each action is processed by all interactors sequentially, with state
-    /// emissions from each forwarded downstream.
+    /// Each action is processed by all interactors sequentially, with their
+    /// emissions merged together.
     ///
     /// - Note: For merging exactly two interactors, see ``Merge``.
     public struct MergeMany<Element: Interactor>: Interactor, @unchecked Sendable
@@ -33,23 +33,11 @@ extension Interactors {
 
         public var body: some Interactor<Element.DomainState, Element.Action> { self }
 
-        public func interact(_ upstream: AsyncStream<Element.Action>) -> AsyncStream<Element.DomainState> {
-            AsyncStream { continuation in
-                let task = Task {
-                    for await action in upstream {
-                        for interactor in interactors {
-                            let (stream, cont) = AsyncStream<Element.Action>.makeStream()
-                            cont.yield(action)
-                            cont.finish()
-                            for await state in interactor.interact(stream) {
-                                continuation.yield(state)
-                            }
-                        }
-                    }
-                    continuation.finish()
-                }
-                continuation.onTermination = { _ in task.cancel() }
+        public func interact(state: inout Element.DomainState, action: Element.Action) -> Emission<Element.Action> {
+            let emissions = interactors.map { interactor in
+                interactor.interact(state: &state, action: action)
             }
+            return .merge(emissions)
         }
     }
 }

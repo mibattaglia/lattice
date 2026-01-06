@@ -4,72 +4,167 @@ import Testing
 
 @testable import UnoArchitecture
 
-@Suite
+@Suite(.serialized)
 @MainActor
-struct DebounceTests {
+struct DebounceInteractorTests {
+
     @Test
-    func debounceDelaysActions() async throws {
+    func stateChangesImmediately() async throws {
         let clock = TestClock()
 
-        let debounced = Interactors.Debounce<TestClock, CounterInteractor>(
+        let debounced = Interactors.Debounce(
             for: .milliseconds(300),
             clock: clock
         ) {
             CounterInteractor()
         }
 
-        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
-        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: debounced
+        )
 
-        recorder.record(debounced.interact(actionStream))
+        #expect(harness.states == [.init(count: 0)])
 
-        // Wait for initial state
-        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0)])
+        // Send action - state changes IMMEDIATELY (effect-level debouncing)
+        harness.send(.increment)
 
-        // Send action
-        actionCont.yield(.increment)
-
-        // Advance past debounce period
-        await clock.advance(by: .milliseconds(300))
-        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
-
-        actionCont.finish()
+        // State already changed
+        #expect(harness.states == [.init(count: 0), .init(count: 1)])
     }
 
     @Test
-    func debounceCoalescesRapidActions() async throws {
+    func allActionsProcessedImmediately() async throws {
         let clock = TestClock()
 
-        let debounced = Interactors.Debounce<TestClock, CounterInteractor>(
+        let debounced = Interactors.Debounce(
             for: .milliseconds(300),
             clock: clock
         ) {
             CounterInteractor()
         }
 
-        let recorder = AsyncStreamRecorder<CounterInteractor.State>()
-        let (actionStream, actionCont) = AsyncStream<CounterInteractor.Action>.makeStream()
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: debounced
+        )
 
-        recorder.record(debounced.interact(actionStream))
+        // Send multiple rapid actions - ALL state changes happen immediately
+        harness.send(.increment)
+        harness.send(.increment)
+        harness.send(.increment)
 
-        // Wait for initial state
-        try await recorder.waitForEmissions(count: 1, timeout: .seconds(2))
-        #expect(recorder.values == [.init(count: 0)])
+        // All three increments processed immediately
+        #expect(
+            harness.states == [
+                .init(count: 0),
+                .init(count: 1),
+                .init(count: 2),
+                .init(count: 3),
+            ])
+    }
 
-        // Send multiple rapid actions
-        actionCont.yield(.increment)
-        actionCont.yield(.increment)
-        actionCont.yield(.increment)
+    @Test
+    func effectsAreDebounced() async throws {
+        let clock = TestClock()
+        let effectExecutionCount = Counter()
+
+        let debounced = Interactors.Debounce(
+            for: .milliseconds(300),
+            clock: clock
+        ) {
+            EffectInteractor(counter: effectExecutionCount)
+        }
+
+        let harness = InteractorTestHarness(
+            initialState: EffectInteractor.State(),
+            interactor: debounced
+        )
+
+        // Send multiple triggers rapidly
+        harness.send(.trigger)
+        harness.send(.trigger)
+        let task = harness.send(.trigger)
+
+        // All state changes happened immediately
+        #expect(harness.currentState.triggerCount == 3)
+
+        // But NO effects have executed yet
+        #expect(await effectExecutionCount.value == 0)
 
         // Advance past debounce period
-        await clock.advance(by: .seconds(1))
-        try await recorder.waitForEmissions(count: 2, timeout: .seconds(2))
+        await clock.advance(by: .milliseconds(300))
+        await task.finish()
 
-        // Only one state change because debounce emits only the last value
-        #expect(recorder.values == [.init(count: 0), .init(count: 1)])
+        // Only ONE effect executed (the last one)
+        #expect(await effectExecutionCount.value == 1)
 
-        actionCont.finish()
+        // Effect result reflects the last trigger
+        #expect(harness.currentState.effectResult == 3)
+    }
+
+    @Test
+    func noneEmissionsPassThrough() async throws {
+        let clock = TestClock()
+
+        // CounterInteractor returns .none, should work fine
+        let debounced = Interactors.Debounce(
+            for: .milliseconds(300),
+            clock: clock
+        ) {
+            CounterInteractor()
+        }
+
+        let harness = InteractorTestHarness(
+            initialState: CounterInteractor.State(count: 0),
+            interactor: debounced
+        )
+
+        harness.send(.increment)
+        harness.send(.decrement)
+        harness.send(.increment)
+
+        // All processed immediately since .none emissions pass through
+        #expect(harness.currentState.count == 1)
+    }
+}
+
+// MARK: - Test Helpers
+
+private actor Counter {
+    var value = 0
+    func increment() { value += 1 }
+}
+
+private struct EffectInteractor: Interactor, Sendable {
+    typealias DomainState = State
+
+    struct State: Equatable, Sendable {
+        var triggerCount: Int = 0
+        var effectResult: Int = 0
+    }
+
+    enum Action: Sendable, Equatable {
+        case trigger
+        case effectCompleted(Int)
+    }
+
+    let counter: Counter
+
+    var body: some InteractorOf<Self> { self }
+
+    func interact(state: inout State, action: Action) -> Emission<Action> {
+        switch action {
+        case .trigger:
+            state.triggerCount += 1
+            let count = state.triggerCount
+            return .perform { [counter] in
+                await counter.increment()
+                return .effectCompleted(count)
+            }
+        case .effectCompleted(let result):
+            state.effectResult = result
+            return .none
+        }
     }
 }
