@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(IdentifiedCollections)
     import IdentifiedCollections
 #endif
@@ -129,23 +130,23 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
             return false
         }
 
-#if canImport(IdentifiedCollections)
-        func openIdentifiable<Element: Identifiable>(_: Element.Type) -> Bool? {
-            guard
-                let lhs = lhs as? IdentifiedArrayOf<Element>,
-                let rhs = rhs as? IdentifiedArrayOf<Element>
-            else {
-                return nil
+        #if canImport(IdentifiedCollections)
+            func openIdentifiable<Element: Identifiable>(_: Element.Type) -> Bool? {
+                guard
+                    let lhs = lhs as? IdentifiedArrayOf<Element>,
+                    let rhs = rhs as? IdentifiedArrayOf<Element>
+                else {
+                    return nil
+                }
+                return areOrderedSetsDuplicates(lhs.ids, rhs.ids)
             }
-            return areOrderedSetsDuplicates(lhs.ids, rhs.ids)
-        }
 
-        if let identifiable = C.Element.self as? any Identifiable.Type,
-            let result = openIdentifiable(identifiable)
-        {
-            return result
-        }
-#endif
+            if let identifiable = C.Element.self as? any Identifiable.Type,
+                let result = openIdentifiable(identifiable)
+            {
+                return result
+            }
+        #endif
 
         if let rhs = rhs as? C {
             return lhs.count == rhs.count && zip(lhs, rhs).allSatisfy(_$isIdentityEqual)
