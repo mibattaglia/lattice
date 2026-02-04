@@ -1,11 +1,12 @@
 # Lattice
 
-A lightweight, pure Swift library for building complex features using MVVM with unidirectional data flow. Built on Swift's native async/await and AsyncStream.
+A lightweight, pure Swift library for building complex features using MVVM with unidirectional data flow. Built on Swift's native async/await.
+Inspired by The Composable Architecture.
 
 ## Features
 
 - **Unidirectional Data Flow**: Actions flow in, state flows out
-- **AsyncStream-Based**: Native Swift concurrency with no Combine dependency
+- **Async/Await-Based**: Native Swift concurrency with no Combine dependency
 - **Declarative Composition**: Result builders for composing interactors
 - **Type-Safe**: Strong generic constraints ensure compile-time safety
 - **Testable**: First-class testing support with `InteractorTestHarness` and `AsyncStreamRecorder`
@@ -37,7 +38,6 @@ Then add `Lattice` to your target's dependencies:
 ### 1. Define Domain State, View State, and Actions
 
 ```swift
-@ObservableState
 struct CounterState: Sendable, Equatable {
     var count: Int = 0
 }
@@ -208,7 +208,6 @@ The `Emission` type controls how state is emitted:
 - **`.action(action)`**: Emit an action immediately
 - **`.perform { ... }`**: Execute async work, return an optional action
 - **`.observe { ... }`**: Observe a stream, emitting actions for each element
-- **`.merge([Emission])`**: Combine multiple emissions
 
 ```swift
 // Async work example
@@ -259,8 +258,8 @@ struct CounterViewStateReducer: Sendable {
 
 ### ObservableState
 
-View states must conform to `ObservableState`. Use the macro to generate the required
-Observation conformance:
+Only view states must conform to `ObservableState`. Domain state does not need to be observable.
+Use the macro to generate the required Observation conformance:
 
 ```swift
 @ObservableState
@@ -359,3 +358,8 @@ This enables the pre-push hook which auto-formats Swift files with `swift-format
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Inspiration and Credit
+
+Lattice is inspired by [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
+The builder pattern, effect pattern, and `ObservableState` are all derived from TCA's architecture and conventions.
