@@ -1,5 +1,7 @@
 import Foundation
-import IdentifiedCollections
+#if canImport(IdentifiedCollections)
+    import IdentifiedCollections
+#endif
 
 /// A type that emits notifications to observers when underlying data changes.
 ///
@@ -127,6 +129,7 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
             return false
         }
 
+#if canImport(IdentifiedCollections)
         func openIdentifiable<Element: Identifiable>(_: Element.Type) -> Bool? {
             guard
                 let lhs = lhs as? IdentifiedArrayOf<Element>,
@@ -141,7 +144,10 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
             let result = openIdentifiable(identifiable)
         {
             return result
-        } else if let rhs = rhs as? C {
+        }
+#endif
+
+        if let rhs = rhs as? C {
             return lhs.count == rhs.count && zip(lhs, rhs).allSatisfy(_$isIdentityEqual)
         } else {
             return false

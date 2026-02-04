@@ -1,5 +1,7 @@
-import CasePaths
 import SwiftUI
+#if canImport(CasePaths)
+    import CasePaths
+#endif
 
 /// A wrapper that enables creating SwiftUI bindings from ViewModel state properties.
 ///
@@ -54,6 +56,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     ///
     /// TextField("Name", text: $viewModel.name.sending(\.updateName))
     /// ```
+#if canImport(CasePaths)
     @MainActor
     public func sending(_ action: CaseKeyPath<Action, Value>) -> Binding<Value> {
         Binding(
@@ -63,6 +66,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
             }
         )
     }
+#endif
 }
 
 extension Bindable {
@@ -91,6 +95,7 @@ extension Bindable {
         )
     }
 
+#if canImport(CasePaths)
     /// Accesses ViewModel state case properties for CasePathable enums.
     ///
     /// Use this with the `@Bindable` property wrapper to create bindings to enum case values:
@@ -114,8 +119,10 @@ extension Bindable {
             casePath: ViewState.allCasePaths[keyPath: keyPath]
         )
     }
+#endif
 }
 
+#if canImport(CasePaths)
 /// A wrapper that enables creating SwiftUI bindings from ViewModel enum case associated values.
 @dynamicMemberLookup
 public struct _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
@@ -221,3 +228,4 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState & Case
         )
     }
 }
+#endif

@@ -1,6 +1,9 @@
-import CasePaths
 import Foundation
+#if canImport(CasePaths)
+    import CasePaths
+#endif
 
+#if canImport(CasePaths)
 extension Interactors {
     /// Embeds a child interactor in a parent domain.
     ///
@@ -122,7 +125,9 @@ extension Interactors {
         }
     }
 }
+#endif
 
+#if canImport(CasePaths)
 /// Convenience alias for `Interactors.When`.
 public typealias WhenInteractor<ParentState: Sendable, ParentAction: Sendable, Child: Interactor & Sendable> =
     Interactors.When<ParentState, ParentAction, Child>
@@ -198,3 +203,4 @@ extension Interactor where Self: Sendable {
         )
     }
 }
+#endif

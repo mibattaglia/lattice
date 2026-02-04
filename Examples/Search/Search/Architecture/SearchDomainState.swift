@@ -1,7 +1,7 @@
 import CasePaths
 
 @CasePathable
-enum SearchDomainState: Equatable {
+enum SearchDomainState: Equatable, Sendable {
     case noResults
     case results(ResultState)
 

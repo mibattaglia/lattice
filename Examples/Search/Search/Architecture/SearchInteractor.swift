@@ -1,21 +1,50 @@
 import UnoArchitecture
 
+import Foundation
+
+public final class BodyCacheBox<State: Sendable, Action: Sendable>: @unchecked Sendable {
+    private var cached: (any Interactor<State, Action>)?
+    private let lock = NSLock()
+
+    public init() {}
+
+    public func getOrBuild<I: Interactor<State, Action>>(@InteractorBuilder<State, Action> build: () -> I) -> I {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let cached {
+            print("cached value")
+            return cached as! I
+        }
+        let value = build()
+        print("building value")
+        cached = value
+        return value
+    }
+}
+
 @Interactor<SearchDomainState, SearchEvent>
 struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
-    private let searchQueryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
+//    private let searchQueryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
+
+    private let _bodyCache = BodyCacheBox<SearchDomainState, SearchEvent>()
 
     init(weatherService: WeatherService) {
         self.weatherService = weatherService
-        self.searchQueryInteractor = SearchQueryInteractor(weatherService: weatherService)
-            .eraseToAnyInteractor()
+//        self.searchQueryInteractor = SearchQueryInteractor(weatherService: weatherService)
+//            .eraseToAnyInteractor()
+    }
+
+    func interact(state: inout SearchDomainState, action: SearchEvent) -> Emission<SearchEvent> {
+        _bodyCache.getOrBuild { body }
+            .interact(state: &state, action: action)
     }
 
     var body: some InteractorOf<Self> {
         Interact { state, event in
             switch event {
             case .searchResultsChanged(let results):
-                print("results changed")
                 state = .results(results)
                 return .none
 
@@ -63,7 +92,8 @@ struct SearchInteractor: Sendable {
             }
         }
         .when(state: \.results, action: \.search) {
-            searchQueryInteractor
+//            searchQueryInteractor
+            SearchQueryInteractor(weatherService: weatherService)
         }
     }
 }
