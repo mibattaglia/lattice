@@ -1,6 +1,5 @@
-import UnoArchitecture
-
 import Foundation
+import Lattice
 
 public final class BodyCacheBox<State: Sendable, Action: Sendable>: @unchecked Sendable {
     private var cached: (any Interactor<State, Action>)?
@@ -26,14 +25,14 @@ public final class BodyCacheBox<State: Sendable, Action: Sendable>: @unchecked S
 @Interactor<SearchDomainState, SearchEvent>
 struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
-//    private let searchQueryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
+    //    private let searchQueryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
 
     private let _bodyCache = BodyCacheBox<SearchDomainState, SearchEvent>()
 
     init(weatherService: WeatherService) {
         self.weatherService = weatherService
-//        self.searchQueryInteractor = SearchQueryInteractor(weatherService: weatherService)
-//            .eraseToAnyInteractor()
+        //        self.searchQueryInteractor = SearchQueryInteractor(weatherService: weatherService)
+        //            .eraseToAnyInteractor()
     }
 
     func interact(state: inout SearchDomainState, action: SearchEvent) -> Emission<SearchEvent> {
@@ -56,9 +55,11 @@ struct SearchInteractor: Sendable {
                     return .none
                 }
 
-                guard let tappedRowIndex = resultState.results.firstIndex(where: {
-                    "\($0.weatherModel.id)" == id
-                }) else {
+                guard
+                    let tappedRowIndex = resultState.results.firstIndex(where: {
+                        "\($0.weatherModel.id)" == id
+                    })
+                else {
                     return .none
                 }
 
@@ -82,7 +83,8 @@ struct SearchInteractor: Sendable {
 
             case .forecastReceived(let index, let forecast):
                 guard case .results(var resultState) = state,
-                      index < resultState.results.count else {
+                    index < resultState.results.count
+                else {
                     return .none
                 }
                 resultState.results[index].isLoading = false
@@ -92,7 +94,7 @@ struct SearchInteractor: Sendable {
             }
         }
         .when(state: \.results, action: \.search) {
-//            searchQueryInteractor
+            //            searchQueryInteractor
             SearchQueryInteractor(weatherService: weatherService)
         }
     }

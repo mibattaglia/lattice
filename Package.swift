@@ -4,12 +4,12 @@ import CompilerPluginSupport
 import PackageDescription
 
 let package = Package(
-    name: "swift-uno-architecture",
+    name: "swift-lattice",
     platforms: [.iOS(.v17), .watchOS(.v10), .macOS(.v14)],
     products: [
         .library(
-            name: "UnoArchitecture",
-            targets: ["UnoArchitecture"]
+            name: "Lattice",
+            targets: ["Lattice"]
         )
     ],
     dependencies: [
@@ -42,9 +42,9 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "UnoArchitecture",
+            name: "Lattice",
             dependencies: [
-                "UnoArchitectureMacros",
+                "LatticeMacros",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
@@ -54,22 +54,22 @@ let package = Package(
             ]
         ),
         .macro(
-            name: "UnoArchitectureMacros",
+            name: "LatticeMacros",
             dependencies: [
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
         .testTarget(
-            name: "UnoArchitectureTests",
+            name: "LatticeTests",
             dependencies: [
-                "UnoArchitecture"
+                "Lattice"
             ]
         ),
         .testTarget(
-            name: "UnoArchitectureMacrosTests",
+            name: "LatticeMacrosTests",
             dependencies: [
-                "UnoArchitectureMacros",
+                "LatticeMacros",
                 .product(name: "MacroTesting", package: "swift-macro-testing"),
             ]
         ),

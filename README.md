@@ -1,4 +1,4 @@
-# UnoArchitecture
+# Lattice
 
 A lightweight, pure Swift library for building complex features using MVVM with unidirectional data flow. Built on Swift's native async/await and AsyncStream.
 
@@ -18,16 +18,16 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mibattaglia/swift-uno-architecture", from: "1.0.0")
+    .package(url: "https://github.com/mibattaglia/swift-lattice", from: "1.0.0")
 ]
 ```
 
-Then add `UnoArchitecture` to your target's dependencies:
+Then add `Lattice` to your target's dependencies:
 
 ```swift
 .target(
     name: "MyApp",
-    dependencies: ["UnoArchitecture"]
+    dependencies: ["Lattice"]
 )
 ```
 
@@ -49,7 +49,7 @@ enum CounterAction: Sendable {
 ### 2. Create an Interactor
 
 ```swift
-import UnoArchitecture
+import Lattice
 
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor: Sendable {

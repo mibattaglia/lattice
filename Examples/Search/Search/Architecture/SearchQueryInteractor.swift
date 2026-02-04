@@ -1,5 +1,5 @@
 import Foundation
-import UnoArchitecture
+import Lattice
 
 @Interactor<SearchDomainState.ResultState, SearchQueryEvent>
 struct SearchQueryInteractor: Sendable {
@@ -23,19 +23,19 @@ struct SearchQueryInteractor: Sendable {
                 return .perform { [weatherService] in
                     print("searching: \(query)")
                     return .none
-//                    do {
-//                        let weatherModels = try await weatherService.searchWeather(query: query)
-//                        let weatherResults = weatherModels.results.map { weatherModel in
-//                            SearchDomainState.ResultState.ResultItem(
-//                                weatherModel: weatherModel,
-//                                forecast: nil
-//                            )
-//                        }
-//                        return .searchCompleted(query: query, results: weatherResults)
-//                    } catch {
-//                        print("Search error: \(error)")
-//                        return .searchFailed
-//                    }
+                    //                    do {
+                    //                        let weatherModels = try await weatherService.searchWeather(query: query)
+                    //                        let weatherResults = weatherModels.results.map { weatherModel in
+                    //                            SearchDomainState.ResultState.ResultItem(
+                    //                                weatherModel: weatherModel,
+                    //                                forecast: nil
+                    //                            )
+                    //                        }
+                    //                        return .searchCompleted(query: query, results: weatherResults)
+                    //                    } catch {
+                    //                        print("Search error: \(error)")
+                    //                        return .searchFailed
+                    //                    }
                 }
                 .debounce(using: debouncer)
 

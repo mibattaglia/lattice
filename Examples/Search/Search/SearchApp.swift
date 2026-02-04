@@ -1,5 +1,5 @@
+import Lattice
 import SwiftUI
-import UnoArchitecture
 
 @main
 struct SearchApp: App {

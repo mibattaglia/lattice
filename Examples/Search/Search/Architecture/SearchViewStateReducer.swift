@@ -1,5 +1,5 @@
 import Foundation
-import UnoArchitecture
+import Lattice
 
 @ViewStateReducer<SearchDomainState, SearchViewState>
 struct SearchViewStateReducer {
