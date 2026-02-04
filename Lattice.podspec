@@ -34,4 +34,5 @@ Pod::Spec.new do |s|
   s.dependency 'OrderedCollections', '~> 1.0.2'
   s.dependency 'swift-identified-collections', '0.1.0'
   s.dependency 'CasePaths', '0.1.0'
+  s.dependency 'CasePathsCore', '0.1.0'
 end
