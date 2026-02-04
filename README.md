@@ -9,7 +9,8 @@ A lightweight, pure Swift library for building complex features using MVVM with 
 - **Declarative Composition**: Result builders for composing interactors
 - **Type-Safe**: Strong generic constraints ensure compile-time safety
 - **Testable**: First-class testing support with `InteractorTestHarness` and `AsyncStreamRecorder`
-- **SwiftUI Integration**: Generic `ViewModel` class for seamless view binding
+- **SwiftUI Integration**: Generic `ViewModel` class with `@Bindable` bindings and `EventTask`
+- **ObservableState Macro**: View state types get Observation conformance automatically
 - **Swift 6 Ready**: Full concurrency safety with `@MainActor` isolation
 
 ## Installation
@@ -33,9 +34,10 @@ Then add `Lattice` to your target's dependencies:
 
 ## Quick Start
 
-### 1. Define Domain State and Actions
+### 1. Define Domain State, View State, and Actions
 
 ```swift
+@ObservableState
 struct CounterState: Sendable, Equatable {
     var count: Int = 0
 }
@@ -43,6 +45,12 @@ struct CounterState: Sendable, Equatable {
 enum CounterAction: Sendable {
     case increment
     case decrement
+}
+
+@ObservableState
+struct CounterViewState: Sendable, Equatable {
+    var count: Int = 0
+    var displayText: String = ""
 }
 ```
 
@@ -54,14 +62,14 @@ import Lattice
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact(initialValue: CounterState()) { state, action in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
             case .decrement:
                 state.count -= 1
             }
-            return .state
+            return .none
         }
     }
 }
@@ -69,46 +77,50 @@ struct CounterInteractor: Sendable {
 
 ### 3. Create a ViewModel
 
-The `ViewModel` class connects your interactor to SwiftUI. There are two initialization patterns:
+The `ViewModel` class connects your interactor to SwiftUI. Two initialization patterns are supported:
 
 **Direct Pattern** (when DomainState == ViewState):
 
 ```swift
 // Use DirectViewModel when your interactor output is your view state
 let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
-    CounterState(count: 0),
-    CounterInteractor().eraseToAnyInteractor()
+    initialState: CounterState(count: 0),
+    interactor: CounterInteractor().eraseToAnyInteractor()
 )
 ```
 
-This pattern is useful when you have a simple feature that does not need complex 
-mappings between your feature's domain and the rendering instructions for your
-feature's view.
+This pattern fits a simple feature that does not need complex mappings between
+domain state and view rendering instructions.
 
 **Full Pattern** (with ViewStateReducer):
 
 ```swift
 // Use the full ViewModel when you need to transform domain state to view state
 let viewModel = ViewModel(
-    initialValue: CounterViewState(count: 0, displayText: ""),
-    CounterInteractor().eraseToAnyInteractor(),
-    CounterViewStateReducer().eraseToAnyViewStateReducer()
+    initialDomainState: CounterState(count: 0),
+    initialViewState: CounterViewState(count: 0, displayText: ""),
+    interactor: CounterInteractor().eraseToAnyInteractor(),
+    viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
 )
 ```
 
-You'll want to use the full pattern with an `Interactor` and `ViewStateReducer`
-when you have complex state to manage in your feature. 
+Use the full pattern with an `Interactor` and `ViewStateReducer` when your feature
+needs a richer domain state.
 
-One of the main tenet's of Uno is that a feature's ViewState should be simple
-(think mainly primitives like strings, colors, etc.). The `ViewStateReducer` pattern
-is helpful when transforming a complex accumulated model into simple rendering instructions
-for your view.  
+One of the main tenets of Lattice is that a feature's ViewState should be simple,
+mostly primitives like strings and colors. The `ViewStateReducer` pattern helps
+transform a complex domain model into clear rendering instructions for your view.
 
 ### 4. Connect to SwiftUI
 
 ```swift
 struct CounterView: View {
-    @StateObject var viewModel: CounterViewModel
+    @State var viewModel = ViewModel(
+        initialDomainState: CounterState(count: 0),
+        initialViewState: CounterViewState(count: 0, displayText: ""),
+        interactor: CounterInteractor().eraseToAnyInteractor(),
+        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+    )
 
     var body: some View {
         VStack {
@@ -168,10 +180,10 @@ struct CounterView: View {
 
 ### Interactor
 
-The `Interactor` protocol transforms a stream of actions into a stream of domain state:
+The `Interactor` protocol processes an action by mutating state and returning an `Emission`:
 
 ```swift
-func interact(_ upstream: AsyncStream<Action>) -> AsyncStream<DomainState>
+func interact(state: inout DomainState, action: Action) -> Emission<Action>
 ```
 
 Use the `@Interactor` macro for a declarative definition:
@@ -180,9 +192,9 @@ Use the `@Interactor` macro for a declarative definition:
 @Interactor<MyState, MyAction>
 struct MyInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact(initialValue: MyState()) { state, action in
+        Interact { state, action in
             // Handle action, mutate state
-            return .state
+            return .none
         }
     }
 }
@@ -192,17 +204,17 @@ struct MyInteractor: Sendable {
 
 The `Emission` type controls how state is emitted:
 
-- **`.state`**: Emit the current state immediately
-- **`.perform { state, send in ... }`**: Execute async work, then emit via `send`
-- **`.observe { state, send in ... }`**: Observe a stream, emitting for each element
+- **`.none`**: No action to emit
+- **`.action(action)`**: Emit an action immediately
+- **`.perform { ... }`**: Execute async work, return an optional action
+- **`.observe { ... }`**: Observe a stream, emitting actions for each element
+- **`.merge([Emission])`**: Combine multiple emissions
 
 ```swift
 // Async work example
-return .perform { state, send in
+return .perform { [api] in
     let data = try await api.fetchData()
-    var newState = await state.current
-    newState.data = data
-    await send(newState)
+    return .dataLoaded(data)
 }
 ```
 
@@ -223,7 +235,7 @@ var body: some InteractorOf<Self> {
 
     // Scope to child state/action
     ParentInteractor()
-        .when(stateIs: \.child, actionIs: \.childAction, stateAction: \.setChild) {
+        .when(state: \.child, action: \.childAction) {
             ChildInteractor()
         }
 }
@@ -237,14 +249,41 @@ Transforms domain state into view-friendly state:
 @ViewStateReducer<CounterState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
     var body: some ViewStateReducerOf<Self> {
-        BuildViewState { domainState in
-            CounterViewState(
-                count: domainState.count,
-                displayText: "Count: \(domainState.count)"
-            )
+        BuildViewState { domainState, viewState in
+            viewState.count = domainState.count
+            viewState.displayText = "Count: \(domainState.count)"
         }
     }
 }
+```
+
+### ObservableState
+
+View states must conform to `ObservableState`. Use the macro to generate the required
+Observation conformance:
+
+```swift
+@ObservableState
+struct MyViewState: Sendable, Equatable {
+    var title: String = ""
+    var count: Int = 0
+}
+```
+
+### SwiftUI Bindings
+
+Use `@Bindable` with a `ViewModel` to create bindings that send actions:
+
+```swift
+@Bindable var viewModel: ViewModel<Action, State, ViewState>
+
+TextField("Name", text: $viewModel.name.sending(\.updateName))
+```
+
+`sendViewEvent(_:)` returns an `EventTask`, so you can await or cancel effects:
+
+```swift
+await viewModel.sendViewEvent(.refresh).finish()
 ```
 
 ## Testing
@@ -254,7 +293,10 @@ Use `InteractorTestHarness` for testing interactors:
 ```swift
 @Test
 func testIncrement() async throws {
-    let harness = await InteractorTestHarness(CounterInteractor())
+    let harness = InteractorTestHarness(
+        initialState: CounterState(count: 0),
+        interactor: CounterInteractor()
+    )
 
     harness.send(.increment)
     harness.send(.increment)
@@ -292,7 +334,7 @@ This enables the pre-push hook which auto-formats Swift files with `swift-format
 
 ## Requirements
 
-- iOS 16.0+ / macOS 14.0+ / watchOS 10.0+
+- iOS 17.0+ / macOS 14.0+ / watchOS 10.0+
 - Swift 6.0+
 - Xcode 16.0+
 
@@ -301,6 +343,11 @@ This enables the pre-push hook which auto-formats Swift files with `swift-format
 - [swift-async-algorithms](https://github.com/apple/swift-async-algorithms) - AsyncSequence operators
 - [swift-case-paths](https://github.com/pointfreeco/swift-case-paths) - Enum case access
 - [swift-clocks](https://github.com/pointfreeco/swift-clocks) - Testable time control
+- [combine-schedulers](https://github.com/pointfreeco/combine-schedulers) - Scheduler utilities
+- [swift-collections](https://github.com/apple/swift-collections) - Ordered/identified collections
+- [swift-identified-collections](https://github.com/pointfreeco/swift-identified-collections) - Identified data
+- [swift-syntax](https://github.com/apple/swift-syntax) - Macro support
+- [swift-macro-testing](https://github.com/pointfreeco/swift-macro-testing) - Macro testing utilities
 
 ## Documentation
 
