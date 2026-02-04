@@ -193,7 +193,7 @@
 			mainGroup = 1E41C5A52E19E60D004F3831;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				1E41C5DC2E19E625004F3831 /* XCLocalSwiftPackageReference "../../../swift-lattice" */,
+				1E41C5DC2E19E625004F3831 /* XCLocalSwiftPackageReference "../../../lattice" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1E41C5AF2E19E60D004F3831 /* Products */;
@@ -585,9 +585,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		1E41C5DC2E19E625004F3831 /* XCLocalSwiftPackageReference "../../../swift-lattice" */ = {
+		1E41C5DC2E19E625004F3831 /* XCLocalSwiftPackageReference "../../../lattice" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../../swift-lattice";
+			relativePath = "../../../lattice";
 		};
 /* End XCLocalSwiftPackageReference section */
 
