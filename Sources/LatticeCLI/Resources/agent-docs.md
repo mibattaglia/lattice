@@ -82,8 +82,8 @@ The `ViewModel` class connects your interactor to SwiftUI. Two initialization pa
 **Direct Pattern** (when DomainState == ViewState):
 
 ```swift
-// Use DirectViewModel when your interactor output is your view state
-let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+// Use BFFViewModel when your interactor output is your view state
+let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
     initialState: CounterState(count: 0),
     interactor: CounterInteractor().eraseToAnyInteractor()
 )
@@ -154,7 +154,7 @@ struct CounterView: View {
            |
            v
 +---------------------+
-|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional with DirectViewModel)
+|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional with BFFViewModel)
 +---------------------+
            | flows back to ViewModel
            v

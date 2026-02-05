@@ -37,19 +37,19 @@ struct FeatureInteractor {
 
 @MainActor
 @Suite
-struct DirectViewModelTests {
+struct BFFViewModelTests {
     let interactor = FeatureInteractor()
-    let viewModel: DirectViewModel<FeatureAction, FeatureState>
+    let viewModel: BFFViewModel<FeatureAction, FeatureState>
 
     init() {
-        self.viewModel = DirectViewModel(
+        self.viewModel = BFFViewModel(
             initialState: .init(),
             interactor: interactor.eraseToAnyInteractor()
         )
     }
 
     @Test
-    func directViewModel() {
+    func bffViewModel() {
         #expect(viewModel.viewState == FeatureState())
 
         viewModel.sendViewEvent(.incrementCount)

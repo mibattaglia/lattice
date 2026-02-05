@@ -50,10 +50,10 @@ protocol _ViewModel {
 /// )
 /// ```
 ///
-/// Or use the ``DirectViewModel`` typealias for clarity:
+/// Or use the ``BFFViewModel`` typealias for clarity:
 ///
 /// ```swift
-/// let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+/// let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
 ///     initialState: CounterState(count: 0),
 ///     interactor: CounterInteractor().eraseToAnyInteractor()
 /// )
@@ -304,9 +304,9 @@ extension ViewModel where DomainState: Equatable {
 ///
 /// Usage:
 /// ```swift
-/// let viewModel: DirectViewModel<CounterAction, CounterState> = ViewModel(
+/// let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
 ///     CounterState(count: 0),
 ///     CounterInteractor().eraseToAnyInteractor()
 /// )
 /// ```
-public typealias DirectViewModel<Action: Sendable, State: Sendable & ObservableState> = ViewModel<Action, State, State>
+public typealias BFFViewModel<Action: Sendable, State: Sendable & ObservableState> = ViewModel<Action, State, State>
