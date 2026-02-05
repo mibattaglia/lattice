@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if [[ "${SKIP_LATTICE_MACRO_BUILD:-}" == "1" || "${SKIP_LATTICE_MACRO_BUILD:-}" == "true" ]]; then
+  echo "SKIP_LATTICE_MACRO_BUILD is set; skipping LatticeMacros build."
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"
 

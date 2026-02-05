@@ -18,6 +18,10 @@ Pod::Spec.new do |s|
   # Preserve the prebuilt macro binary (you must provide this at release time)
   s.preserve_paths = ['Macros/LatticeMacros']
 
+  # Build the macro plugin with the local Swift toolchain during pod install.
+  # Runs in the pod root for both local and remote installs.
+  s.prepare_command = 'bash ./scripts/rebuild-macro.sh'
+
   # Configure build flags to load the macro plugin
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
