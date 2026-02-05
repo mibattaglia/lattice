@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.homepage       = 'https://example.com'
   s.license        = { type: 'MIT' }
   s.platforms      = { ios: '17.0', macos: '14.0', watchos: '10.0' }
-  s.source         = { git: '', tag: s.version.to_s }
+  s.source         = { git: 'https://github.com/mibattaglia/lattice.git', tag: s.version.to_s }
   s.swift_version  = '6.0'
 
   s.static_framework = true
@@ -25,8 +25,10 @@ Pod::Spec.new do |s|
   }
 
   # For the main app target (if it uses macros directly)
+  lattice_macros_path = ENV['LATTICE_MACROS_PATH'] || '${PODS_ROOT}/Lattice/Macros/LatticeMacros'
   s.user_target_xcconfig = {
-    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable $(PODS_ROOT)/Development\\ Pods/Lattice/Macros/LatticeMacros#LatticeMacros'
+    'LATTICE_MACROS_PATH' => lattice_macros_path,
+    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable ${LATTICE_MACROS_PATH}#LatticeMacros'
   }
 
   # CocoaPods dependencies for modules imported by Lattice
