@@ -363,3 +363,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 Lattice is inspired by [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
 The builder pattern, effect pattern, and `ObservableState` are all derived from TCA's architecture and conventions.
+Also inspired by Whoop's engineering write-up on distributing complexity:
+[Distributing Complexity](https://engineering.prod.whoop.com/distributing-complexity/).
