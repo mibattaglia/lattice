@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 import Lattice
+import Testing
 
 @Suite
 @MainActor
