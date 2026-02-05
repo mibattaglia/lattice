@@ -41,6 +41,12 @@
 - `swift-format` is used; pre-push hook auto-formats and commits changes in `Sources`/`Tests`.
 - Manual format: `swift-format format --in-place --recursive Sources Tests`
 
+## Skills
+- lattice-case-paths: Ergonomic enum access and generic algorithms for Lattice actions and view state using CasePaths. (file: skills/lattice-case-paths/SKILL.md)
+- lattice-modern-swiftui: Build SwiftUI features with Lattice ViewModel, @Bindable bindings, and clear view actions. (file: skills/lattice-modern-swiftui/SKILL.md)
+- lattice-observable-models: Move SwiftUI logic into Lattice interactors and view models while keeping views thin. (file: skills/lattice-observable-models/SKILL.md)
+- lattice-testing: Test Lattice interactors, emissions, and view models with InteractorTestHarness and TestClock. (file: skills/lattice-testing/SKILL.md)
+
 ## Notes for agents
 - Prefer `Package.swift` for builds; `Package@swift-6.2.swift` exists for newer toolchains.
 - Keep Swift concurrency annotations consistent (`Sendable`, `@MainActor`) and avoid breaking API surface.
