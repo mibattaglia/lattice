@@ -3,9 +3,28 @@ import Lattice
 @Interactor<SearchDomainState, SearchEvent>
 struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
+    private let queryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
 
     init(weatherService: WeatherService) {
+        self.init(
+            weatherService: weatherService,
+            clock: ContinuousClock(),
+            debounceDuration: .milliseconds(300)
+        )
+    }
+
+    init<C: Clock>(
+        weatherService: WeatherService,
+        clock: C,
+        debounceDuration: C.Duration
+    ) where C.Duration: Sendable {
         self.weatherService = weatherService
+        self.queryInteractor = SearchQueryInteractor<C>(
+            weatherService: weatherService,
+            clock: clock,
+            debounceDuration: debounceDuration
+        )
+        .eraseToAnyInteractor()
     }
 
     var body: some InteractorOf<Self> {
@@ -65,7 +84,7 @@ struct SearchInteractor: Sendable {
             }
         }
         .when(state: \.results, action: \.search) {
-            SearchQueryInteractor<ContinuousClock>(weatherService: weatherService)
+            queryInteractor
         }
     }
 }
