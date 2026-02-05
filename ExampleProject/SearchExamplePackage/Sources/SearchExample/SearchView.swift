@@ -14,8 +14,8 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(
                     """
-                    This view provides a simple example on how to debounced
-                    search events with Uno.
+                    This view provides a simple example on how to debounce
+                    search events with Lattice.
 
                     Data Flow:
                      - Keystrokes are debounced by 300ms
@@ -33,7 +33,6 @@ struct SearchView: View {
                         text: $viewModel.loaded.query.sending(\.search.query)
                     )
                     .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 }
                 .padding(.horizontal, 16)

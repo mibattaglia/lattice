@@ -3,9 +3,8 @@ import CasePaths
 @CasePathable
 enum SearchEvent: Equatable, Sendable {
     case search(SearchQueryEvent)
-    case searchResultsChanged(SearchDomainState.ResultState)
     case locationTapped(id: String)
-    case forecastReceived(index: Int, forecast: ForecastDomainModel)
+    case forecastReceived(index: Int, forecast: ForecastDomainModel, requestNonce: Int)
 }
 
 @CasePathable

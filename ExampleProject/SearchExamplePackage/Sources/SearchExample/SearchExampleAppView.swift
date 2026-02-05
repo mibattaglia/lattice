@@ -1,11 +1,10 @@
 import Lattice
 import SwiftUI
 
-@main
-struct SearchApp: App {
+public struct SearchExampleAppView: View {
     @State private var viewModel: ViewModel<SearchEvent, SearchDomainState, SearchViewState>
 
-    init() {
+    public init() {
         let weatherService = RealWeatherService()
         _viewModel = State(
             wrappedValue: ViewModel(
@@ -17,9 +16,7 @@ struct SearchApp: App {
         )
     }
 
-    var body: some Scene {
-        WindowGroup {
-            SearchView(viewModel: viewModel)
-        }
+    public var body: some View {
+        SearchView(viewModel: viewModel)
     }
 }

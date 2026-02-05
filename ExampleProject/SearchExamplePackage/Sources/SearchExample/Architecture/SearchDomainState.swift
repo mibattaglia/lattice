@@ -14,6 +14,7 @@ enum SearchDomainState: Equatable, Sendable {
 
         var query: String
         var results: [ResultItem]
+        var forecastRequestNonce: Int = 0
 
         static var none: Self {
             ResultState(query: "", results: [])

@@ -1,13 +1,13 @@
 //
-//  SearchTests.swift
-//  SearchTests
+//  ExampleProjectTests.swift
+//  ExampleProjectTests
 //
-//  Created by Michael Battaglia on 7/5/25.
+//  Created by Michael Battaglia on 2/5/26.
 //
 
 import Testing
 
-struct SearchTests {
+struct ExampleProjectTests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.
