@@ -42,6 +42,7 @@
 - Manual format: `swift-format format --in-place --recursive Sources Tests`
 
 ## Skills
+- lattice-composable-architecture: Build Swift application features using Lattice interactors, view models, and view state reducers. (file: skills/lattice-composable-architecture/SKILL.md)
 - lattice-case-paths: Ergonomic enum access and generic algorithms for Lattice actions and view state using CasePaths. (file: skills/lattice-case-paths/SKILL.md)
 - lattice-modern-swiftui: Build SwiftUI features with Lattice ViewModel, @Bindable bindings, and clear view actions. (file: skills/lattice-modern-swiftui/SKILL.md)
 - lattice-observable-models: Move SwiftUI logic into Lattice interactors and view models while keeping views thin. (file: skills/lattice-observable-models/SKILL.md)
