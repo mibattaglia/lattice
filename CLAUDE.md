@@ -52,3 +52,7 @@
 - Prefer `Package.swift` for builds; `Package@swift-6.2.swift` exists for newer toolchains.
 - Keep Swift concurrency annotations consistent (`Sendable`, `@MainActor`) and avoid breaking API surface.
 - Update README/examples if public APIs or macros change.
+
+## Claude Skills (project-scoped)
+- Project skills live in `.claude/skills/`.
+- Use `scripts/sync-skills.sh` to keep `skills/` and `.claude/skills/` in sync.

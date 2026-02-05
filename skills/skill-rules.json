@@ -1,0 +1,76 @@
+{
+  "version": "1.0",
+  "description": "Lattice skills activation triggers",
+  "skills": {
+    "lattice": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Lattice architecture: Interactor, ViewModel, ViewStateReducer, Emission",
+      "promptTriggers": {
+        "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission"],
+        "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["Sources/Lattice/**"],
+        "contentPatterns": ["@Interactor", "ViewModel", "ViewStateReducer"]
+      }
+    },
+    "lattice-case-paths": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "CasePaths ergonomics for Lattice actions and view state",
+      "promptTriggers": {
+        "keywords": ["case paths", "casepathable", "case path", "enum", "associated value"],
+        "intentPatterns": ["(bind|extract|embed).*?case"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["Sources/**"],
+        "contentPatterns": ["CasePathable", "AnyCasePath", "\.sending\\("]
+      }
+    },
+    "lattice-modern-swiftui": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "SwiftUI with Lattice ViewModel and @Bindable",
+      "promptTriggers": {
+        "keywords": ["swiftui", "view", "@bindable", "sendviewevent"],
+        "intentPatterns": ["(build|wire|connect).*?(swiftui|view)"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["Sources/Lattice/Presentation/**"],
+        "contentPatterns": ["@Bindable", "sendViewEvent", "ViewModel"]
+      }
+    },
+    "lattice-observable-models": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "low",
+      "description": "Use @Observable for UI-only state; Interactor for domain logic",
+      "promptTriggers": {
+        "keywords": ["@observable", "observable", "model", "state"],
+        "intentPatterns": ["(move|extract).*?(logic|state).*?(model)"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["Sources/**"],
+        "contentPatterns": ["@Observable", "ObservableState"]
+      }
+    },
+    "lattice-testing": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Testing Lattice interactors with InteractorTestHarness and TestClock",
+      "promptTriggers": {
+        "keywords": ["test", "interactor test harness", "testclock", "asyncstreamrecorder"],
+        "intentPatterns": ["(test|assert|verify).*?(interactor|emission)"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["Tests/**"],
+        "contentPatterns": ["InteractorTestHarness", "TestClock", "AsyncStreamRecorder"]
+      }
+    }
+  }
+}

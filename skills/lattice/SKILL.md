@@ -1,5 +1,5 @@
 ---
-name: lattice-composable-architecture
+name: lattice
 description: Build Swift application features using Lattice interactors, view models, and view state reducers.
 license: MIT
 metadata:
@@ -146,3 +146,6 @@ TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 
 Model child state in domain, and use `ViewStateReducer` to derive view state as needed.
 Prefer composing interactors rather than nesting logic in views.
+
+## References
+- See `resources/advanced-composition.md` for composition, navigation, and stream guidance.

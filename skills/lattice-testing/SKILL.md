@@ -97,3 +97,6 @@ Only test ViewModel behavior when you need to validate state mapping or event wi
 
 - Prefer `assertStates` for full history and `assertLatestState` for targeted checks.
 - If you need to inspect emitted actions from `.perform` or `.observe`, wrap streams with `AsyncStreamRecorder`.
+
+## References
+- See `resources/async-and-time.md` for async sequencing and time control.
