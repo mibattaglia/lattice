@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		FF27D95E304512A682826313 /* SearchExample in Frameworks */ = {isa = PBXBuildFile; productRef = C7365673AEF03E05AC1BAC9C /* SearchExample */; };
+		FF0B86F40F8C4289B39DD7BB /* TodosExample in Frameworks */ = {isa = PBXBuildFile; productRef = 029D174D5D0A4D4588DA0862 /* TodosExample */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FF27D95E304512A682826313 /* SearchExample in Frameworks */,
+				FF0B86F40F8C4289B39DD7BB /* TodosExample in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = ExampleProject;
 			packageProductDependencies = (
 				C7365673AEF03E05AC1BAC9C /* SearchExample */,
+				029D174D5D0A4D4588DA0862 /* TodosExample */,
 			);
 			productName = ExampleProject;
 			productReference = 1E2338902F3517C6003A76D8 /* ExampleProject.app */;
@@ -207,6 +210,7 @@
 			projectRoot = "";
 			packageReferences = (
 				9CCDBE0658833100E58F2538 /* SearchExamplePackage */,
+				E2DA3E1A1E3B44EDA7A6515F /* TodosExamplePackage */,
 			);
 			targets = (
 				1E23388F2F3517C6003A76D8 /* ExampleProject */,
@@ -279,10 +283,12 @@
 
 /* Begin XCLocalSwiftPackageReference section */
 		9CCDBE0658833100E58F2538 /* SearchExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = SearchExamplePackage; };
+		E2DA3E1A1E3B44EDA7A6515F /* TodosExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = TodosExamplePackage; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		C7365673AEF03E05AC1BAC9C /* SearchExample */ = {isa = XCSwiftPackageProductDependency; productName = SearchExample; };
+		029D174D5D0A4D4588DA0862 /* TodosExample */ = {isa = XCSwiftPackageProductDependency; productName = TodosExample; };
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */

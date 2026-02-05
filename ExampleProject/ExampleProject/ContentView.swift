@@ -7,6 +7,7 @@
 
 import SearchExample
 import SwiftUI
+import TodosExample
 
 struct ContentView: View {
     var body: some View {
@@ -31,6 +32,7 @@ struct ContentView: View {
 
 private enum Example: String, CaseIterable, Identifiable {
     case search
+    case todos
 
     var id: String { rawValue }
 
@@ -38,6 +40,8 @@ private enum Example: String, CaseIterable, Identifiable {
         switch self {
         case .search:
             "Search Example"
+        case .todos:
+            "Todos Example"
         }
     }
 
@@ -45,6 +49,8 @@ private enum Example: String, CaseIterable, Identifiable {
         switch self {
         case .search:
             "Search"
+        case .todos:
+            "Todos"
         }
     }
 
@@ -53,6 +59,8 @@ private enum Example: String, CaseIterable, Identifiable {
         switch self {
         case .search:
             SearchExampleAppView()
+        case .todos:
+            TodosExampleAppView()
         }
     }
 }

@@ -4,4 +4,6 @@
   </FileRef>
   <FileRef location = "group:SearchExamplePackage">
   </FileRef>
+  <FileRef location = "group:TodosExamplePackage">
+  </FileRef>
 </Workspace>
