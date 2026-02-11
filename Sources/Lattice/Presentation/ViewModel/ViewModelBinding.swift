@@ -123,6 +123,59 @@ extension Bindable {
     #endif
 }
 
+extension Binding {
+    /// Accesses ViewModel state properties for creating bindings from a Binding<ViewModel>.
+    ///
+    /// Use this with `@State`-stored view models to create bindings:
+    ///
+    /// ```swift
+    /// @State var viewModel: ViewModel<Action, State, ViewState>
+    ///
+    /// TextField("Name", text: $viewModel.name.sending(\.updateName))
+    /// ```
+    @_disfavoredOverload
+    public subscript<Action, DomainState, ViewState, Member>(
+        dynamicMember keyPath: KeyPath<ViewState, Member>
+    ) -> _ViewModelBinding<Action, DomainState, ViewState, Member>
+    where
+        Value == ViewModel<Action, DomainState, ViewState>,
+        Action: Sendable,
+        DomainState: Sendable,
+        ViewState: ObservableState
+    {
+        _ViewModelBinding(
+            viewModel: self.wrappedValue,
+            keyPath: keyPath
+        )
+    }
+
+    #if canImport(CasePaths)
+        /// Accesses ViewModel state case properties for CasePathable enums from a Binding<ViewModel>.
+        ///
+        /// Use this with `@State`-stored view models to create bindings to enum case values:
+        ///
+        /// ```swift
+        /// @State var viewModel: ViewModel<Action, State, ViewState>
+        ///
+        /// TextField("Query", text: $viewModel.loaded.query.sending(\.search.query))
+        /// ```
+        public subscript<Action, DomainState, ViewState, Case>(
+            dynamicMember keyPath: KeyPath<ViewState.AllCasePaths, AnyCasePath<ViewState, Case>>
+        ) -> _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
+        where
+            Value == ViewModel<Action, DomainState, ViewState>,
+            Action: Sendable,
+            DomainState: Sendable,
+            ViewState: ObservableState & CasePathable
+        {
+            _ViewModelCaseBinding(
+                viewModel: self.wrappedValue,
+                casePath: ViewState.allCasePaths[keyPath: keyPath]
+            )
+        }
+    #endif
+}
+
 #if canImport(CasePaths)
     /// A wrapper that enables creating SwiftUI bindings from ViewModel enum case associated values.
     @dynamicMemberLookup
