@@ -57,7 +57,7 @@ struct ViewModelTests {
         MyViewState.success(
             .init(
                 count: count,
-                dateDisplayString: "4:20 PM",
+                dateDisplayString: "8:20 PM",
                 isLoading: isLoading
             )
         )

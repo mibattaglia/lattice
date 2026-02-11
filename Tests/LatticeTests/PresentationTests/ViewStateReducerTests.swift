@@ -47,7 +47,7 @@ struct ViewStateReducerTests {
         let expected = MyViewState.success(
             .init(
                 count: 12,
-                dateDisplayString: "4:20\u{202F}PM",
+                dateDisplayString: "8:20\u{202F}PM",
                 isLoading: false
             )
         )

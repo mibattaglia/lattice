@@ -40,6 +40,7 @@ struct MyViewStateReducer {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         formatter.dateStyle = .none
+        formatter.timeZone = .gmt
         formatter.locale = .init(identifier: "en_us")
         return formatter.string(from: date)
     }
