@@ -106,6 +106,10 @@ struct TodosTests {
             makeTodo(title: "Active", isComplete: false, order: 0),
             makeTodo(title: "Done", isComplete: true, order: 1),
         ]
+        let feature = Feature(
+            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
+            reducer: TodosViewStateReducer()
+        )
         let viewModel = ViewModel(
             initialDomainState: TodosDomainState(
                 todos: todos,
@@ -113,12 +117,7 @@ struct TodosTests {
                 newTodoText: "",
                 nextOrder: 2
             ),
-            initialViewState: .loaded(
-                TodosViewContent(newTodoText: "", filter: .all, todos: [])
-            ),
-            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300))
-                .eraseToAnyInteractor(),
-            viewStateReducer: TodosViewStateReducer().eraseToAnyReducer()
+            feature: feature
         )
 
         viewModel.sendViewEvent(.setFilter(.active))
@@ -139,14 +138,13 @@ struct TodosTests {
     }
 
     private func makeViewModel(clock: TestClock) -> ViewModel<TodosEvent, TodosDomainState, TodosViewState> {
-        ViewModel(
+        let feature = Feature(
+            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
+            reducer: TodosViewStateReducer()
+        )
+        return ViewModel(
             initialDomainState: TodosDomainState(),
-            initialViewState: .loaded(
-                TodosViewContent(newTodoText: "", filter: .all, todos: [])
-            ),
-            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300))
-                .eraseToAnyInteractor(),
-            viewStateReducer: TodosViewStateReducer().eraseToAnyReducer()
+            feature: feature
         )
     }
 

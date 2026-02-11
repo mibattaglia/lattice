@@ -17,6 +17,10 @@ import Foundation
 public struct BuildViewState<DomainState, ViewState>: ViewStateReducer, @unchecked Sendable {
     private let reducerBlock: (DomainState, inout ViewState) -> Void
 
+    public func initialViewState(for _: DomainState) -> ViewState {
+        fatalError("Provide initialViewState(for:) on the containing ViewStateReducer.")
+    }
+
     public init(reducerBlock: @escaping (DomainState, inout ViewState) -> Void) {
         self.reducerBlock = reducerBlock
     }
@@ -25,5 +29,11 @@ public struct BuildViewState<DomainState, ViewState>: ViewStateReducer, @uncheck
 
     public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
         reducerBlock(domainState, &viewState)
+    }
+}
+
+extension BuildViewState where ViewState: DefaultValueProvider {
+    public func initialViewState(for _: DomainState) -> ViewState {
+        ViewState.defaultValue
     }
 }

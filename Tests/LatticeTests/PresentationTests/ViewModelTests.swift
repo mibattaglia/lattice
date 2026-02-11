@@ -16,11 +16,13 @@ struct ViewModelTests {
         let capturedNow = Self.now
         self.interactor = MyInteractor(dateFactory: { capturedNow })
         self.viewStateReducer = MyViewStateReducer()
+        let feature = Feature(
+            interactor: interactor.eraseToAnyInteractorUnchecked(),
+            reducer: viewStateReducer
+        )
         self.viewModel = ViewModel(
             initialDomainState: .loading,
-            initialViewState: .loading,
-            interactor: interactor.eraseToAnyInteractorUnchecked(),
-            viewStateReducer: viewStateReducer.eraseToAnyReducer()
+            feature: feature
         )
     }
 

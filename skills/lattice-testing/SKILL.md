@@ -81,11 +81,13 @@ Only test ViewModel behavior when you need to validate state mapping or event wi
 
 ```swift
 @Test func viewStateMapping() async throws {
+    let feature = Feature(
+        interactor: CounterInteractor(),
+        reducer: CounterViewStateReducer()
+    )
     let viewModel = ViewModel(
         initialDomainState: CounterState(count: 0),
-        initialViewState: CounterViewState(count: 0, displayText: ""),
-        interactor: CounterInteractor().eraseToAnyInteractor(),
-        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+        feature: feature
     )
 
     await viewModel.sendViewEvent(.increment).finish()

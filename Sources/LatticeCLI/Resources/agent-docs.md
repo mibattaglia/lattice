@@ -11,7 +11,9 @@ Inspired by The Composable Architecture.
 - **Type-Safe**: Strong generic constraints ensure compile-time safety
 - **Testable**: First-class testing support with `InteractorTestHarness` and `AsyncStreamRecorder`
 - **SwiftUI Integration**: Generic `ViewModel` class with `@Bindable` bindings and `EventTask`
+- **Feature Bundling**: `Feature` groups interactor and reducer wiring for concise initialization
 - **ObservableState Macro**: View state types get Observation conformance automatically
+- **Default View State**: `DefaultValueProvider` supplies default view state values
 - **Swift 6 Ready**: Full concurrency safety with `@MainActor` isolation
 
 ## Installation
@@ -77,15 +79,16 @@ struct CounterInteractor: Sendable {
 
 ### 3. Create a ViewModel
 
-The `ViewModel` class connects your interactor to SwiftUI. Two initialization patterns are supported:
+The `ViewModel` class connects your interactor to SwiftUI. Use a `Feature` to bundle
+the architecture stack and keep initialization concise.
 
 **Direct Pattern** (when DomainState == ViewState):
 
 ```swift
-// Use BFFViewModel when your interactor output is your view state
-let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
-    initialState: CounterState(count: 0),
-    interactor: CounterInteractor().eraseToAnyInteractor()
+let feature = Feature(interactor: CounterInteractor())
+let viewModel = ViewModel(
+    initialDomainState: CounterState(count: 0),
+    feature: feature
 )
 ```
 
@@ -95,12 +98,13 @@ domain state and view rendering instructions.
 **Full Pattern** (with ViewStateReducer):
 
 ```swift
-// Use the full ViewModel when you need to transform domain state to view state
+let feature = Feature(
+    interactor: CounterInteractor(),
+    reducer: CounterViewStateReducer()
+)
 let viewModel = ViewModel(
     initialDomainState: CounterState(count: 0),
-    initialViewState: CounterViewState(count: 0, displayText: ""),
-    interactor: CounterInteractor().eraseToAnyInteractor(),
-    viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+    feature: feature
 )
 ```
 
@@ -117,9 +121,10 @@ transform a complex domain model into clear rendering instructions for your view
 struct CounterView: View {
     @State var viewModel = ViewModel(
         initialDomainState: CounterState(count: 0),
-        initialViewState: CounterViewState(count: 0, displayText: ""),
-        interactor: CounterInteractor().eraseToAnyInteractor(),
-        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+        feature: Feature(
+            interactor: CounterInteractor(),
+            reducer: CounterViewStateReducer()
+        )
     )
 
     var body: some View {
@@ -154,7 +159,7 @@ struct CounterView: View {
            |
            v
 +---------------------+
-|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional with BFFViewModel)
+|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional when DomainState == ViewState)
 +---------------------+
            | flows back to ViewModel
            v
@@ -247,6 +252,10 @@ Transforms domain state into view-friendly state:
 ```swift
 @ViewStateReducer<CounterState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
+    func initialViewState(for domainState: CounterState) -> CounterViewState {
+        CounterViewState(count: 0, displayText: "")
+    }
+
     var body: some ViewStateReducerOf<Self> {
         BuildViewState { domainState, viewState in
             viewState.count = domainState.count
@@ -255,6 +264,21 @@ struct CounterViewStateReducer: Sendable {
     }
 }
 ```
+
+You can also provide a default view state by conforming to `DefaultValueProvider`:
+
+```swift
+@ObservableState
+struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
+    static let defaultValue = CounterViewState(count: 0, displayText: "")
+
+    var count: Int
+    var displayText: String
+}
+```
+
+When `ViewState` conforms to `DefaultValueProvider`, reducers can omit
+`initialViewState(for:)`.
 
 ### ObservableState
 

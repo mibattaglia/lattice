@@ -20,16 +20,17 @@ struct SearchTests {
             for: "new"
         )
 
-        let viewModel = ViewModel(
-            initialDomainState: .results(.none),
-            initialViewState: .loaded(SearchListContent(query: "", listItems: [])),
+        let feature = Feature(
             interactor: SearchInteractor(
                 weatherService: weatherService,
                 clock: clock,
                 debounceDuration: .milliseconds(300)
-            )
-            .eraseToAnyInteractor(),
-            viewStateReducer: SearchViewStateReducer().eraseToAnyReducer()
+            ),
+            reducer: SearchViewStateReducer()
+        )
+        let viewModel = ViewModel(
+            initialDomainState: .results(.none),
+            feature: feature
         )
 
         let t1 = viewModel.sendViewEvent(.search(.query("n")))
@@ -60,6 +61,10 @@ struct SearchTests {
         let first = makeResult(id: 1, name: "First")
         let second = makeResult(id: 2, name: "Second")
 
+        let feature = Feature(
+            interactor: SearchInteractor(weatherService: weatherService),
+            reducer: SearchViewStateReducer()
+        )
         let viewModel = ViewModel(
             initialDomainState: .results(
                 .init(
@@ -71,9 +76,7 @@ struct SearchTests {
                     forecastRequestNonce: 1
                 )
             ),
-            initialViewState: .loaded(SearchListContent(query: "", listItems: [])),
-            interactor: SearchInteractor(weatherService: weatherService).eraseToAnyInteractor(),
-            viewStateReducer: SearchViewStateReducer().eraseToAnyReducer()
+            feature: feature
         )
 
         viewModel.sendViewEvent(.forecastReceived(index: 0, forecast: makeForecast(dayOffset: 0), requestNonce: 0))

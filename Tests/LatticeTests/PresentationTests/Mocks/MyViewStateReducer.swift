@@ -3,6 +3,12 @@ import Lattice
 
 @ViewStateReducer<MyDomainState, MyViewState>
 struct MyViewStateReducer {
+    func initialViewState(for domainState: MyDomainState) -> MyViewState {
+        var viewState = MyViewState.loading
+        reduce(domainState, into: &viewState)
+        return viewState
+    }
+
     var body: some ViewStateReducerOf<Self> {
         Self.buildViewState { domainState, viewState in
             switch domainState {

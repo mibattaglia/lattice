@@ -37,19 +37,20 @@ struct FeatureInteractor {
 
 @MainActor
 @Suite
-struct BFFViewModelTests {
+struct FeatureViewModelTests {
     let interactor = FeatureInteractor()
-    let viewModel: BFFViewModel<FeatureAction, FeatureState>
+    let viewModel: ViewModel<FeatureAction, FeatureState, FeatureState>
 
     init() {
-        self.viewModel = BFFViewModel(
-            initialState: .init(),
-            interactor: interactor.eraseToAnyInteractor()
+        let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())
+        self.viewModel = ViewModel(
+            initialDomainState: .init(),
+            feature: feature
         )
     }
 
     @Test
-    func bffViewModel() {
+    func featureViewModel() {
         #expect(viewModel.viewState == FeatureState())
 
         viewModel.sendViewEvent(.incrementCount)

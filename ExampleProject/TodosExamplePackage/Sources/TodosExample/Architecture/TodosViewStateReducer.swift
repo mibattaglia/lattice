@@ -2,6 +2,21 @@ import Lattice
 
 @ViewStateReducer<TodosDomainState, TodosViewState>
 struct TodosViewStateReducer {
+    func initialViewState(for domainState: TodosDomainState) -> TodosViewState {
+        let visibleTodos = filteredTodos(from: domainState)
+        let viewItems = visibleTodos.map { todo in
+            TodoViewItem(id: todo.id, title: todo.title, isComplete: todo.isComplete)
+        }
+
+        return .loaded(
+            TodosViewContent(
+                newTodoText: domainState.newTodoText,
+                filter: domainState.filter,
+                todos: viewItems
+            )
+        )
+    }
+
     var body: some ViewStateReducerOf<Self> {
         Self.buildViewState { domainState, viewState in
             let visibleTodos = filteredTodos(from: domainState)

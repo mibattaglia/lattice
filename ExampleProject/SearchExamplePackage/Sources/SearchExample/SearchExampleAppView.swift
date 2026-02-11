@@ -6,12 +6,14 @@ public struct SearchExampleAppView: View {
 
     public init() {
         let weatherService = RealWeatherService()
+        let feature = Feature(
+            interactor: SearchInteractor(weatherService: weatherService),
+            reducer: SearchViewStateReducer()
+        )
         _viewModel = State(
             wrappedValue: ViewModel(
                 initialDomainState: .results(.init(query: "", results: [])),
-                initialViewState: .loaded(.init(query: "", listItems: [])),
-                interactor: SearchInteractor(weatherService: weatherService).eraseToAnyInteractor(),
-                viewStateReducer: SearchViewStateReducer().eraseToAnyReducer()
+                feature: feature
             )
         )
     }

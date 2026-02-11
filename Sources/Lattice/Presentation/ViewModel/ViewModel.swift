@@ -32,10 +32,13 @@ protocol _ViewModel {
 /// Use this pattern when domain state differs from view state and requires transformation:
 ///
 /// ```swift
+/// let feature = Feature(
+///     interactor: CounterInteractor(),
+///     reducer: CounterViewStateReducer()
+/// )
 /// let viewModel = ViewModel(
 ///     initialDomainState: CounterDomainState(count: 0),
-///     interactor: CounterInteractor().eraseToAnyInteractor(),
-///     viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+///     feature: feature
 /// )
 /// ```
 ///
@@ -44,18 +47,10 @@ protocol _ViewModel {
 /// Use this pattern when the interactor's output can be used directly as view state:
 ///
 /// ```swift
+/// let feature = Feature(interactor: CounterInteractor())
 /// let viewModel = ViewModel(
-///     initialState: CounterState(count: 0),
-///     interactor: CounterInteractor().eraseToAnyInteractor()
-/// )
-/// ```
-///
-/// Or use the ``BFFViewModel`` typealias for clarity:
-///
-/// ```swift
-/// let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
-///     initialState: CounterState(count: 0),
-///     interactor: CounterInteractor().eraseToAnyInteractor()
+///     initialDomainState: CounterState(count: 0),
+///     feature: feature
 /// )
 /// ```
 ///
@@ -71,8 +66,8 @@ protocol _ViewModel {
 /// ```swift
 /// struct CounterView: View {
 ///     @State var viewModel = ViewModel(
-///         initialState: CounterState(count: 0),
-///         interactor: CounterInteractor().eraseToAnyInteractor()
+///         initialDomainState: CounterState(count: 0),
+///         feature: Feature(interactor: CounterInteractor())
 ///     )
 ///
 ///     var body: some View {
@@ -131,6 +126,29 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         var viewState = initialViewState()
         viewStateReducer.reduce(initialDomainState, into: &viewState)
         self._viewState = viewState
+    }
+
+    /// Creates a ViewModel with separate domain and view state from an interactor and reducer.
+    public convenience init<I, R>(
+        initialDomainState: DomainState,
+        interactor: I,
+        viewStateReducer: R,
+        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
+    )
+    where
+        I: Interactor & Sendable,
+        R: ViewStateReducer & Sendable,
+        I.DomainState == DomainState, I.Action == Action,
+        R.DomainState == DomainState, R.ViewState == ViewState
+    {
+        let initialViewState = viewStateReducer.initialViewState(for: initialDomainState)
+        self.init(
+            initialDomainState: initialDomainState,
+            initialViewState: initialViewState,
+            interactor: interactor.eraseToAnyInteractor(),
+            viewStateReducer: viewStateReducer.eraseToAnyReducer(),
+            areStatesEqual: areStatesEqual
+        )
     }
 
     /// Creates a ViewModel where domain state is used directly as view state.
@@ -284,6 +302,25 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 
+    public convenience init<I, R>(
+        initialDomainState: DomainState,
+        interactor: I,
+        viewStateReducer: R
+    )
+    where
+        I: Interactor & Sendable,
+        R: ViewStateReducer & Sendable,
+        I.DomainState == DomainState, I.Action == Action,
+        R.DomainState == DomainState, R.ViewState == ViewState
+    {
+        self.init(
+            initialDomainState: initialDomainState,
+            interactor: interactor,
+            viewStateReducer: viewStateReducer,
+            areStatesEqual: { lhs, rhs in lhs == rhs }
+        )
+    }
+
     public convenience init(
         initialState: ViewState,
         interactor: AnyInteractor<ViewState, Action>
@@ -300,13 +337,17 @@ extension ViewModel where DomainState: Equatable {
     }
 }
 
-/// A convenience typealias for ViewModels where domain state equals view state.
-///
-/// Usage:
-/// ```swift
-/// let viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
-///     CounterState(count: 0),
-///     CounterInteractor().eraseToAnyInteractor()
-/// )
-/// ```
-public typealias BFFViewModel<Action: Sendable, State: Sendable & ObservableState> = ViewModel<Action, State, State>
+extension ViewModel {
+    public convenience init(
+        initialDomainState: DomainState,
+        feature: Feature<Action, DomainState, ViewState>
+    ) {
+        self.init(
+            initialDomainState: initialDomainState,
+            initialViewState: feature.makeInitialViewState(initialDomainState),
+            interactor: feature.interactor,
+            viewStateReducer: feature.viewStateReducer,
+            areStatesEqual: feature.areStatesEqual
+        )
+    }
+}

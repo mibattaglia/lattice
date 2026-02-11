@@ -43,9 +43,10 @@ struct CounterInteractor: Sendable {
 struct CounterView: View {
     @State var viewModel = ViewModel(
         initialDomainState: CounterState(count: 0),
-        initialViewState: CounterViewState(count: 0, displayText: ""),
-        interactor: CounterInteractor().eraseToAnyInteractor(),
-        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+        feature: Feature(
+            interactor: CounterInteractor(),
+            reducer: CounterViewStateReducer()
+        )
     )
 
     var body: some View {

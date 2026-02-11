@@ -3,6 +3,23 @@ import Lattice
 
 @ViewStateReducer<SearchDomainState, SearchViewState>
 struct SearchViewStateReducer {
+    func initialViewState(for domainState: SearchDomainState) -> SearchViewState {
+        switch domainState {
+        case .noResults:
+            return .loaded(SearchListContent(query: "", listItems: []))
+        case .results(let model):
+            let listItems = model.results.map { result in
+                SearchListItem(
+                    id: "\(result.weatherModel.id)",
+                    name: result.weatherModel.name,
+                    isLoading: result.isLoading,
+                    weather: weatherState(from: result.forecast)
+                )
+            }
+            return .loaded(SearchListContent(query: model.query, listItems: listItems))
+        }
+    }
+
     var body: some ViewStateReducerOf<Self> {
         Self.buildViewState { domainState, viewState in
             switch domainState {

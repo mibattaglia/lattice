@@ -22,6 +22,10 @@ import Foundation
 /// ```swift
 /// @ViewStateReducer<CounterDomainState, CounterViewState>
 /// struct CounterViewStateReducer: Sendable {
+///     func initialViewState(for domainState: CounterDomainState) -> CounterViewState {
+///         CounterViewState(count: domainState.count, displayText: "")
+///     }
+///
 ///     var body: some ViewStateReducerOf<Self> {
 ///         BuildViewState { domainState, viewState in
 ///             viewState.count = domainState.count
@@ -32,16 +36,22 @@ import Foundation
 /// }
 /// ```
 ///
+/// If the view state conforms to ``DefaultValueProvider``, you can omit
+/// `initialViewState(for:)` and rely on `defaultValue`.
+///
 /// ## Integration
 ///
-/// Connect the reducer to a view model via `#subscribe`:
+/// Connect the reducer to a view model by building a `Feature`:
 ///
 /// ```swift
-/// #subscribe { builder in
-///     builder
-///         .interactor(interactor)
-///         .viewStateReducer(reducer)
-/// }
+/// let feature = Feature(
+///     interactor: CounterInteractor(),
+///     reducer: CounterViewStateReducer()
+/// )
+/// let viewModel = ViewModel(
+///     initialDomainState: CounterDomainState(count: 0),
+///     feature: feature
+/// )
 /// ```
 public protocol ViewStateReducer<DomainState, ViewState> {
     /// The type of DomainState consumed upstream. Usually fed into the ViewStateReducer
@@ -61,6 +71,9 @@ public protocol ViewStateReducer<DomainState, ViewState> {
 
     /// Mutates view state in-place based on domain state.
     func reduce(_ domainState: DomainState, into viewState: inout ViewState)
+
+    /// Builds the initial view state from an initial domain state.
+    func initialViewState(for domainState: DomainState) -> ViewState
 }
 
 extension ViewStateReducer where Body.DomainState == Never {
@@ -77,9 +90,19 @@ extension ViewStateReducer {
     }
 }
 
+extension ViewStateReducer where ViewState: DefaultValueProvider {
+    public func initialViewState(for _: DomainState) -> ViewState {
+        ViewState.defaultValue
+    }
+}
+
 extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> {
     public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
         self.body.reduce(domainState, into: &viewState)
+    }
+
+    public func initialViewState(for domainState: DomainState) -> ViewState {
+        self.body.initialViewState(for: domainState)
     }
 }
 
@@ -88,15 +111,23 @@ public typealias ViewStateReducerOf<V: ViewStateReducer> = ViewStateReducer<V.Do
 /// A type-erased wrapper around any ``ViewStateReducer``.
 public struct AnyViewStateReducer<DomainState, ViewState>: ViewStateReducer, Sendable {
     private let reduceFunc: @Sendable (DomainState, inout ViewState) -> Void
+    private let initialViewStateFunc: @Sendable (DomainState) -> ViewState
 
     public init<VS: ViewStateReducer & Sendable>(_ base: VS)
     where VS.DomainState == DomainState, VS.ViewState == ViewState {
         self.reduceFunc = { domainState, viewState in
             base.reduce(domainState, into: &viewState)
         }
+        self.initialViewStateFunc = { domainState in
+            base.initialViewState(for: domainState)
+        }
     }
 
     public var body: some ViewStateReducer<DomainState, ViewState> { self }
+
+    public func initialViewState(for domainState: DomainState) -> ViewState {
+        initialViewStateFunc(domainState)
+    }
 
     public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
         reduceFunc(domainState, &viewState)

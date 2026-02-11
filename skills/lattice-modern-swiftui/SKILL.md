@@ -21,15 +21,16 @@ Build SwiftUI views that are thin, deterministic, and easy to preview by routing
 
 ## View wiring patterns
 
-### Full ViewModel (DomainState -> ViewState)
+### Feature with ViewStateReducer (DomainState -> ViewState)
 
 ```swift
 struct CounterView: View {
     @State var viewModel = ViewModel(
         initialDomainState: CounterState(count: 0),
-        initialViewState: CounterViewState(count: 0, displayText: ""),
-        interactor: CounterInteractor().eraseToAnyInteractor(),
-        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+        feature: Feature(
+            interactor: CounterInteractor(),
+            reducer: CounterViewStateReducer()
+        )
     )
 
     var body: some View {
@@ -52,7 +53,7 @@ struct CounterView: View {
 }
 ```
 
-### BFF ViewModel (DomainState == ViewState)
+### Feature without reducer (DomainState == ViewState)
 
 ```swift
 @ObservableState
@@ -61,9 +62,9 @@ struct CounterState: Sendable, Equatable {
 }
 
 struct CounterView: View {
-    @State var viewModel: BFFViewModel<CounterAction, CounterState> = ViewModel(
-        initialState: CounterState(),
-        interactor: CounterInteractor().eraseToAnyInteractor()
+    @State var viewModel = ViewModel(
+        initialDomainState: CounterState(),
+        feature: Feature(interactor: CounterInteractor())
     )
 
     var body: some View {

@@ -59,14 +59,19 @@ import Lattice
 import SwiftUI
 
 @ObservableState
-struct CounterViewState: Sendable, Equatable {
+struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
+    static let defaultValue = CounterViewState(countText: "0")
     var countText = "0"
 }
 
 @ViewStateReducer<CounterState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
+    func initialViewState(for domainState: CounterState) -> CounterViewState {
+        .defaultValue
+    }
+
     var body: some ViewStateReducerOf<Self> {
-        Reduce { domainState, viewState in
+        BuildViewState { domainState, viewState in
             viewState.countText = String(domainState.count)
         }
     }
@@ -75,9 +80,10 @@ struct CounterViewStateReducer: Sendable {
 struct CounterView: View {
     @State var viewModel = ViewModel(
         initialDomainState: CounterState(),
-        initialViewState: CounterViewState(),
-        interactor: CounterInteractor().eraseToAnyInteractor(),
-        viewStateReducer: CounterViewStateReducer().eraseToAnyReducer()
+        feature: Feature(
+            interactor: CounterInteractor(),
+            reducer: CounterViewStateReducer()
+        )
     )
 
     var body: some View {
