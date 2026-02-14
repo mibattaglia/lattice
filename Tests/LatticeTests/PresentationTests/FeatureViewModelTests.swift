@@ -39,7 +39,8 @@ struct FeatureInteractor {
 @Suite
 struct FeatureViewModelTests {
     let interactor = FeatureInteractor()
-    let viewModel: ViewModel<FeatureAction, FeatureState, FeatureState>
+    typealias FeatureUnderTest = Feature<FeatureAction, FeatureState, FeatureState>
+    let viewModel: ViewModelOf<FeatureUnderTest>
 
     init() {
         let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())

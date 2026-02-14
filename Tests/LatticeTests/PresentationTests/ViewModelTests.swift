@@ -8,7 +8,8 @@ import Testing
 struct ViewModelTests {
     private let interactor: MyInteractor
     private let viewStateReducer: MyViewStateReducer
-    private let viewModel: ViewModel<MyEvent, MyDomainState, MyViewState>
+    typealias MyFeature = Feature<MyEvent, MyDomainState, MyViewState>
+    private let viewModel: ViewModel<MyFeature>
 
     private static let now = Date(timeIntervalSince1970: 1_748_377_205)
 
