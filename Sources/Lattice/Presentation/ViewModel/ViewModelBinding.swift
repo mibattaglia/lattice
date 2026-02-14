@@ -7,59 +7,40 @@ import SwiftUI
 /// A wrapper that enables creating SwiftUI bindings from ViewModel state properties.
 ///
 /// This type is not created directly. Instead, use the `@Bindable` property wrapper
-/// with a ViewModel and access properties via dynamic member lookup:
+/// with a view model and access properties via dynamic member lookup:
 ///
 /// ```swift
-/// @Bindable var viewModel: ViewModel<Action, State, ViewState>
+/// @Bindable var viewModel: ViewModel<CounterFeature>
 ///
-/// TextField("Name", text: $viewModel.name.sending(\.updateName))
+/// TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 /// ```
 @dynamicMemberLookup
-public struct _ViewModelBinding<Action, DomainState, ViewState, Value>
-where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
-
-    private let viewModel: ViewModel<Action, DomainState, ViewState>
-    private let keyPath: KeyPath<ViewState, Value>
+public struct _ViewModelBinding<F: FeatureProtocol, Value> {
+    private let viewModel: ViewModel<F>
+    private let keyPath: KeyPath<F.ViewState, Value>
 
     init(
-        viewModel: ViewModel<Action, DomainState, ViewState>,
-        keyPath: KeyPath<ViewState, Value>
+        viewModel: ViewModel<F>,
+        keyPath: KeyPath<F.ViewState, Value>
     ) {
         self.viewModel = viewModel
         self.keyPath = keyPath
     }
 
     /// Accesses nested properties of the current value.
-    ///
-    /// This allows chaining property access:
-    /// ```swift
-    /// $viewModel.user.name.sending(\.updateUserName)
-    /// ```
     public subscript<Member>(
         dynamicMember keyPath: KeyPath<Value, Member>
-    ) -> _ViewModelBinding<Action, DomainState, ViewState, Member> {
-        _ViewModelBinding<Action, DomainState, ViewState, Member>(
+    ) -> _ViewModelBinding<F, Member> {
+        _ViewModelBinding<F, Member>(
             viewModel: viewModel,
             keyPath: self.keyPath.appending(path: keyPath)
         )
     }
 
     /// Creates a SwiftUI binding that sends the specified action when the value changes.
-    ///
-    /// - Parameter action: A case key path to an action case that takes the new value.
-    /// - Returns: A binding suitable for use with SwiftUI controls.
-    ///
-    /// Example:
-    /// ```swift
-    /// enum Action {
-    ///     case updateName(String)
-    /// }
-    ///
-    /// TextField("Name", text: $viewModel.name.sending(\.updateName))
-    /// ```
     #if canImport(CasePaths)
         @MainActor
-        public func sending(_ action: CaseKeyPath<Action, Value>) -> Binding<Value> {
+        public func sending(_ action: CaseKeyPath<F.Action, Value>) -> Binding<Value> {
             Binding(
                 get: { self.viewModel.viewState[keyPath: self.keyPath] },
                 set: { newValue in
@@ -70,25 +51,16 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     #endif
 }
 
+/// A convenience alias for ``_ViewModelBinding`` that is parameterized by feature type.
+public typealias _ViewModelBindingOf<F: FeatureProtocol, Value> = _ViewModelBinding<F, Value>
+
 extension Bindable {
     /// Accesses ViewModel state properties for creating bindings.
-    ///
-    /// Use this with the `@Bindable` property wrapper to create bindings:
-    ///
-    /// ```swift
-    /// @Bindable var viewModel: ViewModel<Action, State, ViewState>
-    ///
-    /// TextField("Query", text: $viewModel.searchQuery.sending(\.search.query))
-    /// ```
-    @_disfavoredOverload
-    public subscript<Action, DomainState, ViewState, Member>(
-        dynamicMember keyPath: KeyPath<ViewState, Member>
-    ) -> _ViewModelBinding<Action, DomainState, ViewState, Member>
+    public subscript<F: FeatureProtocol, Member>(
+        dynamicMember keyPath: KeyPath<F.ViewState, Member>
+    ) -> _ViewModelBindingOf<F, Member>
     where
-        Value == ViewModel<Action, DomainState, ViewState>,
-        Action: Sendable,
-        DomainState: Sendable,
-        ViewState: ObservableState
+        Value == ViewModel<F>
     {
         _ViewModelBinding(
             viewModel: self.wrappedValue,
@@ -98,26 +70,16 @@ extension Bindable {
 
     #if canImport(CasePaths)
         /// Accesses ViewModel state case properties for CasePathable enums.
-        ///
-        /// Use this with the `@Bindable` property wrapper to create bindings to enum case values:
-        ///
-        /// ```swift
-        /// @Bindable var viewModel: ViewModel<Action, State, ViewState>
-        ///
-        /// TextField("Query", text: $viewModel.loaded.query.sending(\.search.query))
-        /// ```
-        public subscript<Action, DomainState, ViewState, Case>(
-            dynamicMember keyPath: KeyPath<ViewState.AllCasePaths, AnyCasePath<ViewState, Case>>
-        ) -> _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
+        public subscript<F: FeatureProtocol, Case>(
+            dynamicMember keyPath: KeyPath<F.ViewState.AllCasePaths, AnyCasePath<F.ViewState, Case>>
+        ) -> _ViewModelCaseBinding<F, Case>
         where
-            Value == ViewModel<Action, DomainState, ViewState>,
-            Action: Sendable,
-            DomainState: Sendable,
-            ViewState: ObservableState & CasePathable
+            Value == ViewModel<F>,
+            F.ViewState: CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
-                casePath: ViewState.allCasePaths[keyPath: keyPath]
+                casePath: F.ViewState.allCasePaths[keyPath: keyPath]
             )
         }
     #endif
@@ -125,23 +87,11 @@ extension Bindable {
 
 extension Binding {
     /// Accesses ViewModel state properties for creating bindings from a Binding<ViewModel>.
-    ///
-    /// Use this with `@State`-stored view models to create bindings:
-    ///
-    /// ```swift
-    /// @State var viewModel: ViewModel<Action, State, ViewState>
-    ///
-    /// TextField("Name", text: $viewModel.name.sending(\.updateName))
-    /// ```
-    @_disfavoredOverload
-    public subscript<Action, DomainState, ViewState, Member>(
-        dynamicMember keyPath: KeyPath<ViewState, Member>
-    ) -> _ViewModelBinding<Action, DomainState, ViewState, Member>
+    public subscript<F: FeatureProtocol, Member>(
+        dynamicMember keyPath: KeyPath<F.ViewState, Member>
+    ) -> _ViewModelBindingOf<F, Member>
     where
-        Value == ViewModel<Action, DomainState, ViewState>,
-        Action: Sendable,
-        DomainState: Sendable,
-        ViewState: ObservableState
+        Value == ViewModel<F>
     {
         _ViewModelBinding(
             viewModel: self.wrappedValue,
@@ -151,26 +101,16 @@ extension Binding {
 
     #if canImport(CasePaths)
         /// Accesses ViewModel state case properties for CasePathable enums from a Binding<ViewModel>.
-        ///
-        /// Use this with `@State`-stored view models to create bindings to enum case values:
-        ///
-        /// ```swift
-        /// @State var viewModel: ViewModel<Action, State, ViewState>
-        ///
-        /// TextField("Query", text: $viewModel.loaded.query.sending(\.search.query))
-        /// ```
-        public subscript<Action, DomainState, ViewState, Case>(
-            dynamicMember keyPath: KeyPath<ViewState.AllCasePaths, AnyCasePath<ViewState, Case>>
-        ) -> _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
+        public subscript<F: FeatureProtocol, Case>(
+            dynamicMember keyPath: KeyPath<F.ViewState.AllCasePaths, AnyCasePath<F.ViewState, Case>>
+        ) -> _ViewModelCaseBinding<F, Case>
         where
-            Value == ViewModel<Action, DomainState, ViewState>,
-            Action: Sendable,
-            DomainState: Sendable,
-            ViewState: ObservableState & CasePathable
+            Value == ViewModel<F>,
+            F.ViewState: CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
-                casePath: ViewState.allCasePaths[keyPath: keyPath]
+                casePath: F.ViewState.allCasePaths[keyPath: keyPath]
             )
         }
     #endif
@@ -179,15 +119,14 @@ extension Binding {
 #if canImport(CasePaths)
     /// A wrapper that enables creating SwiftUI bindings from ViewModel enum case associated values.
     @dynamicMemberLookup
-    public struct _ViewModelCaseBinding<Action, DomainState, ViewState, Case>
-    where Action: Sendable, DomainState: Sendable, ViewState: ObservableState & CasePathable {
-
-        private let viewModel: ViewModel<Action, DomainState, ViewState>
-        private let casePath: AnyCasePath<ViewState, Case>
+    public struct _ViewModelCaseBinding<F: FeatureProtocol, Case>
+    where F.ViewState: CasePathable {
+        private let viewModel: ViewModel<F>
+        private let casePath: AnyCasePath<F.ViewState, Case>
 
         init(
-            viewModel: ViewModel<Action, DomainState, ViewState>,
-            casePath: AnyCasePath<ViewState, Case>
+            viewModel: ViewModel<F>,
+            casePath: AnyCasePath<F.ViewState, Case>
         ) {
             self.viewModel = viewModel
             self.casePath = casePath
@@ -196,7 +135,7 @@ extension Binding {
         /// Accesses nested properties of the case's associated value.
         public subscript<Member>(
             dynamicMember keyPath: KeyPath<Case, Member>
-        ) -> _ViewModelCaseMemberBinding<Action, DomainState, ViewState, Case, Member> {
+        ) -> _ViewModelCaseMemberBinding<F, Case, Member> {
             _ViewModelCaseMemberBinding(
                 viewModel: viewModel,
                 casePath: casePath,
@@ -207,16 +146,15 @@ extension Binding {
 
     /// A wrapper for accessing members of an enum case's associated value.
     @dynamicMemberLookup
-    public struct _ViewModelCaseMemberBinding<Action, DomainState, ViewState, Case, Member>
-    where Action: Sendable, DomainState: Sendable, ViewState: ObservableState & CasePathable {
-
-        private let viewModel: ViewModel<Action, DomainState, ViewState>
-        private let casePath: AnyCasePath<ViewState, Case>
+    public struct _ViewModelCaseMemberBinding<F: FeatureProtocol, Case, Member>
+    where F.ViewState: CasePathable {
+        private let viewModel: ViewModel<F>
+        private let casePath: AnyCasePath<F.ViewState, Case>
         private let memberKeyPath: KeyPath<Case, Member>
 
         init(
-            viewModel: ViewModel<Action, DomainState, ViewState>,
-            casePath: AnyCasePath<ViewState, Case>,
+            viewModel: ViewModel<F>,
+            casePath: AnyCasePath<F.ViewState, Case>,
             memberKeyPath: KeyPath<Case, Member>
         ) {
             self.viewModel = viewModel
@@ -227,8 +165,8 @@ extension Binding {
         /// Accesses nested properties of the current member.
         public subscript<NestedMember>(
             dynamicMember keyPath: KeyPath<Member, NestedMember>
-        ) -> _ViewModelCaseMemberBinding<Action, DomainState, ViewState, Case, NestedMember> {
-            _ViewModelCaseMemberBinding<Action, DomainState, ViewState, Case, NestedMember>(
+        ) -> _ViewModelCaseMemberBinding<F, Case, NestedMember> {
+            _ViewModelCaseMemberBinding<F, Case, NestedMember>(
                 viewModel: viewModel,
                 casePath: casePath,
                 memberKeyPath: memberKeyPath.appending(path: keyPath)
@@ -240,7 +178,7 @@ extension Binding {
         /// - Warning: This will crash if the viewState is not in the expected case.
         ///   Use `sending(_:default:)` if the binding may be accessed when in a different case.
         @MainActor
-        public func sending(_ action: CaseKeyPath<Action, Member>) -> Binding<Member> {
+        public func sending(_ action: CaseKeyPath<F.Action, Member>) -> Binding<Member> {
             Binding(
                 get: {
                     guard let caseValue = self.casePath.extract(from: self.viewModel.viewState) else {
@@ -255,17 +193,8 @@ extension Binding {
         }
 
         /// Creates a SwiftUI binding with a default value when the case doesn't match.
-        ///
-        /// Use this when the binding may be accessed while the viewState is in a different case.
-        /// The default value is returned by the getter, and the setter is a no-op when not in the expected case.
-        ///
-        /// Example:
-        /// ```swift
-        /// // Safe to use even when viewState might be .none
-        /// TextField("Query", text: $viewModel.loaded.query.sending(\.search.query, default: ""))
-        /// ```
         @MainActor
-        public func sending(_ action: CaseKeyPath<Action, Member>, default defaultValue: Member) -> Binding<Member> {
+        public func sending(_ action: CaseKeyPath<F.Action, Member>, default defaultValue: Member) -> Binding<Member> {
             Binding(
                 get: {
                     guard let caseValue = self.casePath.extract(from: self.viewModel.viewState) else {
@@ -282,4 +211,5 @@ extension Binding {
             )
         }
     }
+
 #endif
