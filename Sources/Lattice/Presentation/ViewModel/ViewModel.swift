@@ -8,6 +8,14 @@ protocol _ViewModel {
     var viewState: ViewState { get }
 }
 
+/// A convenience alias for expressing a view model using a single feature type.
+///
+/// ```swift
+/// typealias CounterFeature = Feature<CounterAction, CounterState, CounterViewState>
+/// @State var viewModel: ViewModelOf<CounterFeature>
+/// ```
+public typealias ViewModelOf<F: FeatureProtocol> = ViewModel<F>
+
 /// A generic class that binds a SwiftUI view to your domain/business logic.
 ///
 /// `ViewModel` is a coordinator that connects UI events to the interactor system
@@ -25,11 +33,9 @@ protocol _ViewModel {
 /// 5. Any async effects from the emission are spawned as tasks
 /// 6. View observes `viewState` changes and re-renders
 ///
-/// ## Initialization Patterns
+/// ## Initialization
 ///
-/// ### Full Initialization (with ViewStateReducer)
-///
-/// Use this pattern when domain state differs from view state and requires transformation:
+/// Use a ``Feature`` value to initialize a view model.
 ///
 /// ```swift
 /// let feature = Feature(
@@ -38,18 +44,6 @@ protocol _ViewModel {
 /// )
 /// let viewModel = ViewModel(
 ///     initialDomainState: CounterDomainState(count: 0),
-///     feature: feature
-/// )
-/// ```
-///
-/// ### Direct Initialization (DomainState == ViewState)
-///
-/// Use this pattern when the interactor's output can be used directly as view state:
-///
-/// ```swift
-/// let feature = Feature(interactor: CounterInteractor())
-/// let viewModel = ViewModel(
-///     initialDomainState: CounterState(count: 0),
 ///     feature: feature
 /// )
 /// ```
@@ -90,8 +84,11 @@ protocol _ViewModel {
 /// ```
 @dynamicMemberLookup
 @MainActor
-public final class ViewModel<Action, DomainState, ViewState>: Observable, _ViewModel
-where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
+public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
+    public typealias Action = F.Action
+    public typealias DomainState = F.DomainState
+    public typealias ViewState = F.ViewState
+
     private var _viewState: ViewState
     private var domainState: DomainState
     private var effectTasks: [UUID: Task<Void, Never>] = [:]
@@ -102,16 +99,26 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
 
     private let _$observationRegistrar = ObservationRegistrar()
 
-    /// Creates a ViewModel with separate domain and view state.
-    ///
-    /// The view state is automatically inflated by running the reducer with the initial domain state.
+    /// Creates a ViewModel for a concrete feature.
     ///
     /// - Parameters:
     ///   - initialDomainState: The initial domain state value.
-    ///   - interactor: The interactor that processes actions.
-    ///   - viewStateReducer: The reducer that transforms domain state to view state.
-    ///   - initialViewState: A closure that provides the initial view state structure.
-    public init(
+    ///   - feature: The feature bundle containing interactor/reducer wiring.
+    public convenience init(
+        initialDomainState: DomainState,
+        feature: F
+    ) {
+        self.init(
+            initialDomainState: initialDomainState,
+            initialViewState: feature.makeInitialViewState(initialDomainState),
+            interactor: feature.interactor,
+            viewStateReducer: feature.viewStateReducer,
+            areStatesEqual: feature.areStatesEqual
+        )
+    }
+
+    /// Internal initialization lane retained for framework tests during migration.
+    internal init(
         initialDomainState: DomainState,
         initialViewState: @autoclosure () -> ViewState,
         interactor: AnyInteractor<DomainState, Action>,
@@ -128,8 +135,8 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         self._viewState = viewState
     }
 
-    /// Creates a ViewModel with separate domain and view state from an interactor and reducer.
-    public convenience init<I, R>(
+    /// Internal initialization lane retained for framework tests during migration.
+    internal convenience init<I, R>(
         initialDomainState: DomainState,
         interactor: I,
         viewStateReducer: R,
@@ -151,12 +158,8 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         )
     }
 
-    /// Creates a ViewModel where domain state is used directly as view state.
-    ///
-    /// - Parameters:
-    ///   - initialState: The initial state value (serves as both domain and view state).
-    ///   - interactor: The interactor that processes actions.
-    public init(
+    /// Internal initialization lane retained for framework tests during migration.
+    internal init(
         initialState: ViewState,
         interactor: AnyInteractor<ViewState, Action>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
@@ -287,7 +290,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
 }
 
 extension ViewModel where DomainState: Equatable {
-    public convenience init(
+    internal convenience init(
         initialDomainState: DomainState,
         initialViewState: @autoclosure () -> ViewState,
         interactor: AnyInteractor<DomainState, Action>,
@@ -302,7 +305,7 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 
-    public convenience init<I, R>(
+    internal convenience init<I, R>(
         initialDomainState: DomainState,
         interactor: I,
         viewStateReducer: R
@@ -321,7 +324,7 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 
-    public convenience init(
+    internal convenience init(
         initialState: ViewState,
         interactor: AnyInteractor<ViewState, Action>
     ) where DomainState == ViewState {
@@ -333,21 +336,6 @@ extension ViewModel where DomainState: Equatable {
                 viewState = domainState
             }.eraseToAnyReducer(),
             areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
-    }
-}
-
-extension ViewModel {
-    public convenience init(
-        initialDomainState: DomainState,
-        feature: Feature<Action, DomainState, ViewState>
-    ) {
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: feature.makeInitialViewState(initialDomainState),
-            interactor: feature.interactor,
-            viewStateReducer: feature.viewStateReducer,
-            areStatesEqual: feature.areStatesEqual
         )
     }
 }
