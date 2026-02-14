@@ -179,50 +179,6 @@ swift test --filter ViewModelBindingTests
 swift test --filter ViewModelTests
 ```
 
-## CLI (`lattice`)
-
-Build and run:
-
-```bash
-swift run lattice help
-```
-
-Commands:
-
-- `help [topic]`
-- `meta`
-- `version`
-- `docs [topic|topics|index|search <term>]`
-
-Flags:
-
-- `--json`: force JSON output.
-- `--text`: force text output.
-- `--summary`: summarize `docs <topic>` output.
-- `--compact`: compact JSON keys.
-
-Output behavior:
-
-- When stdout is piped, JSON output is selected automatically unless `--text` is passed.
-
-Docs command examples:
-
-```bash
-lattice docs topics
-lattice docs index
-lattice docs architecture
-lattice docs search emission
-lattice docs architecture --summary
-```
-
-Exit codes:
-
-- `0`: success
-- `1`: not_found
-- `2`: invalid_args
-- `3`: runtime_error
-- `4`: io_error
-
 ## Development
 
 Build all targets:
@@ -249,7 +205,6 @@ Set `SKIP_LATTICE_MACRO_BUILD=1` to skip macro build steps when needed.
 
 - `Sources/Lattice`: runtime library (interactors, view model, emissions, testing helpers).
 - `Sources/LatticeMacros`: macro implementations.
-- `Sources/LatticeCLI`: CLI executable and docs resources.
 - `Macros/`: checked-in macro tool binary for tooling/Xcode.
 - `ExampleProject/`: sample app and package-based examples.
 - `Tests/`: library and macro tests.

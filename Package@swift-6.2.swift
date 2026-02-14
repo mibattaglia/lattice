@@ -11,10 +11,6 @@ let package = Package(
             name: "Lattice",
             targets: ["Lattice"]
         ),
-        .executable(
-            name: "lattice",
-            targets: ["LatticeCLI"]
-        ),
     ],
     dependencies: [
         .package(
@@ -67,13 +63,6 @@ let package = Package(
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-            ]
-        ),
-        .executableTarget(
-            name: "LatticeCLI",
-            dependencies: [],
-            resources: [
-                .process("Resources")
             ]
         ),
         .testTarget(
