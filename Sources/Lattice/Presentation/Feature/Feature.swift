@@ -1,5 +1,20 @@
 import Foundation
 
+/// A type-level descriptor for a Lattice feature.
+///
+/// This protocol enables API surfaces that can be expressed in terms of a single
+/// generic `F`, such as `ViewModelOf<F>`.
+public protocol FeatureProtocol {
+    associatedtype Action: Sendable
+    associatedtype DomainState: Sendable
+    associatedtype ViewState: ObservableState
+
+    var interactor: AnyInteractor<DomainState, Action> { get }
+    var viewStateReducer: AnyViewStateReducer<DomainState, ViewState> { get }
+    var makeInitialViewState: (DomainState) -> ViewState { get }
+    var areStatesEqual: (DomainState, DomainState) -> Bool { get }
+}
+
 /// Bundles the architecture stack for a feature.
 ///
 /// Use a `Feature` to initialize a `ViewModel` with a single argument:
@@ -65,6 +80,8 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         self.areStatesEqual = areStatesEqual
     }
 }
+
+extension Feature: FeatureProtocol {}
 
 extension Feature where DomainState: Equatable {
     public init<I, R>(
