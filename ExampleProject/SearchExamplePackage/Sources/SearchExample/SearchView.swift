@@ -2,10 +2,9 @@ import Lattice
 import SwiftUI
 
 struct SearchView: View {
-    private typealias SearchFeature = Feature<SearchEvent, SearchDomainState, SearchViewState>
-    @Bindable private var viewModel: ViewModel<SearchFeature>
+    @Bindable private var viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>
 
-    init(viewModel: ViewModel<SearchFeature>) {
+    init(viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>) {
         self.viewModel = viewModel
     }
 

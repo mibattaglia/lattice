@@ -137,9 +137,9 @@ struct TodosTests {
         #expect(completedContent.todos.first?.title == "Done")
     }
 
-    private typealias TodosFeature = Feature<TodosEvent, TodosDomainState, TodosViewState>
-
-    private func makeViewModel(clock: TestClock) -> ViewModel<TodosFeature> {
+    private func makeViewModel(
+        clock: TestClock
+    ) -> ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>> {
         let feature = Feature(
             interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
             reducer: TodosViewStateReducer()

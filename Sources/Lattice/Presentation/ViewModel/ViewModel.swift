@@ -8,19 +8,10 @@ protocol _ViewModel {
     var viewState: ViewState { get }
 }
 
-/// A convenience alias for expressing a view model using a single feature type.
-///
-/// ```swift
-/// typealias CounterFeature = Feature<CounterAction, CounterState, CounterViewState>
-/// @State var viewModel: ViewModelOf<CounterFeature>
-/// ```
-public typealias ViewModelOf<F: FeatureProtocol> = ViewModel<F>
-
 /// A generic class that binds a SwiftUI view to your domain/business logic.
 ///
-/// `ViewModel` is a coordinator that connects UI events to the interactor system
-/// and publishes view state changes back to SwiftUI. It serves as the main entry point
-/// for a feature's architecture.
+/// `ViewModel` connects a `Feature` to SwiftUI. Views send user events through
+/// ``sendViewEvent(_:)``, and render from ``viewState``.
 ///
 /// ## Overview
 ///
@@ -35,7 +26,7 @@ public typealias ViewModelOf<F: FeatureProtocol> = ViewModel<F>
 ///
 /// ## Initialization
 ///
-/// Use a ``Feature`` value to initialize a view model.
+/// Create a view model by providing the initial domain state and a `Feature`:
 ///
 /// ```swift
 /// let feature = Feature(
@@ -50,8 +41,8 @@ public typealias ViewModelOf<F: FeatureProtocol> = ViewModel<F>
 ///
 /// ## Key Components
 ///
-/// - `viewState`: A published property optimized for view rendering
-/// - `sendViewEvent(_:)`: Method to dispatch user actions, returns ``EventTask``
+/// - ``viewState``: Observable state used by SwiftUI rendering.
+/// - ``sendViewEvent(_:)``: Dispatches actions and returns an ``EventTask`` for any spawned effects.
 ///
 /// ## SwiftUI Integration
 ///
@@ -75,7 +66,7 @@ public typealias ViewModelOf<F: FeatureProtocol> = ViewModel<F>
 ///
 /// ## Awaiting Effects
 ///
-/// Use ``EventTask/finish()`` to await effect completion:
+/// Use ``EventTask/finish()`` to await effect completion when needed:
 ///
 /// ```swift
 /// .refreshable {
@@ -117,8 +108,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         )
     }
 
-    /// Internal initialization lane retained for framework tests during migration.
-    internal init(
+    init(
         initialDomainState: DomainState,
         initialViewState: @autoclosure () -> ViewState,
         interactor: AnyInteractor<DomainState, Action>,
@@ -135,8 +125,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         self._viewState = viewState
     }
 
-    /// Internal initialization lane retained for framework tests during migration.
-    internal convenience init<I, R>(
+    convenience init<I, R>(
         initialDomainState: DomainState,
         interactor: I,
         viewStateReducer: R,
@@ -158,8 +147,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         )
     }
 
-    /// Internal initialization lane retained for framework tests during migration.
-    internal init(
+    init(
         initialState: ViewState,
         interactor: AnyInteractor<ViewState, Action>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
@@ -290,7 +278,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
 }
 
 extension ViewModel where DomainState: Equatable {
-    internal convenience init(
+    convenience init(
         initialDomainState: DomainState,
         initialViewState: @autoclosure () -> ViewState,
         interactor: AnyInteractor<DomainState, Action>,
@@ -305,7 +293,7 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 
-    internal convenience init<I, R>(
+    convenience init<I, R>(
         initialDomainState: DomainState,
         interactor: I,
         viewStateReducer: R
@@ -324,7 +312,7 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 
-    internal convenience init(
+    convenience init(
         initialState: ViewState,
         interactor: AnyInteractor<ViewState, Action>
     ) where DomainState == ViewState {

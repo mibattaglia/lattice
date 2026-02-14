@@ -9,9 +9,7 @@ import Testing
 struct ViewModelBindingTests {
     @Test
     func testBindingFromStateViewModel() {
-        typealias BindingFeature = Feature<BindingTestAction, BindingTestState, BindingTestState>
-
-        var viewModel: ViewModel<BindingFeature> = .init(
+        var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState, BindingTestState>> = .init(
             initialDomainState: BindingTestState(name: "Blob"),
             feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
         )
@@ -29,9 +27,7 @@ struct ViewModelBindingTests {
 
     @Test
     func testBindingFromFeatureViewModelAlias() {
-        typealias BindingFeature = Feature<BindingTestAction, BindingTestState, BindingTestState>
-
-        var viewModel: ViewModelOf<BindingFeature> = .init(
+        var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState, BindingTestState>> = .init(
             initialDomainState: BindingTestState(name: "Blob"),
             feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
         )

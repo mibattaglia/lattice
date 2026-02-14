@@ -3,7 +3,7 @@ import Foundation
 /// A type-level descriptor for a Lattice feature.
 ///
 /// This protocol enables API surfaces that can be expressed in terms of a single
-/// generic `F`, such as `ViewModelOf<F>`.
+/// generic `F`, such as `ViewModel<F>`.
 public protocol FeatureProtocol {
     associatedtype Action: Sendable
     associatedtype DomainState: Sendable

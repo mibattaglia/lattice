@@ -1,24 +1,19 @@
 # Lattice
 
-A lightweight, pure Swift library for building complex features using MVVM with unidirectional data flow. Built on Swift's native async/await.
-Inspired by The Composable Architecture.
+Lattice is a Swift 6 library for building features with MVVM + unidirectional data flow.
+It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10+.
 
-## Features
+## Core Features
 
-- **Unidirectional Data Flow**: Actions flow in, state flows out
-- **Async/Await-Based**: Native Swift concurrency with no Combine dependency
-- **Declarative Composition**: Result builders for composing interactors
-- **Type-Safe**: Strong generic constraints ensure compile-time safety
-- **Testable**: First-class testing support with `InteractorTestHarness` and `AsyncStreamRecorder`
-- **SwiftUI Integration**: Generic `ViewModel` class with `@Bindable` bindings and `EventTask`
-- **Feature Bundling**: `Feature` groups interactor and reducer wiring for concise initialization
-- **ObservableState Macro**: View state types get Observation conformance automatically
-- **Default View State**: `DefaultValueProvider` supplies default view state values
-- **Swift 6 Ready**: Full concurrency safety with `@MainActor` isolation
+- Unidirectional flow: views send actions, interactors mutate domain state, reducers derive view state.
+- Feature-based API: `ViewModel` is parameterized by a single feature type (`ViewModel<F>`).
+- Async effects: `.none`, `.action`, `.perform`, `.observe`, and `.merge` emissions.
+- SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
+- Test tooling: `InteractorTestHarness`, `AsyncStreamRecorder`, and clock-based testing support.
 
 ## Installation
 
-Add to your `Package.swift`:
+Add package dependency:
 
 ```swift
 dependencies: [
@@ -26,7 +21,7 @@ dependencies: [
 ]
 ```
 
-Then add `Lattice` to your target's dependencies:
+Add product dependency:
 
 ```swift
 .target(
@@ -37,26 +32,20 @@ Then add `Lattice` to your target's dependencies:
 
 ## Quick Start
 
-### 1. Define Domain State, View State, and Actions
+### 1. Domain and actions
 
 ```swift
 struct CounterState: Sendable, Equatable {
-    var count: Int = 0
+    var count = 0
 }
 
 enum CounterAction: Sendable {
     case increment
     case decrement
 }
-
-@ObservableState
-struct CounterViewState: Sendable, Equatable {
-    var count: Int = 0
-    var displayText: String = ""
-}
 ```
 
-### 2. Create an Interactor
+### 2. Interactor
 
 ```swift
 import Lattice
@@ -77,50 +66,36 @@ struct CounterInteractor: Sendable {
 }
 ```
 
-### 3. Create a ViewModel
-
-The `ViewModel` class connects your interactor to SwiftUI. Use a `Feature` to bundle
-the architecture stack and keep initialization concise.
-
-**Direct Pattern** (when DomainState == ViewState):
+### 3. View state + reducer
 
 ```swift
-let feature = Feature(interactor: CounterInteractor())
-let viewModel = ViewModel(
-    initialDomainState: CounterState(count: 0),
-    feature: feature
-)
+@ObservableState
+struct CounterViewState: Sendable, Equatable {
+    var countText = "0"
+}
+
+@ViewStateReducer<CounterState, CounterViewState>
+struct CounterViewStateReducer: Sendable {
+    func initialViewState(for domainState: CounterState) -> CounterViewState {
+        CounterViewState()
+    }
+
+    var body: some ViewStateReducerOf<Self> {
+        BuildViewState { domainState, viewState in
+            viewState.countText = String(domainState.count)
+        }
+    }
+}
 ```
 
-This pattern fits a simple feature that does not need complex mappings between
-domain state and view rendering instructions.
-
-**Full Pattern** (with ViewStateReducer):
+### 4. ViewModel and SwiftUI
 
 ```swift
-let feature = Feature(
-    interactor: CounterInteractor(),
-    reducer: CounterViewStateReducer()
-)
-let viewModel = ViewModel(
-    initialDomainState: CounterState(count: 0),
-    feature: feature
-)
-```
+import SwiftUI
 
-Use the full pattern with an `Interactor` and `ViewStateReducer` when your feature
-needs a richer domain state.
-
-One of the main tenets of Lattice is that a feature's ViewState should be simple,
-mostly primitives like strings and colors. The `ViewStateReducer` pattern helps
-transform a complex domain model into clear rendering instructions for your view.
-
-### 4. Connect to SwiftUI
-
-```swift
 struct CounterView: View {
-    @State var viewModel = ViewModel(
-        initialDomainState: CounterState(count: 0),
+    @State private var viewModel = ViewModel(
+        initialDomainState: CounterState(),
         feature: Feature(
             interactor: CounterInteractor(),
             reducer: CounterViewStateReducer()
@@ -129,8 +104,7 @@ struct CounterView: View {
 
     var body: some View {
         VStack {
-            Text("Count: \(viewModel.viewState.count)")
-
+            Text(viewModel.viewState.countText)
             HStack {
                 Button("-") { viewModel.sendViewEvent(.decrement) }
                 Button("+") { viewModel.sendViewEvent(.increment) }
@@ -140,260 +114,142 @@ struct CounterView: View {
 }
 ```
 
-## Architecture Overview
-
-```
-+---------------------+
-|    SwiftUI View     |
-+----------+----------+
-           | sendViewEvent()
-           v
-+---------------------+
-|     ViewModel       |  <-- Generic ViewModel<ConcreteFeature>
-+----------+----------+
-           |
-           v
-+---------------------+
-|     Interactor      |  <-- @Interactor macro
-+----------+----------+
-           |
-           v
-+---------------------+
-|  ViewStateReducer   |  <-- @ViewStateReducer macro (optional when DomainState == ViewState)
-+---------------------+
-           | flows back to ViewModel
-           v
-+---------------------+
-|     ViewModel       | 
-+---------------------+
-           | setting `ViewState` triggers a re-render
-           v
-+---------------------+
-|    SwiftUI View     |
-+----------+----------+
-```
-
-**Data Flow**:
-1. **View** sends events via `sendViewEvent(_:)`
-2. **ViewModel** forwards events to the **Interactor**
-3. **Interactor** processes events and emits new domain state
-4. **ViewStateReducer** transforms domain state to view state
-5. **ViewModel** publishes view state changes
-6. **View** re-renders with new view state
-
-## Core Concepts
-
-### Interactor
-
-The `Interactor` protocol processes an action by mutating state and returning an `Emission`:
+If domain state and view state are the same type, initialize `Feature` with only an interactor:
 
 ```swift
-func interact(state: inout DomainState, action: Action) -> Emission<Action>
+let viewModel = ViewModel(
+    initialDomainState: CounterState(),
+    feature: Feature(interactor: CounterInteractor())
+)
 ```
 
-Use the `@Interactor` macro for a declarative definition:
+## Architecture
+
+1. The view sends an action via `sendViewEvent(_:)`.
+2. The interactor mutates domain state and returns an `Emission<Action>`.
+3. `ViewStateReducer` updates `viewState` from domain state.
+4. Async emissions spawn tasks and can dispatch more actions.
+5. `EventTask` can `finish()` or be cancelled by callers.
+
+## Bindings
+
+Use `@Bindable` with case-path actions:
 
 ```swift
-@Interactor<MyState, MyAction>
-struct MyInteractor: Sendable {
-    var body: some InteractorOf<Self> {
-        Interact { state, action in
-            // Handle action, mutate state
-            return .none
-        }
-    }
+@CasePathable
+enum FormAction: Sendable {
+    case nameChanged(String)
 }
-```
 
-### Emission Types
-
-The `Emission` type controls how state is emitted:
-
-- **`.none`**: No action to emit
-- **`.action(action)`**: Emit an action immediately
-- **`.perform { ... }`**: Execute async work, return an optional action
-- **`.observe { ... }`**: Observe a stream, emitting actions for each element
-
-```swift
-// Async work example
-return .perform { [api] in
-    let data = try await api.fetchData()
-    return .dataLoaded(data)
-}
-```
-
-### Higher-Order Interactors
-
-Compose interactors declaratively:
-
-```swift
-var body: some InteractorOf<Self> {
-    // Merge multiple interactors
-    LoggingInteractor()
-    AnalyticsInteractor()
-
-    // Debounce actions
-    DebounceInteractor(for: .milliseconds(300)) {
-        SearchInteractor()
-    }
-
-    // Scope to child state/action
-    ParentInteractor()
-        .when(state: \.child, action: \.childAction) {
-            ChildInteractor()
-        }
-}
-```
-
-### ViewStateReducer
-
-Transforms domain state into view-friendly state:
-
-```swift
-@ViewStateReducer<CounterState, CounterViewState>
-struct CounterViewStateReducer: Sendable {
-    func initialViewState(for domainState: CounterState) -> CounterViewState {
-        CounterViewState(count: 0, displayText: "")
-    }
-
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { domainState, viewState in
-            viewState.count = domainState.count
-            viewState.displayText = "Count: \(domainState.count)"
-        }
-    }
-}
-```
-
-You can also provide a default view state by conforming to `DefaultValueProvider`:
-
-```swift
 @ObservableState
-struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
-    static let defaultValue = CounterViewState(count: 0, displayText: "")
-
-    var count: Int
-    var displayText: String
+struct FormViewState: Sendable, Equatable {
+    var name = ""
 }
-```
 
-When `ViewState` conforms to `DefaultValueProvider`, reducers can omit
-`initialViewState(for:)`.
-
-### ObservableState
-
-Only view states must conform to `ObservableState`. Domain state does not need to be observable.
-Use the macro to generate the required Observation conformance:
-
-```swift
-@ObservableState
-struct MyViewState: Sendable, Equatable {
-    var title: String = ""
-    var count: Int = 0
-}
-```
-
-### SwiftUI Bindings
-
-Use `@Bindable` with a `ViewModel` to create bindings that send actions:
-
-```swift
-typealias FormFeature = Feature<FormAction, FormState, FormViewState>
-@Bindable var viewModel: ViewModel<FormFeature>
+@Bindable var viewModel: ViewModel<Feature<FormAction, FormDomainState, FormViewState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
-`sendViewEvent(_:)` returns an `EventTask`, so you can await or cancel effects:
-
-```swift
-await viewModel.sendViewEvent(.refresh).finish()
-```
-
-Use a concrete feature type in type annotations:
-
-```swift
-typealias CounterFeature = Feature<CounterAction, CounterState, CounterViewState>
-@State var viewModel: ViewModel<CounterFeature>
-```
-
 ## Testing
 
-Use `InteractorTestHarness` for testing interactors:
+Run all tests:
 
-```swift
-@Test
-func testIncrement() async throws {
-    let harness = InteractorTestHarness(
-        initialState: CounterState(count: 0),
-        interactor: CounterInteractor()
-    )
-
-    harness.send(.increment)
-    harness.send(.increment)
-
-    try await harness.assertStates([
-        CounterState(count: 0),  // Initial state
-        CounterState(count: 1),
-        CounterState(count: 2)
-    ])
-}
+```bash
+swift test
 ```
 
-For time-based testing, inject a `TestClock`:
+Run library tests only:
 
-```swift
-@Test
-func testDebounce() async throws {
-    let clock = TestClock()
-    let interactor = DebounceInteractor(for: .seconds(1), clock: clock) {
-        SearchInteractor()
-    }
-    // Control time advancement with clock.advance(by:)
-}
+```bash
+swift test --filter LatticeTests
 ```
+
+Run macro tests only:
+
+```bash
+swift test --filter LatticeMacrosTests
+```
+
+Run focused presentation tests:
+
+```bash
+swift test --filter FeatureViewModelTests
+swift test --filter ViewModelBindingTests
+swift test --filter ViewModelTests
+```
+
+## CLI (`lattice`)
+
+Build and run:
+
+```bash
+swift run lattice help
+```
+
+Commands:
+
+- `help [topic]`
+- `meta`
+- `version`
+- `docs [topic|topics|index|search <term>]`
+
+Flags:
+
+- `--json`: force JSON output.
+- `--text`: force text output.
+- `--summary`: summarize `docs <topic>` output.
+- `--compact`: compact JSON keys.
+
+Output behavior:
+
+- When stdout is piped, JSON output is selected automatically unless `--text` is passed.
+
+Docs command examples:
+
+```bash
+lattice docs topics
+lattice docs index
+lattice docs architecture
+lattice docs search emission
+lattice docs architecture --summary
+```
+
+Exit codes:
+
+- `0`: success
+- `1`: not_found
+- `2`: invalid_args
+- `3`: runtime_error
+- `4`: io_error
 
 ## Development
 
-After cloning, configure git to use the project's hooks:
+Build all targets:
 
 ```bash
-git config core.hooksPath .githooks
+swift build
 ```
 
-This enables the pre-push hook which auto-formats Swift files with `swift-format`.
+Format sources and tests:
 
-## Requirements
+```bash
+swift-format format --in-place --recursive Sources Tests
+```
 
-- iOS 17.0+ / macOS 14.0+ / watchOS 10.0+
-- Swift 6.0+
-- Xcode 16.0+
+Rebuild checked-in macro binary after macro source changes:
 
-## Dependencies
+```bash
+scripts/rebuild-macro.sh
+```
 
-- [swift-async-algorithms](https://github.com/apple/swift-async-algorithms) - AsyncSequence operators
-- [swift-case-paths](https://github.com/pointfreeco/swift-case-paths) - Enum case access
-- [swift-clocks](https://github.com/pointfreeco/swift-clocks) - Testable time control
-- [combine-schedulers](https://github.com/pointfreeco/combine-schedulers) - Scheduler utilities
-- [swift-collections](https://github.com/apple/swift-collections) - Ordered/identified collections
-- [swift-identified-collections](https://github.com/pointfreeco/swift-identified-collections) - Identified data
-- [swift-syntax](https://github.com/apple/swift-syntax) - Macro support
-- [swift-macro-testing](https://github.com/pointfreeco/swift-macro-testing) - Macro testing utilities
+Set `SKIP_LATTICE_MACRO_BUILD=1` to skip macro build steps when needed.
 
-## Documentation
+## Project Layout
 
-- [Architecture Guide](docs/architecture.md)
-- [API Reference](docs/api/)
-- [Testing Guide](docs/testing/testing-guide.md)
-- [Migration from Combine](docs/migration/combine-to-asyncstream.md)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Inspiration and Credit
-
-Lattice is inspired by [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
-The builder pattern, effect pattern, and `ObservableState` are all derived from TCA's architecture and conventions.
-Also inspired by Whoop's engineering write-up on distributing complexity:
-[Distributing Complexity](https://engineering.prod.whoop.com/distributing-complexity/).
+- `Sources/Lattice`: runtime library (interactors, view model, emissions, testing helpers).
+- `Sources/LatticeMacros`: macro implementations.
+- `Sources/LatticeCLI`: CLI executable and docs resources.
+- `Macros/`: checked-in macro tool binary for tooling/Xcode.
+- `ExampleProject/`: sample app and package-based examples.
+- `Tests/`: library and macro tests.

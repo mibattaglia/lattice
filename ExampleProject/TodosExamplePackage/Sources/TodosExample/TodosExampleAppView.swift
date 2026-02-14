@@ -2,8 +2,7 @@ import Lattice
 import SwiftUI
 
 public struct TodosExampleAppView: View {
-    private typealias TodosFeature = Feature<TodosEvent, TodosDomainState, TodosViewState>
-    @State private var viewModel: ViewModel<TodosFeature>
+    @State private var viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>
 
     public init() {
         let feature = Feature(

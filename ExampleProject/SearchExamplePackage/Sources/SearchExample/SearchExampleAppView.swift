@@ -2,8 +2,7 @@ import Lattice
 import SwiftUI
 
 public struct SearchExampleAppView: View {
-    private typealias SearchFeature = Feature<SearchEvent, SearchDomainState, SearchViewState>
-    @State private var viewModel: ViewModel<SearchFeature>
+    @State private var viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>
 
     public init() {
         let weatherService = RealWeatherService()

@@ -10,7 +10,7 @@ import SwiftUI
 /// with a view model and access properties via dynamic member lookup:
 ///
 /// ```swift
-/// @Bindable var viewModel: ViewModel<CounterFeature>
+/// @Bindable var viewModel: ViewModel<Feature<FormAction, FormState, FormViewState>>
 ///
 /// TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 /// ```
