@@ -149,7 +149,7 @@ struct CounterView: View {
            | sendViewEvent()
            v
 +---------------------+
-|     ViewModel       |  <-- Generic ViewModel<Action, DomainState, ViewState>
+|     ViewModel       |  <-- Generic ViewModel<ConcreteFeature>
 +----------+----------+
            |
            v
@@ -298,15 +298,23 @@ struct MyViewState: Sendable, Equatable {
 Use `@Bindable` with a `ViewModel` to create bindings that send actions:
 
 ```swift
-@Bindable var viewModel: ViewModel<Action, State, ViewState>
+typealias FormFeature = Feature<FormAction, FormState, FormViewState>
+@Bindable var viewModel: ViewModel<FormFeature>
 
-TextField("Name", text: $viewModel.name.sending(\.updateName))
+TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
 `sendViewEvent(_:)` returns an `EventTask`, so you can await or cancel effects:
 
 ```swift
 await viewModel.sendViewEvent(.refresh).finish()
+```
+
+Use a concrete feature type in type annotations:
+
+```swift
+typealias CounterFeature = Feature<CounterAction, CounterState, CounterViewState>
+@State var viewModel: ViewModel<CounterFeature>
 ```
 
 ## Testing
