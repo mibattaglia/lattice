@@ -66,10 +66,6 @@ struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
 
 @ViewStateReducer<CounterState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
-    func initialViewState(for domainState: CounterState) -> CounterViewState {
-        .defaultValue
-    }
-
     var body: some ViewStateReducerOf<Self> {
         BuildViewState { domainState, viewState in
             viewState.countText = String(domainState.count)
@@ -98,6 +94,8 @@ struct CounterView: View {
 
 - Do keep view methods thin; move multi-line logic to private methods named after user actions.
 - Do use `@ObservableState` on view state types.
+- `BuildViewState { domainState, viewState in ... }` is the standard reducer style.
+- If view state does not conform to `DefaultValueProvider`, provide `initialViewState(for:)`.
 
 ## Async work
 
@@ -131,6 +129,8 @@ struct SearchInteractor: Sendable {
 }
 ```
 
+Advanced effect orchestration techniques (debouncing, stream observation, and composition) are covered in `resources/advanced-composition.md`.
+
 ## Bindings from SwiftUI
 
 Use `@Bindable` on `ViewModel` and derive bindings with `sending`.
@@ -141,17 +141,19 @@ enum FormAction: Sendable {
     case nameChanged(String)
 }
 
-@Bindable var viewModel: ViewModel<FormAction, FormState, FormViewState>
+@Bindable var viewModel: ViewModel<Feature<FormAction, FormState, FormViewState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
 - Actions must be `@CasePathable` to use `sending`.
+- For enum view state case bindings, use `sending(_:default:)` when case presence is conditional.
 
 ## Child features
 
 Model child state in domain, and use `ViewStateReducer` to derive view state as needed.
 Prefer composing interactors rather than nesting logic in views.
+Use `when(state:action:child:)` or `Interactors.When` for scoped child handling.
 
 ## References
 - See `resources/advanced-composition.md` for composition, navigation, and stream guidance.

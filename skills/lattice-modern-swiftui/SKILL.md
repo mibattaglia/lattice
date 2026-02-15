@@ -91,10 +91,12 @@ Use `@Bindable` to derive bindings that send actions on write. Avoid `Binding(ge
 Action enums must be `@CasePathable` to use `sending`.
 
 ```swift
-@Bindable var viewModel: ViewModel<Action, DomainState, ViewState>
+@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ViewState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
+
+For enum view state case bindings, use `sending(_:default:)` when the case may not be active.
 
 ## Presentation
 
@@ -106,7 +108,7 @@ struct ScreenViewState: Sendable, Equatable {
     var destination: DestinationViewState?
 }
 
-@Bindable var viewModel: ViewModel<Action, DomainState, ScreenViewState>
+@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ScreenViewState>>
 
 .sheet(item: $viewModel.destination) { destination in
     DestinationView(viewState: destination)

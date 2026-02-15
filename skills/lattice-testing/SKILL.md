@@ -17,6 +17,7 @@ Write deterministic tests for Lattice features using the provided testing helper
 - `InteractorTestHarness` for testing interactors and emissions.
 - `AsyncStreamRecorder` for observing streams in tests.
 - `TestClock` for time control in debounced or delayed effects.
+- `EventTask.finish()` for awaiting all effects spawned by a send.
 
 ## Interactor tests
 
@@ -56,24 +57,10 @@ final class CounterInteractorTests {
 }
 ```
 
-## TestClock for time-based behavior
+## Time-based behavior
 
-```swift
-@Test func debounce() async throws {
-    let clock = TestClock()
-    let debouncer = Debouncer<TestClock, Int>(for: .milliseconds(300), clock: clock)
-
-    let values = AsyncStreamRecorder<Int>()
-    Task { for await value in debouncer.stream { await values.append(value) } }
-
-    await debouncer.send(1)
-    await clock.advance(by: .milliseconds(299))
-    await debouncer.send(2)
-    await clock.advance(by: .milliseconds(300))
-
-    try await values.assertValues([2])
-}
-```
+Use `TestClock` when effects depend on time (debounce/delay/retry windows).
+At the interactor level, assert both immediate state transitions and post-time-window effect outcomes.
 
 ## ViewModel tests
 
@@ -98,7 +85,9 @@ Only test ViewModel behavior when you need to validate state mapping or event wi
 ## Tips
 
 - Prefer `assertStates` for full history and `assertLatestState` for targeted checks.
-- If you need to inspect emitted actions from `.perform` or `.observe`, wrap streams with `AsyncStreamRecorder`.
+- Use `assertActions` to validate action history including effect-emitted actions.
+- Use `AsyncStreamRecorder.waitForNextEmission(timeout:)` for stepwise stream assertions.
+- Cancel long-running recorders with `cancel()` / `cancelAsync()` in teardown paths.
 
 ## References
 - See `resources/async-and-time.md` for async sequencing and time control.

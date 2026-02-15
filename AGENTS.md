@@ -13,9 +13,12 @@
 
 ## Main library concepts
 - **Interactor**: mutates domain state from actions; returns `Emission<Action>`.
-- **Emission**: `.none`, `.action`, `.perform` (async), `.observe` (async stream).
+- **Emission**: `.none`, `.action`, `.perform` (async), `.observe` (async stream), `.merge`.
+- **Debouncing**: `Emission.debounce(using:)` and `Interactors.Debounce` debounce effects while state mutations remain immediate.
+- **Composition**: `Interactors.When` / `when(state:action:child:)` for child-feature scoping via key paths and case paths.
 - **ViewModel**: bridges SwiftUI to Interactor; `sendViewEvent(_:)` returns `EventTask`.
-- **ViewStateReducer**: maps domain state to view state for richer features.
+- **Feature**: `Feature<Action, DomainState, ViewState>` bundles interactor + reducer + state equality strategy for `ViewModel<F>`.
+- **ViewStateReducer**: maps domain state to view state; macro validates `initialViewState(for:)` or `DefaultValueProvider`.
 - **ObservableState**: macro for view state observation conformance.
 - **Testing**: `InteractorTestHarness`, `AsyncStreamRecorder`, `TestClock` for time control.
 
@@ -24,11 +27,17 @@
 - Run all tests: `swift test`
 - Run macro tests only: `swift test --filter LatticeMacrosTests`
 - Run library tests only: `swift test --filter LatticeTests`
+- Run focused debounce tests: `swift test --filter EmissionDebounceTests` and `swift test --filter DebounceInteractorTests`
 
 ## Macro binary refresh
 - If macro sources change, rebuild the tool and update `Macros/LatticeMacros`:
 - `scripts/rebuild-macro.sh`
-- Set `SKIP_LATTICE_MACRO_BUILD=1` to skip when needed.
+- Set `SKIP_LATTICE_MACRO_BUILD=1` or `SKIP_LATTICE_MACRO_BUILD=true` to skip when needed.
+
+## Skill sync
+- Sync `skills/` and `.claude/skills/`: `scripts/sync-skills.sh`
+- Sync uses newer file mtimes as source of truth.
+- Deletions are removed manually on both sides.
 
 ## Formatting
 - `swift-format` is used; pre-push hook auto-formats and commits changes in `Sources`/`Tests`.

@@ -91,9 +91,15 @@ enum ScreenState: Sendable, Equatable {
     case detail(DetailState)
 }
 
-@Bindable var viewModel: ViewModel<Action, DomainState, ScreenState>
+@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ScreenState>>
 
 let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged)
+```
+
+Use a fallback value when the case may be inactive:
+
+```swift
+let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default: "")
 ```
 
 ## Gotchas

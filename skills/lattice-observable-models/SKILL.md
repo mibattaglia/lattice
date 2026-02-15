@@ -81,6 +81,8 @@ Async work must live in the interactor. Views can create a `Task` when they need
 Button("Refresh") { Task { await viewModel.sendViewEvent(.refresh).finish() } }
 ```
 
+For advanced effect orchestration patterns (time, streams, composition), use the feature's interactor and corresponding architecture/testing guides.
+
 ## Naming
 
 - Action cases and view methods are named after the user action ("refreshButtonTapped", `.refreshTapped`).

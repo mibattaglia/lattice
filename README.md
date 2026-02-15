@@ -8,6 +8,8 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - Unidirectional flow: views send actions, interactors mutate domain state, reducers derive view state.
 - Feature-based API: `ViewModel` is parameterized by a single feature type (`ViewModel<F>`).
 - Async effects: `.none`, `.action`, `.perform`, `.observe`, and `.merge` emissions.
+- Effect-level debouncing: `Emission.debounce(using:)` and `Interactors.Debounce`.
+- Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
 - SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
 - Test tooling: `InteractorTestHarness`, `AsyncStreamRecorder`, and clock-based testing support.
 
@@ -17,7 +19,7 @@ Add package dependency:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mibattaglia/swift-lattice", from: "1.0.0")
+    .package(url: "https://github.com/mibattaglia/swift-lattice", from: "0.1.0")
 ]
 ```
 
@@ -70,16 +72,13 @@ struct CounterInteractor: Sendable {
 
 ```swift
 @ObservableState
-struct CounterViewState: Sendable, Equatable {
+struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
+    static let defaultValue = CounterViewState()
     var countText = "0"
 }
 
 @ViewStateReducer<CounterState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
-    func initialViewState(for domainState: CounterState) -> CounterViewState {
-        CounterViewState()
-    }
-
     var body: some ViewStateReducerOf<Self> {
         BuildViewState { domainState, viewState in
             viewState.countText = String(domainState.count)
@@ -123,6 +122,16 @@ let viewModel = ViewModel(
 )
 ```
 
+Customize domain-state equality when state is not `Equatable` or when identity-based comparisons are preferred:
+
+```swift
+let feature = Feature(
+    interactor: CounterInteractor(),
+    reducer: CounterViewStateReducer(),
+    areStatesEqual: { lhs, rhs in lhs.version == rhs.version }
+)
+```
+
 ## Architecture
 
 1. The view sends an action via `sendViewEvent(_:)`.
@@ -149,6 +158,62 @@ struct FormViewState: Sendable, Equatable {
 @Bindable var viewModel: ViewModel<Feature<FormAction, FormDomainState, FormViewState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
+```
+
+For `CasePathable` enum view state, bindings can be scoped to case members:
+
+```swift
+$viewModel.detail.title.sending(\.detailTitleChanged, default: "")
+```
+
+Use `sending(_:default:)` when the view may access a binding while the state is in a different case.
+
+## Debouncing
+
+Debounce effect emissions while preserving immediate state updates:
+
+```swift
+import Clocks
+
+@Interactor<SearchState, SearchAction>
+struct SearchInteractor: Sendable {
+    let searchClient: SearchClient
+    let debouncer = Debouncer<ContinuousClock, SearchAction?>(for: .milliseconds(300), clock: .init())
+
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .queryChanged(let query):
+                state.query = query
+                return .perform { [searchClient] in
+                    let results = await searchClient.search(query)
+                    return .searchResponse(results)
+                }
+                .debounce(using: debouncer)
+            case .searchResponse:
+                return .none
+            }
+        }
+    }
+}
+```
+
+Or wrap a child interactor:
+
+```swift
+Interactors.Debounce(for: .milliseconds(300)) {
+    SearchInteractor()
+}
+```
+
+## Composition
+
+Scope child features with case paths or key paths:
+
+```swift
+parentInteractor.when(state: \.childState, action: \.child) {
+    ChildInteractor()
+}
 ```
 
 ## Testing
@@ -179,6 +244,13 @@ swift test --filter ViewModelBindingTests
 swift test --filter ViewModelTests
 ```
 
+Run focused debounce tests:
+
+```bash
+swift test --filter EmissionDebounceTests
+swift test --filter DebounceInteractorTests
+```
+
 ## Development
 
 Build all targets:
@@ -199,7 +271,13 @@ Rebuild checked-in macro binary after macro source changes:
 scripts/rebuild-macro.sh
 ```
 
-Set `SKIP_LATTICE_MACRO_BUILD=1` to skip macro build steps when needed.
+Set `SKIP_LATTICE_MACRO_BUILD=1` or `SKIP_LATTICE_MACRO_BUILD=true` to skip macro build steps when needed.
+
+Sync local Codex and Claude skill folders:
+
+```bash
+scripts/sync-skills.sh
+```
 
 ## Project Layout
 
