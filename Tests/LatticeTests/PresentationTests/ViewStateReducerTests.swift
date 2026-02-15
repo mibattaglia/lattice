@@ -56,4 +56,59 @@ struct ViewStateReducerTests {
         myReducer.reduce(input, into: &viewState)
         #expect(viewState == expected)
     }
+
+    @Test
+    func defaultValueProviderInitialViewStateUsesDefaultValueWhenBodyForwards() {
+        let reducer = ForwardingDefaultValueViewStateReducer()
+
+        #expect(reducer.initialViewState(for: 123) == .defaultValue)
+    }
+
+    @Test
+    func nonDefaultValueProviderInitialViewStateStillForwardsToBody() {
+        let reducer = ForwardingNonDefaultViewStateReducer()
+
+        #expect(reducer.initialViewState(for: 3) == .init(value: 30))
+    }
+}
+
+@ObservableState
+private struct DefaultedViewState: Equatable, DefaultValueProvider {
+    var value: Int
+
+    static var defaultValue: Self {
+        .init(value: -1)
+    }
+}
+
+@ViewStateReducer<Int, DefaultedViewState>
+private struct ForwardingDefaultValueViewStateReducer {
+    var body: some ViewStateReducerOf<Self> {
+        Self.buildViewState { domainState, viewState in
+            viewState.value = domainState
+        }
+    }
+}
+
+private struct NonDefaultedViewState: Equatable {
+    var value: Int
+}
+
+private struct NonDefaultedLeafReducer: ViewStateReducer {
+    var body: some ViewStateReducer<Int, NonDefaultedViewState> { self }
+
+    func initialViewState(for domainState: Int) -> NonDefaultedViewState {
+        .init(value: domainState * 10)
+    }
+
+    func reduce(_ domainState: Int, into viewState: inout NonDefaultedViewState) {
+        viewState.value = domainState
+    }
+}
+
+@ViewStateReducer<Int, NonDefaultedViewState>
+private struct ForwardingNonDefaultViewStateReducer {
+    var body: some ViewStateReducerOf<Self> {
+        NonDefaultedLeafReducer()
+    }
 }

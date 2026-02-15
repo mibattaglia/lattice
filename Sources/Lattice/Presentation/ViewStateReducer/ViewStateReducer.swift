@@ -96,6 +96,13 @@ extension ViewStateReducer where ViewState: DefaultValueProvider {
     }
 }
 
+extension ViewStateReducer
+where Body: ViewStateReducer<DomainState, ViewState>, ViewState: DefaultValueProvider {
+    public func initialViewState(for _: DomainState) -> ViewState {
+        ViewState.defaultValue
+    }
+}
+
 extension ViewStateReducer where Body: ViewStateReducer<DomainState, ViewState> {
     public func reduce(_ domainState: DomainState, into viewState: inout ViewState) {
         self.body.reduce(domainState, into: &viewState)
