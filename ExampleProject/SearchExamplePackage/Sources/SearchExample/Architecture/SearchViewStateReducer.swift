@@ -21,7 +21,7 @@ struct SearchViewStateReducer {
     }
 
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState(initial: initialViewState(for:)) { domainState, viewState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .noResults:
                 viewState = .loaded(SearchListContent(query: "", listItems: []))

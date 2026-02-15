@@ -18,7 +18,7 @@ struct TodosViewStateReducer {
     }
 
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState(initial: initialViewState(for:)) { domainState, viewState in
+        Self.buildViewState { domainState, viewState in
             let visibleTodos = filteredTodos(from: domainState)
             let viewItems = visibleTodos.map { todo in
                 TodoViewItem(id: todo.id, title: todo.title, isComplete: todo.isComplete)

@@ -10,7 +10,7 @@ struct MyViewStateReducer {
     }
 
     var body: some ViewStateReducerOf<Self> {
-        Self.buildViewState(initial: initialViewState(for:)) { domainState, viewState in
+        Self.buildViewState { domainState, viewState in
             switch domainState {
             case .error(let code):
                 viewState = .error(title: reduceErrorCode(code))
