@@ -73,9 +73,12 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         DomainState == ViewState
     {
         self.interactor = interactor.eraseToAnyInteractor()
-        self.viewStateReducer = BuildViewState { domainState, viewState in
-            viewState = domainState
-        }.eraseToAnyReducer()
+        self.viewStateReducer = BuildViewState(
+            initial: { $0 },
+            reducerBlock: { domainState, viewState in
+                viewState = domainState
+            }
+        ).eraseToAnyReducer()
         self.makeInitialViewState = { $0 }
         self.areStatesEqual = areStatesEqual
     }

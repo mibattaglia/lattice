@@ -178,6 +178,12 @@ extension ViewStateReducerMacro: MemberMacro {
             let domainStateType = argumentsArray[0].name.text
             let viewStateType = argumentsArray[1].name.text
             var decls: [DeclSyntax] = []
+            let hasInitialViewState = hasInitialViewStateMethod(in: memberBlock)
+            let bodyUsesBuildViewState = bodyReferencesBuildViewState(in: memberBlock)
+            let defaultValueProviderConformance = localDefaultValueProviderConformance(
+                in: memberBlock,
+                forTypeNamed: viewStateType
+            )
 
             handleTypeAlias(
                 existingTypeAliases,
@@ -207,6 +213,32 @@ extension ViewStateReducerMacro: MemberMacro {
                     typealias ViewState = \(raw: viewStateType)
                     """
                 )
+            }
+            if !hasInitialViewState,
+                bodyUsesBuildViewState
+            {
+                if defaultValueProviderConformance == false {
+                    context
+                        .diagnose(
+                            Diagnostic(
+                                node: declaration,
+                                message: MacroExpansionErrorMessage(
+                                    """
+                                    Missing `initialViewState(for:)` on this `@ViewStateReducer`. \
+                                    Add an explicit implementation or conform \(viewStateType) to DefaultValueProvider.
+                                    """
+                                )
+                            )
+                        )
+                } else {
+                    decls.append(
+                        """
+                        func initialViewState(for _: DomainState) -> ViewState {
+                            .defaultValue
+                        }
+                        """
+                    )
+                }
             }
             return decls
         } else {
@@ -240,5 +272,66 @@ extension ViewStateReducerMacro: MemberMacro {
     private struct TypeAliasType {
         let rawValue: String
         let typeName: String
+    }
+
+    private static func hasInitialViewStateMethod(in memberBlock: MemberBlockSyntax) -> Bool {
+        memberBlock.members.contains { member in
+            guard let function = member.decl.as(FunctionDeclSyntax.self) else {
+                return false
+            }
+            return function.name.text == "initialViewState"
+        }
+    }
+
+    private static func bodyReferencesBuildViewState(in memberBlock: MemberBlockSyntax) -> Bool {
+        memberBlock.members.contains { member in
+            guard let variable = member.decl.as(VariableDeclSyntax.self),
+                variable.bindings.count == 1,
+                let binding = variable.bindings.first,
+                let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
+                identifier.text == "body"
+            else {
+                return false
+            }
+
+            let source = binding.description
+            return source.contains("buildViewState") || source.contains("BuildViewState")
+        }
+    }
+
+    private static func localDefaultValueProviderConformance(
+        in memberBlock: MemberBlockSyntax,
+        forTypeNamed typeName: String
+    ) -> Bool? {
+        for member in memberBlock.members {
+            if let `struct` = member.decl.as(StructDeclSyntax.self),
+                `struct`.name.text == typeName
+            {
+                return conformsToDefaultValueProvider(`struct`.inheritanceClause)
+            }
+            if let `enum` = member.decl.as(EnumDeclSyntax.self),
+                `enum`.name.text == typeName
+            {
+                return conformsToDefaultValueProvider(`enum`.inheritanceClause)
+            }
+            if let `class` = member.decl.as(ClassDeclSyntax.self),
+                `class`.name.text == typeName
+            {
+                return conformsToDefaultValueProvider(`class`.inheritanceClause)
+            }
+        }
+        return nil
+    }
+
+    private static func conformsToDefaultValueProvider(_ inheritanceClause: InheritanceClauseSyntax?) -> Bool {
+        guard let inheritanceClause else { return false }
+
+        return inheritanceClause
+            .inheritedTypes
+            .contains { inheritedType in
+                ["DefaultValueProvider"]
+                    .moduleQualified
+                    .contains(inheritedType.type.trimmedDescription)
+            }
     }
 }

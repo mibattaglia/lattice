@@ -70,6 +70,13 @@ struct ViewStateReducerTests {
 
         #expect(reducer.initialViewState(for: 3) == .init(value: 30))
     }
+
+    @Test
+    func nonDefaultValueProviderBuildViewStateUsesExplicitInitialValue() {
+        let reducer = ExplicitInitialNonDefaultBuildViewStateReducer()
+
+        #expect(reducer.initialViewState(for: 5) == .init(value: 500))
+    }
 }
 
 @ObservableState
@@ -110,5 +117,18 @@ private struct NonDefaultedLeafReducer: ViewStateReducer {
 private struct ForwardingNonDefaultViewStateReducer {
     var body: some ViewStateReducerOf<Self> {
         NonDefaultedLeafReducer()
+    }
+}
+
+@ViewStateReducer<Int, NonDefaultedViewState>
+private struct ExplicitInitialNonDefaultBuildViewStateReducer {
+    func initialViewState(for domainState: Int) -> NonDefaultedViewState {
+        .init(value: domainState * 100)
+    }
+
+    var body: some ViewStateReducerOf<Self> {
+        Self.buildViewState(initial: initialViewState(for:)) { domainState, viewState in
+            viewState.value = domainState
+        }
     }
 }

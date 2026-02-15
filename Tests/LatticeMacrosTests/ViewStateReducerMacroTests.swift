@@ -88,6 +88,10 @@
                     typealias DomainState = Int
 
                     typealias ViewState = String
+
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .defaultValue
+                    }
                 }
 
                 extension MyViewStateReducer: Lattice.ViewStateReducer {
@@ -134,6 +138,10 @@
 
                     var body: some ViewStateReducerOf<Self> {
                         BuildViewState { .none }
+                    }
+
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .defaultValue
                     }
                 }
 
@@ -185,6 +193,10 @@
                     typealias DomainState = Int
 
                     typealias ViewState = String
+
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .defaultValue
+                    }
                 }
 
                 extension MyViewStateReducer: Lattice.ViewStateReducer {
@@ -212,6 +224,74 @@
                     var body: some ViewStateReducer<Int1, String> {
                         BuildViewState { .none }
                     }
+                }
+                """
+            }
+        }
+
+        func testMissingInitialViewStateWithLocalNonDefaultViewStateEmitsError() {
+            assertMacro {
+                """
+                @ViewStateReducer<Int, ViewState>
+                struct MyViewStateReducer {
+                    struct ViewState {}
+
+                    var body: some ViewStateReducerOf<Self> {
+                        BuildViewState { .none }
+                    }
+                }
+                """
+            } diagnostics: {
+                """
+                @ViewStateReducer<Int, ViewState>
+                ╰─ 🛑 Missing `initialViewState(for:)` on this `@ViewStateReducer`. Add an explicit implementation or conform ViewState to DefaultValueProvider.
+                struct MyViewStateReducer {
+                    struct ViewState {}
+
+                    var body: some ViewStateReducerOf<Self> {
+                        BuildViewState { .none }
+                    }
+                }
+                """
+            }
+        }
+
+        func testLocalNonDefaultViewStateWithExplicitInitialViewStateDoesNotSynthesizeDuplicate() {
+            assertMacro {
+                """
+                @ViewStateReducer<Int, ViewState>
+                struct MyViewStateReducer {
+                    struct ViewState {}
+
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .init()
+                    }
+
+                    var body: some ViewStateReducerOf<Self> {
+                        BuildViewState { .none }
+                    }
+                }
+                """
+            } expansion: {
+                """
+                struct MyViewStateReducer {
+                    struct ViewState {}
+
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .init()
+                    }
+                    @Lattice.ViewStateReducerBuilder<Int, ViewState>
+
+                    var body: some ViewStateReducerOf<Self> {
+                        BuildViewState { .none }
+                    }
+
+                    typealias DomainState = Int
+
+                    typealias ViewState = ViewState
+                }
+
+                extension MyViewStateReducer: Lattice.ViewStateReducer {
                 }
                 """
             }

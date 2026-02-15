@@ -54,6 +54,7 @@ public macro Interactor() = #externalMacro(module: "LatticeMacros", type: "Inter
     member,
     names:
         named(body),
+    named(initialViewState),
     named(DomainState),
     named(ViewState)
 )

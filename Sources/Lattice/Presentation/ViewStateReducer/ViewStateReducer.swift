@@ -84,6 +84,13 @@ extension ViewStateReducer where Body.DomainState == Never {
 
 extension ViewStateReducer {
     public static func buildViewState(
+        initial: @escaping (DomainState) -> ViewState,
+        reducerBlock: @escaping (DomainState, inout ViewState) -> Void
+    ) -> BuildViewState<DomainState, ViewState> {
+        BuildViewState(initial: initial, reducerBlock: reducerBlock)
+    }
+
+    public static func buildViewState(
         reducerBlock: @escaping (DomainState, inout ViewState) -> Void
     ) -> BuildViewState<DomainState, ViewState> {
         BuildViewState(reducerBlock: reducerBlock)
@@ -91,15 +98,10 @@ extension ViewStateReducer {
 }
 
 extension ViewStateReducer where ViewState: DefaultValueProvider {
-    public func initialViewState(for _: DomainState) -> ViewState {
-        ViewState.defaultValue
-    }
-}
-
-extension ViewStateReducer
-where Body: ViewStateReducer<DomainState, ViewState>, ViewState: DefaultValueProvider {
-    public func initialViewState(for _: DomainState) -> ViewState {
-        ViewState.defaultValue
+    public static func buildViewState(
+        reducerBlock: @escaping (DomainState, inout ViewState) -> Void
+    ) -> BuildViewState<DomainState, ViewState> {
+        BuildViewState(reducerBlock: reducerBlock)
     }
 }
 
