@@ -11,6 +11,15 @@ metadata:
 ## Goal
 
 Build Swift features using Lattice's Interactor + ViewModel + ViewStateReducer architecture.
+For new feature setup, use the bootstrap checklist in `resources/bootstrapping.md`.
+
+## State modeling rules
+
+- `DomainState` is business logic state. It can hold raw values and domain-aligned external models.
+- `ViewState` is render instructions only. Keep raw formatting concerns out of views.
+- Interactors own side effects and external data access via dependencies.
+- `ViewStateReducer` is a synchronous, stateless translation from domain data to presentation values.
+- Prefer Interactor + reducer layering; use interactor-only features for lightweight BFF/server-driven or inert UI paths.
 
 ## Quick start
 
@@ -96,6 +105,7 @@ struct CounterView: View {
 - Do use `@ObservableState` on view state types.
 - `BuildViewState { domainState, viewState in ... }` is the standard reducer style.
 - If view state does not conform to `DefaultValueProvider`, provide `initialViewState(for:)`.
+- Don't push formatting (`Date` to text, enum display labels, color decisions) into SwiftUI views.
 
 ## Async work
 
@@ -157,3 +167,4 @@ Use `when(state:action:child:)` or `Interactors.When` for scoped child handling.
 
 ## References
 - See `resources/advanced-composition.md` for composition, navigation, and stream guidance.
+- See `resources/bootstrapping.md` for state modeling, DI boundaries, and feature setup.

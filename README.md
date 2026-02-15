@@ -37,7 +37,7 @@ Add product dependency:
 ### 1. Domain and actions
 
 ```swift
-struct CounterState: Sendable, Equatable {
+struct CounterDomainState: Sendable, Equatable {
     var count = 0
 }
 
@@ -52,7 +52,7 @@ enum CounterAction: Sendable {
 ```swift
 import Lattice
 
-@Interactor<CounterState, CounterAction>
+@Interactor<CounterDomainState, CounterAction>
 struct CounterInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact { state, action in
@@ -77,7 +77,7 @@ struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
     var countText = "0"
 }
 
-@ViewStateReducer<CounterState, CounterViewState>
+@ViewStateReducer<CounterDomainState, CounterViewState>
 struct CounterViewStateReducer: Sendable {
     var body: some ViewStateReducerOf<Self> {
         BuildViewState { domainState, viewState in
@@ -94,7 +94,7 @@ import SwiftUI
 
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(),
+        initialDomainState: CounterDomainState(),
         feature: Feature(
             interactor: CounterInteractor(),
             reducer: CounterViewStateReducer()
@@ -117,7 +117,7 @@ If domain state and view state are the same type, initialize `Feature` with only
 
 ```swift
 let viewModel = ViewModel(
-    initialDomainState: CounterState(),
+    initialDomainState: CounterDomainState(),
     feature: Feature(interactor: CounterInteractor())
 )
 ```
@@ -136,9 +136,111 @@ let feature = Feature(
 
 1. The view sends an action via `sendViewEvent(_:)`.
 2. The interactor mutates domain state and returns an `Emission<Action>`.
-3. `ViewStateReducer` updates `viewState` from domain state.
+3. A stateless `ViewStateReducer` updates `viewState` from domain state.
 4. Async emissions spawn tasks and can dispatch more actions.
 5. `EventTask` can `finish()` or be cancelled by callers.
+
+## State Modeling with Lattice
+
+Lattice separates `DomainState` from `ViewState` to make tests more expressive and decoupled from SwiftUI, make debugging simpler, and enforce clean boundaries.
+
+- `DomainState`: the business-logic model for a feature. It can include raw values (`Date`, IDs), workflow state, and external models when they are domain-aligned.
+- `ViewState`: rendering instructions only. Think strings, colors, visibility flags, and composed presentation models.
+- `ViewStateReducer`: the translation boundary. It is synchronous and stateless, and boils domain data into presentation-ready values.
+
+### Keep Views Dumb
+
+Views and view controllers should render state and send actions. Formatting logic, complex branching, and business rules should stay out of the rendering layer.
+
+- Why: it keeps UI tests focused on rendering, keeps business logic testable without SwiftUI, and reduces debugging surface area.
+- Rule: if a value needs formatting for display, reduce it before it reaches the view.
+
+### What Does Not Belong in ViewState
+
+- Raw `Date` or unformatted numeric values that the UI must interpret.
+- API/DB DTOs (unless they already are presentation models).
+- Business-rule-only state that never affects rendering.
+
+### Layer Boundaries and External Data
+
+- Views: send actions and render `ViewState`.
+- Interactors: mutate `DomainState` and connect to external systems (`APIClient`, `DBClient`, etc.) via dependencies.
+- Reducers: convert domain data to display language.
+- Flow: view action -> interactor mutation/effect -> domain update -> reducer projection -> render.
+
+For BFF/server-driven or inert UI features, the lightweight `Feature(interactor:)` path is valid when `DomainState == ViewState`.
+
+### Counter + API Modeling Example
+
+```swift
+import Foundation
+import Lattice
+
+struct CounterAPIModel: Codable, Sendable, Equatable {
+    let count: Int
+    let updatedAt: Date
+}
+
+struct CounterDomainState: Sendable, Equatable {
+    var count = 0
+    var lastUpdatedAt: Date?
+}
+
+@ObservableState
+struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
+    static let defaultValue = CounterViewState()
+    var title = "Counter"
+    var countText = "0"
+    var lastUpdatedText = "Never"
+}
+
+enum CounterAction: Sendable {
+    case task
+    case hydrated(CounterAPIModel)
+}
+
+protocol CounterClient: Sendable {
+    func fetch() async throws -> CounterAPIModel
+}
+
+@Interactor<CounterDomainState, CounterAction>
+struct CounterInteractor: Sendable {
+    let counterClient: CounterClient
+
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .task:
+                return .perform { [counterClient] in
+                    let model = try await counterClient.fetch()
+                    return .hydrated(model)
+                }
+            case .hydrated(let model):
+                state.count = model.count
+                state.lastUpdatedAt = model.updatedAt
+                return .none
+            }
+        }
+    }
+}
+
+@ViewStateReducer<CounterDomainState, CounterViewState>
+struct CounterViewStateReducer: Sendable {
+    var body: some ViewStateReducerOf<Self> {
+        BuildViewState { domainState, viewState in
+            viewState.countText = "\(domainState.count)"
+            viewState.lastUpdatedText = Self.renderLastUpdated(domainState.lastUpdatedAt)
+        }
+    }
+
+    static func renderLastUpdated(_ date: Date?) -> String {
+        guard let date else { return "Never" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: .now)
+    }
+}
+```
 
 ## Bindings
 
