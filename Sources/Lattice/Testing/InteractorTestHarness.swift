@@ -196,6 +196,33 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
             return emissions.reduce(into: [:]) { result, emission in
                 result.merge(spawnTasks(from: emission)) { _, new in new }
             }
+
+        case .append(let emissions):
+            guard !emissions.isEmpty else { return [:] }
+            let uuid = UUID()
+            let task = Task { @MainActor [weak self] in
+                for emission in emissions {
+                    guard !Task.isCancelled, let self else { return }
+                    let childTasks = self.spawnTasks(from: emission)
+                    guard !childTasks.isEmpty else { continue }
+
+                    let childUUIDs = Set(childTasks.keys)
+                    self.effectTasks.merge(childTasks) { _, new in new }
+
+                    let childList = Array(childTasks.values)
+                    await withTaskCancellationHandler {
+                        await withTaskGroup(of: Void.self) { group in
+                            for task in childList {
+                                group.addTask { await task.value }
+                            }
+                        }
+                    } onCancel: {
+                        for task in childList { task.cancel() }
+                    }
+                    for id in childUUIDs { self.effectTasks[id] = nil }
+                }
+            }
+            return [uuid: task]
         }
     }
 

@@ -99,6 +99,8 @@ struct DebounceInteractorTests {
         // Only ONE effect executed (the last one)
         #expect(await effectExecutionCount.value == 1)
 
+        await Task.megaYield()
+
         // Effect result reflects the last trigger
         #expect(harness.currentState.effectResult == 3)
     }

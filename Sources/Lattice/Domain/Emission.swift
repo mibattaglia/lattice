@@ -88,6 +88,12 @@ public struct Emission<Action: Sendable>: Sendable {
         /// Used by higher-order interactors like ``Interactors/Merge`` to combine
         /// the emissions from multiple child interactors.
         case merge([Emission<Action>])
+
+        /// Compose emissions sequentially.
+        ///
+        /// Each emission completes before the next one starts.
+        /// Used with `.then` for fluent chaining.
+        case append([Emission<Action>])
     }
 
     let kind: Kind
@@ -169,6 +175,61 @@ public struct Emission<Action: Sendable>: Sendable {
     public func merging(with other: Emission<Action>) -> Emission<Action> {
         .merge([self, other])
     }
+
+    /// Compose emissions to run sequentially.
+    ///
+    /// Each emission completes before the next one starts.
+    /// Nested `.append` children are flattened, `.none` children are dropped,
+    /// and single-child results are unwrapped.
+    ///
+    /// - Parameter emissions: The emissions to run in order.
+    /// - Returns: A sequentially composed emission.
+    public static func append(_ emissions: Emission<Action>...) -> Emission {
+        append(emissions)
+    }
+
+    /// Compose a collection of emissions to run sequentially.
+    ///
+    /// - Parameter emissions: The emissions to run in order.
+    /// - Returns: A sequentially composed emission.
+    public static func append(_ emissions: some Collection<Emission<Action>>) -> Emission {
+        let normalized =
+            emissions
+            .flatMap { emission -> [Emission<Action>] in
+                switch emission.kind {
+                case .append(let nested):
+                    return nested
+                case .none:
+                    return []
+                default:
+                    return [emission]
+                }
+            }
+
+        switch normalized.count {
+        case 0: return .none
+        case 1: return normalized[0]
+        default: return Emission(kind: .append(normalized))
+        }
+    }
+
+    /// Returns a new emission that runs this emission followed by another.
+    ///
+    /// - Parameter other: The emission to run after this one completes.
+    /// - Returns: A sequentially composed emission.
+    public func appending(with other: Emission<Action>) -> Emission<Action> {
+        .append(self, other)
+    }
+
+    /// Returns a new emission that runs this emission followed by another.
+    ///
+    /// Sugar for ``appending(with:)``.
+    ///
+    /// - Parameter next: The emission to run after this one completes.
+    /// - Returns: A sequentially composed emission.
+    public func then(_ next: @autoclosure @escaping () -> Emission<Action>) -> Emission<Action> {
+        appending(with: next())
+    }
 }
 
 // MARK: - Action Mapping
@@ -216,6 +277,9 @@ extension Emission {
 
         case .merge(let emissions):
             return .merge(emissions.map { $0.map(transform) })
+
+        case .append(let emissions):
+            return .append(emissions.map { $0.map(transform) })
         }
     }
 }

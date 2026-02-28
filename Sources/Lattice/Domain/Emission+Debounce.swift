@@ -54,6 +54,9 @@ extension Emission {
 
         case .merge(let emissions):
             return .merge(emissions.map { $0.debounce(using: debouncer) })
+
+        case .append(let emissions):
+            return .append(emissions.map { $0.debounce(using: debouncer) })
         }
     }
 }

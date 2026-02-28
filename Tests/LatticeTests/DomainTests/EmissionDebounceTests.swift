@@ -169,4 +169,38 @@ struct EmissionDebounceTests {
         let nonNilCount = results.compactMap { $0 }.count
         #expect(nonNilCount == 1, "Merged perform emissions share debouncer, so only one executes")
     }
+
+    @Test
+    func appendDebouncesPerformChildren() async throws {
+        let clock = TestClock()
+        let debouncer = Debouncer<TestClock, TestAction?>(for: .milliseconds(300), clock: clock)
+
+        let perform1 = Emission<TestAction>.perform { .result(1) }
+        let perform2 = Emission<TestAction>.perform { .result(2) }
+        let appended = Emission<TestAction>.append(perform1, perform2).debounce(using: debouncer)
+
+        guard case .append(let emissions) = appended.kind else {
+            Issue.record("Expected .append emission")
+            return
+        }
+
+        #expect(emissions.count == 2)
+
+        guard case .perform(let work1) = emissions[0].kind,
+            case .perform(let work2) = emissions[1].kind
+        else {
+            Issue.record("Expected .perform emissions inside append")
+            return
+        }
+
+        async let r1 = work1()
+        async let r2 = work2()
+
+        await clock.advance(by: .milliseconds(300))
+
+        let results = await [r1, r2]
+
+        let nonNilCount = results.compactMap { $0 }.count
+        #expect(nonNilCount == 1, "Appended perform emissions share debouncer, so only one executes")
+    }
 }
