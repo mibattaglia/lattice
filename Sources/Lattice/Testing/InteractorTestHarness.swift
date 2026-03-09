@@ -65,9 +65,8 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     private let interactor: AnyInteractor<State, Action>
     private var stateHistory: [State] = []
     private var actionHistory: [Action] = []
-    private lazy var runtime = EmissionRuntime<Action, Never> { [weak self] action, source in
-        self?.handleAction(action, source: source)
-            ?? EmissionRuntimeActionResult(emission: .none)
+    private lazy var runtime = EmissionRuntime<Action> { [weak self] action in
+        self?.handleAction(action) ?? .none
     }
     private let areStatesEqual: (_ lhs: State, _ rhs: State) -> Bool
 
@@ -114,7 +113,7 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func send(_ action: Action) -> EventTask {
-        runtime.send(action).eventTask
+        runtime.send(action)
     }
 
     /// Sends multiple actions to the interactor.
@@ -133,14 +132,11 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         await send(action).finish()
     }
 
-    private func handleAction(
-        _ action: Action,
-        source: EmissionRuntimeActionSource
-    ) -> EmissionRuntimeActionResult<Action, Never> {
+    private func handleAction(_ action: Action) -> Emission<Action> {
         actionHistory.append(action)
         let emission = interactor.interact(state: &state, action: action)
         appendToHistory()
-        return EmissionRuntimeActionResult(emission: emission)
+        return emission
     }
 
     /// All recorded states in order of change.
