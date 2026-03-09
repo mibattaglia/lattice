@@ -82,8 +82,7 @@ The result is a testing model that works for simple synchronous cases but gets a
 
 - [x] Phase 1: Extract the shared emission/effect runtime used by `ViewModel` and `InteractorTestHarness`.
   - Landed: internal `EmissionRuntime` now owns `.action`, `.perform`, `.observe`, `.merge`, and `.append` execution for both facades, and regression coverage was added for `ViewModel` append sequencing.
-- [x] Phase 2: Introduce buffered received-step storage and test-mode runtime behavior.
-  - Landed: `FeatureTestRuntime` buffers effect-emitted actions as `ReceivedStep` values with origin ID propagation. `EmissionRuntime` gained a generic `BufferedStep` parameter, per-origin in-flight tracking, buffered step waiters, and drain continuations. `ViewModel` and `InteractorTestHarness` use `Never` for `BufferedStep` to preserve live-mode behavior.
+- [ ] Phase 2: Introduce buffered received-step storage and test-mode runtime behavior.
 - [ ] Phase 3: Add the public `TestViewModel<F>` and `TestEventTask` APIs with exhaustive `send` / `receive` / `finish`.
 - [ ] Phase 4: Migrate and expand tests/docs toward the new feature-first surface.
 
