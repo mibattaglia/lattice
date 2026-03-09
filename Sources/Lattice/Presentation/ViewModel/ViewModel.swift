@@ -82,8 +82,9 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
 
     private var _viewState: ViewState
     private var domainState: DomainState
-    private lazy var runtime = EmissionRuntime<Action> { [weak self] action in
-        self?.handleRuntimeAction(action) ?? .none
+    private lazy var runtime = EmissionRuntime<Action, Never> { [weak self] action, source in
+        self?.handleRuntimeAction(action, source: source)
+            ?? EmissionRuntimeActionResult(emission: .none)
     }
 
     private let interactor: AnyInteractor<DomainState, Action>
@@ -189,8 +190,8 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
-        let emission = processAction(event, forceViewStateUpdate: false)
-        return runtime.run(emission)
+        let result = runtime.send(event)
+        return result.eventTask
     }
 
     private func processAction(_ action: Action, forceViewStateUpdate: Bool) -> Emission<Action> {
@@ -204,8 +205,21 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         return emission
     }
 
-    private func handleRuntimeAction(_ action: Action) -> Emission<Action> {
-        processAction(action, forceViewStateUpdate: true)
+    private func handleRuntimeAction(
+        _ action: Action,
+        source: EmissionRuntimeActionSource
+    ) -> EmissionRuntimeActionResult<Action, Never> {
+        let forceViewStateUpdate: Bool
+        switch source {
+        case .sent:
+            forceViewStateUpdate = false
+        case .emitted:
+            forceViewStateUpdate = true
+        }
+
+        return EmissionRuntimeActionResult(
+            emission: processAction(action, forceViewStateUpdate: forceViewStateUpdate)
+        )
     }
 }
 
