@@ -78,14 +78,6 @@ The result is a testing model that works for simple synchronous cases but gets a
 - Requiring all production features to opt into new macros.
 - Forcing all internal low-level runtime tests to immediately become `TestViewModel` tests.
 
-## Implementation Phases
-
-- [x] Phase 1: Extract the shared emission/effect runtime used by `ViewModel` and `InteractorTestHarness`.
-  - Landed: internal `EmissionRuntime` now owns `.action`, `.perform`, `.observe`, `.merge`, and `.append` execution for both facades, and regression coverage was added for `ViewModel` append sequencing.
-- [ ] Phase 2: Introduce buffered received-step storage and test-mode runtime behavior.
-- [ ] Phase 3: Add the public `TestViewModel<F>` and `TestEventTask` APIs with exhaustive `send` / `receive` / `finish`.
-- [ ] Phase 4: Migrate and expand tests/docs toward the new feature-first surface.
-
 ## Desired Public API
 
 ```swift

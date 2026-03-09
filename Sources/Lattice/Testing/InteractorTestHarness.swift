@@ -65,9 +65,7 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     private let interactor: AnyInteractor<State, Action>
     private var stateHistory: [State] = []
     private var actionHistory: [Action] = []
-    private lazy var runtime = EmissionRuntime<Action> { [weak self] action in
-        self?.handleAction(action) ?? .none
-    }
+    private var effectTasks: [UUID: Task<Void, Never>] = [:]
     private let areStatesEqual: (_ lhs: State, _ rhs: State) -> Bool
 
     /// Creates a test harness for the given interactor.
@@ -113,7 +111,37 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func send(_ action: Action) -> EventTask {
-        runtime.send(action)
+        actionHistory.append(action)
+        let emission = interactor.interact(state: &state, action: action)
+        appendToHistory()
+
+        let spawnedTasks = spawnTasks(from: emission)
+        let spawnedUUIDs = Set(spawnedTasks.keys)
+        effectTasks.merge(spawnedTasks) { _, new in new }
+
+        guard !spawnedTasks.isEmpty else {
+            return EventTask(rawValue: nil)
+        }
+
+        let taskList = Array(spawnedTasks.values)
+        let compositeTask = Task { [weak self] in
+            await withTaskCancellationHandler {
+                await withTaskGroup(of: Void.self) { group in
+                    for task in taskList {
+                        group.addTask { await task.value }
+                    }
+                }
+            } onCancel: {
+                for task in taskList {
+                    task.cancel()
+                }
+            }
+            for uuid in spawnedUUIDs {
+                self?.effectTasks[uuid] = nil
+            }
+        }
+
+        return EventTask(rawValue: compositeTask)
     }
 
     /// Sends multiple actions to the interactor.
@@ -132,11 +160,70 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         await send(action).finish()
     }
 
-    private func handleAction(_ action: Action) -> Emission<Action> {
-        actionHistory.append(action)
-        let emission = interactor.interact(state: &state, action: action)
-        appendToHistory()
-        return emission
+    private func spawnTasks(from emission: Emission<Action>) -> [UUID: Task<Void, Never>] {
+        switch emission.kind {
+        case .none:
+            return [:]
+
+        case .action(let action):
+            _ = send(action)
+            return [:]
+
+        case .perform(let work):
+            let uuid = UUID()
+            let task = Task { [weak self] in
+                guard let action = await work() else { return }
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    _ = self?.send(action)
+                }
+            }
+            return [uuid: task]
+
+        case .observe(let stream):
+            let uuid = UUID()
+            let task = Task { [weak self] in
+                for await action in await stream() {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run {
+                        _ = self?.send(action)
+                    }
+                }
+            }
+            return [uuid: task]
+
+        case .merge(let emissions):
+            return emissions.reduce(into: [:]) { result, emission in
+                result.merge(spawnTasks(from: emission)) { _, new in new }
+            }
+
+        case .append(let emissions):
+            guard !emissions.isEmpty else { return [:] }
+            let uuid = UUID()
+            let task = Task { @MainActor [weak self] in
+                for emission in emissions {
+                    guard !Task.isCancelled, let self else { return }
+                    let childTasks = self.spawnTasks(from: emission)
+                    guard !childTasks.isEmpty else { continue }
+
+                    let childUUIDs = Set(childTasks.keys)
+                    self.effectTasks.merge(childTasks) { _, new in new }
+
+                    let childList = Array(childTasks.values)
+                    await withTaskCancellationHandler {
+                        await withTaskGroup(of: Void.self) { group in
+                            for task in childList {
+                                group.addTask { await task.value }
+                            }
+                        }
+                    } onCancel: {
+                        for task in childList { task.cancel() }
+                    }
+                    for id in childUUIDs { self.effectTasks[id] = nil }
+                }
+            }
+            return [uuid: task]
+        }
     }
 
     /// All recorded states in order of change.
@@ -228,5 +315,11 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         public let file: StaticString
         public let line: UInt
         public var description: String { message }
+    }
+
+    deinit {
+        for task in effectTasks.values {
+            task.cancel()
+        }
     }
 }
