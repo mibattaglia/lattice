@@ -81,10 +81,8 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     public typealias ViewState = F.ViewState
 
     private var _viewState: ViewState
-    private var domainState: DomainState
-    private var effectTasks: [UUID: Task<Void, Never>] = [:]
+    private let runtime: FeatureRuntime<DomainState, Action>
 
-    private let interactor: AnyInteractor<DomainState, Action>
     private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
 
@@ -115,14 +113,25 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         viewStateReducer: AnyViewStateReducer<DomainState, ViewState>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) {
-        self.interactor = interactor
         self.viewStateReducer = viewStateReducer
-        self.domainState = initialDomainState
         self.areStatesEqual = areStatesEqual
+        self.runtime = FeatureRuntime(
+            initialState: initialDomainState,
+            interactor: interactor
+        )
 
         var viewState = initialViewState()
         viewStateReducer.reduce(initialDomainState, into: &viewState)
         self._viewState = viewState
+
+        runtime.setStepHandler { [weak self] step in
+            guard let self else { return }
+            let shouldReduceViewState =
+                step.source == .emitted || !self.areStatesEqual(step.previousState, step.currentState)
+
+            guard shouldReduceViewState else { return }
+            self.viewStateReducer.reduce(step.currentState, into: &self.viewState)
+        }
     }
 
     convenience init<I, R>(
@@ -152,13 +161,24 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         interactor: AnyInteractor<ViewState, Action>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) where DomainState == ViewState {
-        self.interactor = interactor
         self.viewStateReducer = BuildViewState<ViewState, ViewState> { domainState, viewState in
             viewState = domainState
         }.eraseToAnyReducer()
-        self.domainState = initialState
         self._viewState = initialState
         self.areStatesEqual = areStatesEqual
+        self.runtime = FeatureRuntime(
+            initialState: initialState,
+            interactor: interactor
+        )
+
+        runtime.setStepHandler { [weak self] step in
+            guard let self else { return }
+            let shouldReduceViewState =
+                step.source == .emitted || !self.areStatesEqual(step.previousState, step.currentState)
+
+            guard shouldReduceViewState else { return }
+            self.viewStateReducer.reduce(step.currentState, into: &self.viewState)
+        }
     }
 
     public private(set) var viewState: ViewState {
@@ -187,120 +207,11 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
-        let originalDomainState = domainState
-        let emission = interactor.interact(state: &domainState, action: event)
-        if !areStatesEqual(originalDomainState, domainState) {
-            viewStateReducer.reduce(domainState, into: &viewState)
-        }
-
-        let spawnedTasks = spawnTasks(from: emission)
-        let spawnedUUIDs = Set(spawnedTasks.keys)
-        effectTasks.merge(spawnedTasks) { _, new in new }
-
-        guard !spawnedTasks.isEmpty else {
-            return EventTask(rawValue: nil)
-        }
-
-        let taskList = Array(spawnedTasks.values)
-        let compositeTask = Task { [weak self] in
-            await withTaskCancellationHandler {
-                await withTaskGroup(of: Void.self) { group in
-                    for task in taskList {
-                        group.addTask { await task.value }
-                    }
-                }
-            } onCancel: {
-                for task in taskList {
-                    task.cancel()
-                }
-            }
-            for uuid in spawnedUUIDs {
-                self?.effectTasks[uuid] = nil
-            }
-        }
-
-        return EventTask(rawValue: compositeTask)
-    }
-
-    private func spawnTasks(from emission: Emission<Action>) -> [UUID: Task<Void, Never>] {
-        switch emission.kind {
-        case .none:
-            return [:]
-
-        case .action(let action):
-            let innerEmission = interactor.interact(state: &domainState, action: action)
-            viewStateReducer.reduce(domainState, into: &viewState)
-            return spawnTasks(from: innerEmission)
-
-        case .perform(let work):
-            let uuid = UUID()
-            let task = Task { [weak self] in
-                guard let action = await work() else { return }
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard let self else { return }
-                    let emission = self.interactor.interact(state: &self.domainState, action: action)
-                    self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
-                    let newTasks = self.spawnTasks(from: emission)
-                    self.effectTasks.merge(newTasks) { _, new in new }
-                }
-            }
-            return [uuid: task]
-
-        case .observe(let stream):
-            let uuid = UUID()
-            let task = Task { [weak self] in
-                for await action in await stream() {
-                    guard !Task.isCancelled else { break }
-                    await MainActor.run {
-                        guard let self else { return }
-                        let emission = self.interactor.interact(state: &self.domainState, action: action)
-                        self.viewStateReducer.reduce(self.domainState, into: &self.viewState)
-                        let newTasks = self.spawnTasks(from: emission)
-                        self.effectTasks.merge(newTasks) { _, new in new }
-                    }
-                }
-            }
-            return [uuid: task]
-
-        case .merge(let emissions):
-            return emissions.reduce(into: [:]) { result, emission in
-                result.merge(spawnTasks(from: emission)) { _, new in new }
-            }
-
-        case .append(let emissions):
-            guard !emissions.isEmpty else { return [:] }
-            let uuid = UUID()
-            let task = Task { [weak self] in
-                for emission in emissions {
-                    guard !Task.isCancelled, let self else { return }
-                    let childTasks = self.spawnTasks(from: emission)
-                    guard !childTasks.isEmpty else { continue }
-
-                    let childUUIDs = Set(childTasks.keys)
-                    self.effectTasks.merge(childTasks) { _, new in new }
-
-                    let childList = Array(childTasks.values)
-                    await withTaskCancellationHandler {
-                        await withTaskGroup(of: Void.self) { group in
-                            for task in childList {
-                                group.addTask { await task.value }
-                            }
-                        }
-                    } onCancel: {
-                        for task in childList { task.cancel() }
-                    }
-                    for id in childUUIDs { self.effectTasks[id] = nil }
-                }
-            }
-            return [uuid: task]
-        }
+        runtime.send(event)
     }
 
     deinit {
-        for task in effectTasks.values {
-            task.cancel()
-        }
+        runtime.cancelAllEffects()
     }
 }
 

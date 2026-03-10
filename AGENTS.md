@@ -41,7 +41,7 @@
 
 ## Formatting
 - `swift-format` is used; pre-push hook auto-formats and commits changes in `Sources`/`Tests`.
-- Manual format: `swift-format format --in-place --recursive Sources Tests`
+- Do not run `swift-format` manually; rely on the pre-push hook.
 
 ## Skills
 - lattice: Build Swift application features using Lattice interactors, view models, and view state reducers. (file: skills/lattice/SKILL.md)

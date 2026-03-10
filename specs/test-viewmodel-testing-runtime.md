@@ -453,15 +453,25 @@ One possible shape:
 ```swift
 @MainActor
 final class FeatureRuntime<State, ViewState, Action> {
-    var assertedDomainState: State
-    var assertedViewState: ViewState
+    struct RuntimeStep: Sendable {
+        let action: Action
+        let domainState: State
+        let viewState: ViewState
+        let source: ActionSource
+        let originID: UUID?
+    }
 
-    var receivedSteps: [ReceivedStep<State, ViewState, Action>] = []
-    var inFlightEffects: [UUID: TrackedEffect<Action>] = [:]
+    enum ActionSource: Sendable {
+        case sent
+        case receivedEffect
+    }
+
+    var onStep: (@MainActor (RuntimeStep) -> Void)?
+    var onEffectUpdated: (@MainActor (TrackedEffect<Action>) -> Void)?
 
     func send(_ action: Action, mode: RuntimeMode) async -> RuntimeSendResult
-    func receiveNext(matching: (Action) -> Bool, timeout: Duration) async -> ReceivedStep<State, ViewState, Action>?
     func finish(timeout: Duration) async -> FinishResult
+    func cancelEffects(originID: UUID) async
 }
 
 enum RuntimeMode {
@@ -470,11 +480,81 @@ enum RuntimeMode {
 }
 ```
 
-Production `ViewModel` would use `.live`.
+Production `ViewModel` would use the runtime as a live facade and immediately reflect emitted `RuntimeStep` values into visible state.
 
-`TestViewModel` would use `.testing`, which buffers received actions and snapshots instead of immediately committing them as externally visible state.
+`TestViewModel` would use the same runtime events differently:
 
-This keeps the logic for effect spawning, cancellation, and composition in one place while allowing production and test surfaces to differ where they need to.
+- steps whose source is `.sent` become immediately asserted state;
+- steps whose source is `.receivedEffect` are buffered into test-owned received-step queues;
+- tracked effect updates are used to implement `TestEventTask`, `finish`, exhaustivity, and diagnostics.
+
+This keeps the logic for effect spawning, cancellation, and composition in one place while keeping asserted state, buffered receives, and other test-only semantics out of the shared runtime core.
+
+### Pre-implementation constraints
+
+These runtime details should be settled in the design before phase 1 code starts:
+
+1. Do not rely on `unowned self` captures in the shared runtime.
+   - The runtime will outlive individual effect tasks, and those tasks may complete after the owning facade is otherwise ready to tear down.
+   - Shared runtime closures should use `weak self` and degrade safely when the owner has gone away.
+
+2. Do not rely on `isolated deinit`.
+   - Current supported toolchains may not support `isolated deinit`.
+   - The runtime extraction must work with ordinary `deinit` semantics.
+
+3. Do not make effect tracking depend on directly touching main-actor-isolated runtime state from `deinit`.
+   - Teardown and task cancellation must be possible from a synchronous nonisolated destructor path.
+
+4. Keep task bookkeeping separate from business-state mutation if needed for toolchain compatibility.
+   - If production and test facades need synchronous teardown while runtime execution remains `@MainActor`, task storage may need to live in a small nonisolated helper rather than on the runtime object itself.
+
+### TCA comparison and design guidance
+
+The goal is to borrow the strengths of TCA's runtime model without copying its reducer/store surface.
+
+What to copy in spirit:
+
+- one shared execution engine for production and test behavior;
+- strict, deterministic effect tracking;
+- explicit distinction between sent actions and received effect actions;
+- a runtime model that can eventually support step-wise test buffering and effect-origin tracking.
+
+What not to copy blindly:
+
+- a giant monolithic store abstraction when Lattice's public surface is intentionally feature-first;
+- test-only semantics leaking into production APIs;
+- overfitting phase 1 around the old `InteractorTestHarness`.
+
+The current Lattice plan should be explicit that phase 1 is an architectural extraction, not just code deduplication. Compared to TCA, tracking bare `Task<Void, Never>` values is a workable short-term implementation detail, but it is not the desired long-term abstraction boundary. The internal design should move toward tracked logical effects rather than a loose bag of tasks.
+
+### Recommended internal split for phase 1
+
+To satisfy the toolchain constraints while keeping a path toward the richer test runtime, phase 1 should target two internal pieces:
+
+1. a main-actor runtime core responsible for:
+   - reducing sent actions;
+   - reducing received actions;
+   - spawning effect work;
+   - sequencing `.merge` and `.append`;
+   - preserving production semantics for view-state updates.
+
+2. a minimal nonisolated task registry responsible for:
+   - inserting tracked tasks;
+   - removing tracked tasks when they complete;
+   - cancelling all tracked tasks from ordinary `deinit`;
+   - optionally exposing snapshots for diagnostics later.
+
+This registry should be deliberately dumb. It should not become the place where origin tracking, buffering, or test semantics live. Those belong in the runtime core.
+
+### Phase 1 non-goals
+
+Phase 1 should not yet:
+
+- introduce `TestViewModel`;
+- finalize effect-origin tracking;
+- finalize a `TrackedEffect` public or semipublic shape;
+- restructure production `EventTask` into the final testing task abstraction;
+- over-generalize task bookkeeping beyond what is needed to remove duplicated execution logic safely.
 
 ## Domain State vs View State
 
@@ -673,28 +753,164 @@ The public API should not bend around these internal transition cases.
 
 ## Implementation Plan
 
-### Phase 1: Introduce internal shared runtime
+### Phase 1: Introduce internal shared runtime [Complete]
 
-1. Extract effect execution and tracking logic from `ViewModel`.
-2. Move runtime responsibilities into an internal shared engine.
-3. Preserve current production `ViewModel` behavior.
+Status: complete.
+
+Implemented shape:
+
+1. Extracted effect execution and tracking logic from `ViewModel` and `InteractorTestHarness` into an internal `FeatureRuntime<State, Action>`.
+2. Added a minimal nonisolated `EffectTaskRegistry` implementation detail for raw task bookkeeping and synchronous teardown.
+3. Preserved current production `ViewModel` behavior by reflecting runtime steps back into visible `viewState`.
+4. Rewired `InteractorTestHarness` onto the same runtime so effect spawning and sequencing now live in one place.
+5. Kept the phase 1 split compatible with ordinary `deinit`, without relying on `unowned self` or `isolated deinit`.
+
+Current phase 1 constraint:
+
+- The runtime currently exposes a main-actor `setStepHandler(_:)` hook instead of taking the step callback entirely through construction.
+- This is an implementation concession to current actor-isolation constraints in the owner types; the callback shape can still be revisited in a later cleanup without changing the phase 1 outcome.
 
 Acceptance:
 
-- `ViewModel` semantics stay unchanged.
-- Effect spawning is no longer duplicated across `ViewModel` and test runtime code.
+- `ViewModel` semantics stay unchanged. Complete.
+- Effect spawning is no longer duplicated across `ViewModel` and test runtime code. Complete.
+- The design supports ordinary `deinit` cleanup on currently supported toolchains. Complete.
+- The extracted runtime is compatible with later origin tracking and buffered received-step semantics. Complete.
 
 ### Phase 2: Add `TestViewModel`
 
 1. Add `Sources/Lattice/Testing/TestViewModel.swift`.
 2. Add `Sources/Lattice/Testing/TestEventTask.swift`.
-3. Implement buffered received-action semantics.
-4. Add exhaustivity control and timeouts.
+3. Upgrade the internal effect-tracking model beyond bare task bookkeeping.
+4. Add origin-aware tracking for effect trees rooted at each `send`.
+5. Implement buffered received-action semantics.
+6. Add exhaustivity control and timeouts.
+7. Define `TestEventTask` in terms of logical tracked effects, not just the first wave of spawned tasks.
+
+Recommended internal shape for phase 2:
+
+```swift
+@MainActor
+final class FeatureRuntime<State, ViewState, Action> {
+    struct RuntimeStep: Sendable {
+        let action: Action
+        let domainState: State
+        let viewState: ViewState
+        let source: ActionSource
+        let originID: UUID?
+    }
+
+    struct TrackedEffect: Sendable {
+        let id: UUID
+        let originID: UUID
+        let parentEffectID: UUID?
+        let kind: EffectKind
+        let started: ContinuousClock.Instant
+        var state: EffectState
+        var taskID: UUID?
+    }
+
+    enum EffectKind: Sendable {
+        case perform
+        case observe
+        case appendCoordinator
+        case mergeChild
+    }
+
+    enum EffectState: Sendable {
+        case starting
+        case inFlight
+        case finished
+        case cancelled
+    }
+
+    enum ActionSource: Sendable {
+        case sent
+        case receivedEffect
+    }
+
+    var onStep: (@MainActor (RuntimeStep) -> Void)?
+    var onEffectUpdated: (@MainActor (TrackedEffect) -> Void)?
+
+    func send(_ action: Action, mode: RuntimeMode) async -> RuntimeSendResult
+    func finish(timeout: Duration) async -> FinishResult
+    func cancelEffects(originID: UUID) async
+}
+
+struct RuntimeSendResult: Sendable {
+    let originID: UUID
+    let startedEffectIDs: [UUID]
+}
+
+enum RuntimeMode: Sendable {
+    case live
+    case testing
+}
+```
+
+If phase 1 introduces a separate task registry, it should remain an implementation detail underneath `trackedEffects`, not the semantic model exposed to phase 2.
+
+Recommended split between logical effects and raw tasks:
+
+```swift
+final class EffectTaskRegistry: @unchecked Sendable {
+    func insert(task: Task<Void, Never>, for taskID: UUID)
+    func remove(taskID: UUID)
+    func cancel(taskID: UUID)
+    func cancelAll()
+}
+```
+
+```swift
+extension FeatureRuntime {
+    func registerEffect(
+        originID: UUID,
+        parentEffectID: UUID?,
+        kind: EffectKind
+    ) -> UUID
+
+    func markEffectStarted(_ effectID: UUID, taskID: UUID?)
+    func markEffectFinished(_ effectID: UUID)
+    func markEffectCancelled(_ effectID: UUID)
+
+    func emitStep(
+        action: Action,
+        domainState: State,
+        viewState: ViewState,
+        source: ActionSource,
+        originID: UUID
+    )
+}
+```
+
+The important design point is that `TestEventTask` should hold an `originID`, not a raw `Task`:
+
+```swift
+public struct TestEventTask: Sendable {
+    let originID: UUID
+    let runtime: TestRuntimeHandle
+
+    public func cancel() async
+    public func finish(timeout: Duration? = nil) async
+}
+```
+
+That gives phase 2 a concrete contract:
+
+- `send` returns a handle for a logical effect tree;
+- every emitted action inherits the same `originID`;
+- downstream effects spawned by received actions stay associated with that same root;
+- `finish` and `cancel` operate on the whole tree, not whichever raw tasks happened to be returned first.
+
+Just as important, the shared runtime does not own asserted state or buffered receives. Those are test-layer concerns owned by `TestViewModel`.
 
 Acceptance:
 
 - `send`, `receive`, `finish`, `skipReceivedActions`, and `skipInFlightEffects` all work.
 - Tests no longer need manual `Task.yield()` for normal effect startup.
+- The runtime can distinguish in-flight logical effects from raw task handles.
+- A task returned from `send` can observe or cancel the full transitive effect tree for that send.
+- Buffered received steps and finish/exhaustivity diagnostics are driven by the richer internal tracking model, not inferred retrospectively from history arrays.
 
 ### Phase 3: Migrate focused tests
 
@@ -804,20 +1020,30 @@ swift test --filter LatticeTests
 ## Open Questions
 
 1. Should the public property be named `domainState` or just `state`?
-   - `domainState` is more explicit next to `viewState`.
-   - `state` is shorter and closer to TCA.
+   - Answer:  `domainState` is more explicit next to `viewState`.
 
 2. Should value-based `receive` require `Action: Equatable`, with predicate-based matching as the universal fallback?
-   - Recommendation: yes.
+   - Answer: yes.
 
 3. Should case-path-based `receive` overloads be included in v1?
-   - Recommendation: not required for v1, but they are a strong ergonomic follow-up where `Action` is case-pathable.
+   - Answer: yes
 
 4. Should `InteractorTestHarness` become a shim over the new test runtime or remain independent during migration?
-   - Recommendation: keep migration simple; do not contort the new API around the harness.
+   - Answer: no
 
 5. Should `assertViewState` be enough, or should there also be a closure-based `assertViewState` mutation API?
    - Recommendation: start with direct equality and only add mutation-style assertions if real usage shows need.
+
+6. Should phase 1 use a separate nonisolated task registry, or should the runtime itself own task bookkeeping behind its own synchronization boundary?
+   - Recommendation: prefer the smallest design that works on the supported toolchains without `isolated deinit`.
+   - If a separate registry is used, keep it intentionally minimal and avoid turning it into the real runtime abstraction.
+
+7. When should Lattice promote bare task bookkeeping into a richer internal `TrackedEffect` model?
+   - Recommendation: not required to land phase 1, but the shared runtime should be shaped so that this upgrade is straightforward in phase 2.
+
+8. How closely should phase 1 mirror TCA's internal runtime model?
+   - Recommendation: copy the important invariants, not the public API surface.
+   - Specifically: shared runtime, deterministic effect tracking, and explicit sent-vs-received action handling matter more than adopting TCA's exact internal types.
 
 ## Recommendation
 
