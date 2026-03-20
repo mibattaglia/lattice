@@ -1,5 +1,8 @@
 # TestViewModel: Feature-First Testing Runtime
 
+Companion design:
+- [TCA alignment and runtime rewrite sketch](/Users/michaelbattaglia/Documents/lattice/lattice/specs/test-viewmodel-runtime-tca-alignment.md)
+
 ## Goal
 
 Replace `InteractorTestHarness` as the primary public testing tool with a feature-first `TestViewModel` that:
@@ -778,6 +781,9 @@ Acceptance:
 - The extracted runtime is compatible with later origin tracking and buffered received-step semantics. Complete.
 
 ### Phase 2: Add `TestViewModel`
+
+Detailed implementation guidance for this phase now lives in the companion design:
+- [TCA alignment and runtime rewrite sketch](/Users/michaelbattaglia/Documents/lattice/lattice/specs/test-viewmodel-runtime-tca-alignment.md)
 
 1. Add `Sources/Lattice/Testing/TestViewModel.swift`.
 2. Add `Sources/Lattice/Testing/TestEventTask.swift`.

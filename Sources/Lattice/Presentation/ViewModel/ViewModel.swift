@@ -81,6 +81,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     public typealias ViewState = F.ViewState
 
     private var _viewState: ViewState
+    private let taskRegistry: EffectTaskRegistry
     private let runtime: FeatureRuntime<DomainState, Action>
 
     private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
@@ -115,9 +116,11 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     ) {
         self.viewStateReducer = viewStateReducer
         self.areStatesEqual = areStatesEqual
+        self.taskRegistry = EffectTaskRegistry()
         self.runtime = FeatureRuntime(
             initialState: initialDomainState,
-            interactor: interactor
+            interactor: interactor,
+            taskRegistry: taskRegistry
         )
 
         var viewState = initialViewState()
@@ -166,9 +169,11 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         }.eraseToAnyReducer()
         self._viewState = initialState
         self.areStatesEqual = areStatesEqual
+        self.taskRegistry = EffectTaskRegistry()
         self.runtime = FeatureRuntime(
             initialState: initialState,
-            interactor: interactor
+            interactor: interactor,
+            taskRegistry: taskRegistry
         )
 
         runtime.setStepHandler { [weak self] step in
@@ -207,11 +212,24 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
-        runtime.send(event)
+        let result = runtime.send(event)
+        return EventTask(
+            hasEffects: result.startedEmissionCount > 0,
+            cancelOperation: { [taskRegistry] in
+                taskRegistry.cancel(originID: result.originID)
+            },
+            finishOperation: { [weak runtime] in
+                guard let runtime else { return }
+                _ = await runtime.finish(originID: result.originID, timeout: nil)
+            },
+            isCancelledOperation: { [taskRegistry] in
+                taskRegistry.isCancelled(originID: result.originID)
+            }
+        )
     }
 
     deinit {
-        runtime.cancelAllEffects()
+        taskRegistry.cancelAll()
     }
 }
 

@@ -63,6 +63,7 @@ import Foundation
 public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     private var stateHistory: [State] = []
     private var actionHistory: [Action] = []
+    private let taskRegistry: EffectTaskRegistry
     private let runtime: FeatureRuntime<State, Action>
     private let areStatesEqual: (_ lhs: State, _ rhs: State) -> Bool
 
@@ -77,10 +78,11 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         areStatesEqual: @escaping (_ lhs: State, _ rhs: State) -> Bool
     )
     where I.DomainState == State, I.Action == Action {
+        self.taskRegistry = EffectTaskRegistry()
         self.runtime = FeatureRuntime(
             initialState: initialState,
             interactor: interactor.eraseToAnyInteractor(),
-            taskRegistry: EffectTaskRegistry()
+            taskRegistry: taskRegistry
         )
         self.stateHistory = [initialState]
         self.areStatesEqual = areStatesEqual
@@ -97,10 +99,11 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
         interactor: I
     )
     where I.DomainState == State, I.Action == Action, State: Equatable {
+        self.taskRegistry = EffectTaskRegistry()
         self.runtime = FeatureRuntime(
             initialState: initialState,
             interactor: interactor.eraseToAnyInteractor(),
-            taskRegistry: EffectTaskRegistry()
+            taskRegistry: taskRegistry
         )
         self.stateHistory = [initialState]
         self.areStatesEqual = { lhs, rhs in lhs == rhs }
@@ -127,7 +130,20 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func send(_ action: Action) -> EventTask {
-        runtime.send(action)
+        let result = runtime.send(action)
+        return EventTask(
+            hasEffects: result.startedEmissionCount > 0,
+            cancelOperation: { [taskRegistry] in
+                taskRegistry.cancel(originID: result.originID)
+            },
+            finishOperation: { [weak runtime] in
+                guard let runtime else { return }
+                _ = await runtime.finish(originID: result.originID, timeout: nil)
+            },
+            isCancelledOperation: { [taskRegistry] in
+                taskRegistry.isCancelled(originID: result.originID)
+            }
+        )
     }
 
     /// Sends multiple actions to the interactor.
@@ -238,6 +254,6 @@ public final class InteractorTestHarness<State: Sendable, Action: Sendable> {
     }
 
     deinit {
-        runtime.cancelAllEffects()
+        taskRegistry.cancelAll()
     }
 }

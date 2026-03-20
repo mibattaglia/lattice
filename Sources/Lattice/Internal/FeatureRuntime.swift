@@ -12,6 +12,23 @@ final class FeatureRuntime<State: Sendable, Action: Sendable> {
         let source: ActionSource
         let previousState: State
         let currentState: State
+        let originID: UUID
+    }
+
+    struct RuntimeSendResult: Sendable {
+        let originID: UUID
+        let step: Step
+        let startedEmissionCount: Int
+    }
+
+    struct FinishResult: Sendable {
+        let didTimeout: Bool
+        let inFlightEmissionCount: Int
+    }
+
+    private struct OriginCountWaiter {
+        let targetCount: Int
+        let continuation: CheckedContinuation<Void, Never>
     }
 
     private(set) var onStep: (@MainActor (Step) -> Void)?
@@ -19,7 +36,11 @@ final class FeatureRuntime<State: Sendable, Action: Sendable> {
     private(set) var state: State
 
     private let interactor: AnyInteractor<State, Action>
-    private nonisolated let taskRegistry: EffectTaskRegistry
+    private let taskRegistry: EffectTaskRegistry
+
+    private var inFlightEmissionCounts: [UUID: Int] = [:]
+    private var originCountWaiters: [UUID: [OriginCountWaiter]] = [:]
+    private var runtimeDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         initialState: State,
@@ -32,129 +53,268 @@ final class FeatureRuntime<State: Sendable, Action: Sendable> {
     }
 
     func setStepHandler(_ handler: @escaping (@MainActor (Step) -> Void)) {
-        self.onStep = handler
+        onStep = handler
     }
 
     @discardableResult
-    func send(_ action: Action, source: ActionSource = .sent) -> EventTask {
+    func send(
+        _ action: Action,
+        source: ActionSource = .sent,
+        originID: UUID? = nil
+    ) -> RuntimeSendResult {
+        let resolvedOriginID = originID ?? UUID()
         let previousState = state
         let emission = interactor.interact(state: &state, action: action)
 
-        onStep?(
-            Step(
-                action: action,
-                source: source,
-                previousState: previousState,
-                currentState: state
-            )
+        let step = Step(
+            action: action,
+            source: source,
+            previousState: previousState,
+            currentState: state,
+            originID: resolvedOriginID
+        )
+        onStep?(step)
+
+        let startedEmissionCount = spawnTasks(
+            from: emission,
+            originID: resolvedOriginID
         )
 
-        let spawnedTasks = spawnTasks(from: emission)
-        taskRegistry.insert(spawnedTasks)
+        return RuntimeSendResult(
+            originID: resolvedOriginID,
+            step: step,
+            startedEmissionCount: startedEmissionCount
+        )
+    }
 
-        guard !spawnedTasks.isEmpty else {
-            return EventTask(rawValue: nil)
+    func finish(originID: UUID, timeout: Duration?) async -> FinishResult {
+        if timeout == nil {
+            await waitForOriginEmissionCount(originID, targetCount: 0)
+            return FinishResult(
+                didTimeout: false,
+                inFlightEmissionCount: inFlightEmissionCount(originID: originID)
+            )
         }
 
-        let spawnedTaskIDs = Array(spawnedTasks.keys)
-        let taskList = Array(spawnedTasks.values)
-        let compositeTask = Task { [weak self] in
-            await withTaskCancellationHandler {
-                await withTaskGroup(of: Void.self) { group in
-                    for task in taskList {
-                        group.addTask { await task.value }
-                    }
-                }
-            } onCancel: {
-                for task in taskList {
-                    task.cancel()
-                }
+        let didTimeout = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                await self.waitForOriginEmissionCount(originID, targetCount: 0)
+                return false
             }
-            self?.taskRegistry.remove(spawnedTaskIDs)
+            group.addTask {
+                try? await Task.sleep(for: timeout!)
+                return true
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
 
-        return EventTask(rawValue: compositeTask)
+        return FinishResult(
+            didTimeout: didTimeout,
+            inFlightEmissionCount: inFlightEmissionCount(originID: originID)
+        )
     }
 
-    nonisolated func cancelAllEffects() {
-        taskRegistry.cancelAll()
+    func finish(timeout: Duration?) async -> FinishResult {
+        if timeout == nil {
+            await waitForRuntimeToDrain()
+            return FinishResult(
+                didTimeout: false,
+                inFlightEmissionCount: totalInFlightEmissionCount
+            )
+        }
+
+        let didTimeout = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                await self.waitForRuntimeToDrain()
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout!)
+                return true
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+
+        return FinishResult(
+            didTimeout: didTimeout,
+            inFlightEmissionCount: totalInFlightEmissionCount
+        )
     }
 
-    private func spawnTasks(from emission: Emission<Action>) -> [UUID: Task<Void, Never>] {
+    func hasInFlightEmissions() -> Bool {
+        totalInFlightEmissionCount > 0
+    }
+
+    private func waitForOriginEmissionCount(
+        _ originID: UUID,
+        targetCount: Int
+    ) async {
+        guard inFlightEmissionCount(originID: originID) > targetCount else { return }
+
+        await withCheckedContinuation { continuation in
+            originCountWaiters[originID, default: []].append(
+                OriginCountWaiter(
+                    targetCount: targetCount,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    private func waitForRuntimeToDrain() async {
+        guard totalInFlightEmissionCount > 0 else { return }
+
+        await withCheckedContinuation { continuation in
+            runtimeDrainWaiters.append(continuation)
+        }
+    }
+
+    private func spawnTasks(
+        from emission: Emission<Action>,
+        originID: UUID
+    ) -> Int {
         switch emission.kind {
         case .none:
-            return [:]
+            return 0
 
         case .action(let action):
-            _ = send(action, source: .emitted)
-            return [:]
+            return send(
+                action,
+                source: .emitted,
+                originID: originID
+            ).startedEmissionCount
 
         case .perform(let work):
-            let uuid = UUID()
+            let taskID = registerTrackedEmission(originID: originID)
             let task = Task { [weak self] in
-                guard let action = await work() else { return }
-                guard !Task.isCancelled else { return }
+                let action = await work()
+                guard !Task.isCancelled else {
+                    await MainActor.run {
+                        self?.finishTrackedEmission(originID: originID, taskID: taskID)
+                    }
+                    return
+                }
+                if let action {
+                    await MainActor.run {
+                        guard let self else { return }
+                        _ = self.send(action, source: .emitted, originID: originID)
+                    }
+                }
                 await MainActor.run {
-                    guard let self else { return }
-                    _ = self.send(action, source: .emitted)
+                    self?.finishTrackedEmission(originID: originID, taskID: taskID)
                 }
             }
-            return [uuid: task]
+            taskRegistry.insert(task: task, taskID: taskID, originID: originID)
+            return 1
 
         case .observe(let stream):
-            let uuid = UUID()
+            let taskID = registerTrackedEmission(originID: originID)
             let task = Task { [weak self] in
-                for await action in await stream() {
+                let sourceStream = await stream()
+                for await action in sourceStream {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         guard let self else { return }
-                        _ = self.send(action, source: .emitted)
+                        _ = self.send(action, source: .emitted, originID: originID)
                     }
                 }
+                await MainActor.run {
+                    self?.finishTrackedEmission(originID: originID, taskID: taskID)
+                }
             }
-            return [uuid: task]
+            taskRegistry.insert(task: task, taskID: taskID, originID: originID)
+            return 1
 
         case .merge(let emissions):
-            return emissions.reduce(into: [:]) { result, emission in
-                result.merge(spawnTasks(from: emission)) { _, new in new }
+            return emissions.reduce(into: 0) { count, childEmission in
+                count += spawnTasks(from: childEmission, originID: originID)
             }
 
         case .append(let emissions):
-            guard !emissions.isEmpty else { return [:] }
+            guard !emissions.isEmpty else { return 0 }
 
-            let uuid = UUID()
+            let taskID = registerTrackedEmission(originID: originID)
             let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+
                 for emission in emissions {
-                    guard !Task.isCancelled, let self else { return }
-
-                    let childTasks = self.spawnTasks(from: emission)
-                    guard !childTasks.isEmpty else { continue }
-
-                    let childTaskIDs = Array(childTasks.keys)
-                    self.taskRegistry.insert(childTasks)
-
-                    let childTaskList = Array(childTasks.values)
-                    await withTaskCancellationHandler {
-                        await withTaskGroup(of: Void.self) { group in
-                            for task in childTaskList {
-                                group.addTask { await task.value }
-                            }
-                        }
-                    } onCancel: {
-                        for task in childTaskList {
-                            task.cancel()
-                        }
+                    guard !Task.isCancelled else {
+                        self.finishTrackedEmission(originID: originID, taskID: taskID)
+                        return
                     }
 
-                    self.taskRegistry.remove(childTaskIDs)
+                    _ = self.spawnTasks(from: emission, originID: originID)
+                    await self.waitForOriginEmissionCount(originID, targetCount: 1)
                 }
-            }
 
-            return [uuid: task]
+                self.finishTrackedEmission(originID: originID, taskID: taskID)
+            }
+            taskRegistry.insert(task: task, taskID: taskID, originID: originID)
+            return 1
         }
     }
 
-    deinit {
-        taskRegistry.cancelAll()
+    private func registerTrackedEmission(originID: UUID) -> UUID {
+        let taskID = UUID()
+        inFlightEmissionCounts[originID, default: 0] += 1
+        return taskID
+    }
+
+    private func finishTrackedEmission(originID: UUID, taskID: UUID) {
+        taskRegistry.remove(taskID: taskID, originID: originID)
+
+        if let count = inFlightEmissionCounts[originID], count > 1 {
+            inFlightEmissionCounts[originID] = count - 1
+        } else {
+            inFlightEmissionCounts[originID] = nil
+        }
+
+        let currentCount = inFlightEmissionCount(originID: originID)
+        if let waiters = originCountWaiters[originID] {
+            let (ready, pending) = waiters.partitioned { currentCount <= $0.targetCount }
+            originCountWaiters[originID] = pending.isEmpty ? nil : pending
+            ready.forEach { $0.continuation.resume() }
+        }
+
+        if totalInFlightEmissionCount == 0 {
+            let waiters = runtimeDrainWaiters
+            runtimeDrainWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    private func inFlightEmissionCount(originID: UUID) -> Int {
+        inFlightEmissionCounts[originID, default: 0]
+    }
+
+    private var totalInFlightEmissionCount: Int {
+        inFlightEmissionCounts.values.reduce(0, +)
+    }
+}
+
+private extension Array {
+    func partitioned(
+        by predicate: (Element) -> Bool
+    ) -> ([Element], [Element]) {
+        var matching: [Element] = []
+        var remaining: [Element] = []
+
+        for element in self {
+            if predicate(element) {
+                matching.append(element)
+            } else {
+                remaining.append(element)
+            }
+        }
+
+        return (matching, remaining)
     }
 }
