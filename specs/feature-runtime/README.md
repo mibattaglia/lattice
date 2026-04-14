@@ -196,12 +196,22 @@ The next implementation plan should start from these assumptions:
 - `InteractorTestHarness` is not the target end-state. The project should finish with library tests and examples updated to `TestViewModel`, and `InteractorTestHarness` removed.
 - A future plan should treat diagnostics as part of the public API, not as cleanup work.
 
-## Open questions to answer in the implementation plan
+## Resolved directions
 
-- Should `FeatureRuntime` itself support both auto-drain and buffered modes, or should a higher-level coordinator sit on top of a lower-level effect engine?
-- Should `TestViewModel.domainState` and `viewState` reflect the last asserted state, or the latest internally reduced state, when there are pending received actions?
-- How much effect origin metadata should Lattice preserve for diagnostics in v1: originating action only, or source file/line as well?
-- Does Lattice want a public non-exhaustive mode in the first release of `TestViewModel`, or should that follow the exhaustive default after the core semantics stabilize?
+- Lattice should mimic TCA's layering here using Lattice terminology and patterns:
+  - keep `FeatureRuntime` as the low-level production execution engine;
+  - put buffered test-visible behavior in a thin internal test coordinator or façade above that engine;
+  - do not contort production `ViewModel` or other public production APIs to facilitate testing.
+- `TestViewModel.domainState` should reflect the last asserted or committed state, not the latest internally reduced state hidden behind pending receives.
+- `TestViewModel` should remain domain-state-first. `viewState` should not be a primary assertion lane for the feature runtime, and pure `ViewStateReducer` behavior should be tested separately.
+- v1 diagnostics should preserve only high-value metadata:
+  - originating action;
+  - whether the action path was sent or emitted;
+  - a logical effect ID;
+  - the public test callsite (`fileID`, `filePath`, `line`, `column`).
+- v1 should ship exhaustive-by-default semantics first.
+  - If `skipReceivedActions` and `skipInFlightEffects` fall out naturally from the runtime design, include them.
+  - A richer public non-exhaustive mode can follow after the core exhaustive model is stable.
 
 ## Source index
 
