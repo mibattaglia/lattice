@@ -765,6 +765,8 @@ Acceptance:
 
 ### Phase 3: Add `TestViewModel` on the same helper semantics
 
+Status: completed on April 14, 2026.
+
 Files:
 
 - `TestViewModel.swift`
