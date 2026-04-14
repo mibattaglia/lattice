@@ -1,8 +1,8 @@
 import Foundation
 
-/// A handle to the effects spawned by a single `sendViewEvent` call.
+/// A handle to the root send scope started by a single `sendViewEvent` call.
 ///
-/// Use `EventTask` to await completion of effects or cancel them.
+/// Use `EventTask` to await transitive effect completion or cancel the in-flight work owned by that send.
 ///
 /// ## Usage
 ///
@@ -44,12 +44,12 @@ public struct EventTask: Sendable {
         self.rawValue = rawValue
     }
 
-    /// Cancels all effects spawned by this event.
+    /// Cancels all currently in-flight effects owned by this event's root send scope.
     public func cancel() {
         rawValue?.cancel()
     }
 
-    /// Awaits completion of all effects spawned by this event.
+    /// Awaits quiescence of this event's root send scope, including recursively emitted child effects.
     public func finish() async {
         await rawValue?.value
     }

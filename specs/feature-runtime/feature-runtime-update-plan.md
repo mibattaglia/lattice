@@ -742,6 +742,8 @@ Acceptance:
 
 ### Phase 2: Move production ownership into `ViewModel`
 
+Status: completed on April 14, 2026.
+
 Files:
 
 - [`ViewModel.swift`](/Users/michaelbattaglia/Documents/lattice/lattice/Sources/Lattice/Presentation/ViewModel/ViewModel.swift)

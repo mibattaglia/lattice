@@ -370,6 +370,8 @@ Acceptance:
 
 ### Phase 2: Make `ViewModel` the production execution owner
 
+Status: completed on April 14, 2026.
+
 Goal:
 
 - move execution ownership out of `FeatureRuntime` and into [`ViewModel.swift`](/Users/michaelbattaglia/Documents/lattice/lattice/Sources/Lattice/Presentation/ViewModel/ViewModel.swift)

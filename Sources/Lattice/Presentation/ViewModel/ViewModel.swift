@@ -1,4 +1,6 @@
+import DequeModule
 import Observation
+import OrderedCollections
 import SwiftUI
 
 @MainActor
@@ -80,11 +82,18 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     public typealias DomainState = F.DomainState
     public typealias ViewState = F.ViewState
 
-    private var _viewState: ViewState
-    private let runtime: FeatureRuntime<DomainState, Action>
+    private var domainState: DomainState
+    private var bufferedActions: Deque<BufferedAction<Action>> = []
+    private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
+    private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
+    private var isSending = false
 
+    private var _viewState: ViewState
+
+    private let interactor: AnyInteractor<DomainState, Action>
     private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
+    private nonisolated let taskRegistry = EffectTaskRegistry()
 
     private let _$observationRegistrar = ObservationRegistrar()
 
@@ -113,25 +122,14 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         viewStateReducer: AnyViewStateReducer<DomainState, ViewState>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) {
+        self.domainState = initialDomainState
+        self.interactor = interactor
         self.viewStateReducer = viewStateReducer
         self.areStatesEqual = areStatesEqual
-        self.runtime = FeatureRuntime(
-            initialState: initialDomainState,
-            interactor: interactor
-        )
 
         var viewState = initialViewState()
         viewStateReducer.reduce(initialDomainState, into: &viewState)
         self._viewState = viewState
-
-        runtime.setStepHandler { [weak self] step in
-            guard let self else { return }
-            let shouldReduceViewState =
-                step.source == .emitted || !self.areStatesEqual(step.previousState, step.currentState)
-
-            guard shouldReduceViewState else { return }
-            self.viewStateReducer.reduce(step.currentState, into: &self.viewState)
-        }
     }
 
     convenience init<I, R>(
@@ -161,24 +159,13 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         interactor: AnyInteractor<ViewState, Action>,
         areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     ) where DomainState == ViewState {
+        self.domainState = initialState
+        self.interactor = interactor
         self.viewStateReducer = BuildViewState<ViewState, ViewState> { domainState, viewState in
             viewState = domainState
         }.eraseToAnyReducer()
         self._viewState = initialState
         self.areStatesEqual = areStatesEqual
-        self.runtime = FeatureRuntime(
-            initialState: initialState,
-            interactor: interactor
-        )
-
-        runtime.setStepHandler { [weak self] step in
-            guard let self else { return }
-            let shouldReduceViewState =
-                step.source == .emitted || !self.areStatesEqual(step.previousState, step.currentState)
-
-            guard shouldReduceViewState else { return }
-            self.viewStateReducer.reduce(step.currentState, into: &self.viewState)
-        }
     }
 
     public private(set) var viewState: ViewState {
@@ -207,11 +194,172 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     /// - Returns: An ``EventTask`` representing the spawned effects.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
-        runtime.send(event)
+        let rootScopeID = SendScopeID()
+        enqueue(event, source: .sent, rootScopeID: rootScopeID)
+        drainBufferedActionsIfNeeded()
+        return makeEventTask(for: rootScopeID)
     }
 
     deinit {
-        runtime.cancelAllEffects()
+        taskRegistry.cancelAll()
+    }
+
+    private func enqueue(
+        _ action: Action,
+        source: ActionSource,
+        rootScopeID: SendScopeID
+    ) {
+        bufferedActions.append(
+            .init(
+                action: action,
+                source: source,
+                rootScopeID: rootScopeID
+            )
+        )
+
+        var rootScope = rootScopes[rootScopeID] ?? .init()
+        rootScope.bufferedActionCount += 1
+        rootScopes[rootScopeID] = rootScope
+    }
+
+    private func drainBufferedActionsIfNeeded() {
+        guard !isSending else { return }
+
+        isSending = true
+        defer { isSending = false }
+
+        while let bufferedAction = bufferedActions.popFirst() {
+            guard var rootScope = rootScopes[bufferedAction.rootScopeID] else {
+                continue
+            }
+
+            rootScope.bufferedActionCount -= 1
+            rootScopes[bufferedAction.rootScopeID] = rootScope
+
+            var workingState = domainState
+            let transition = ActionTransition.apply(
+                bufferedAction.action,
+                source: bufferedAction.source,
+                rootScopeID: bufferedAction.rootScopeID,
+                to: &workingState,
+                using: interactor
+            )
+
+            commitProductionTransition(transition)
+            spawnEffects(
+                from: transition.emission,
+                rootScopeID: bufferedAction.rootScopeID
+            )
+            pruneRootScopeIfQuiescent(bufferedAction.rootScopeID)
+        }
+    }
+
+    private func commitProductionTransition(
+        _ transition: ActionTransition<DomainState, Action>
+    ) {
+        domainState = transition.currentState
+
+        let shouldReduceViewState =
+            transition.source == .emitted
+            || !areStatesEqual(transition.previousState, transition.currentState)
+
+        guard shouldReduceViewState else { return }
+        viewStateReducer.reduce(transition.currentState, into: &viewState)
+    }
+
+    private func spawnEffects(
+        from emission: Emission<Action>,
+        rootScopeID: SendScopeID
+    ) {
+        let spawnedTasks = EmissionExecution.spawnTasks(
+            from: emission,
+            rootScopeID: rootScopeID,
+            makeEffectID: { EffectID() },
+            effectDidStart: { [weak self] effectID in
+                self?.enrollEffect(effectID, rootScopeID: rootScopeID)
+            },
+            effectDidComplete: { [weak self] effectID in
+                self?.completeEffect(effectID, rootScopeID: rootScopeID)
+            },
+            effectDidCancel: { [weak self] effectID in
+                self?.cancelEffect(effectID, rootScopeID: rootScopeID)
+            },
+            enqueueEmittedAction: { [weak self] action, rootScopeID in
+                guard let self else { return }
+                self.enqueue(action, source: .emitted, rootScopeID: rootScopeID)
+                self.drainBufferedActionsIfNeeded()
+            }
+        )
+
+        for (effectID, task) in spawnedTasks {
+            effectTasks[effectID] = task
+        }
+        taskRegistry.insert(spawnedTasks)
+    }
+
+    private func enrollEffect(
+        _ effectID: EffectID,
+        rootScopeID: SendScopeID
+    ) {
+        var rootScope = rootScopes[rootScopeID] ?? .init()
+        rootScope.inFlightEffectIDs.insert(effectID)
+        rootScopes[rootScopeID] = rootScope
+    }
+
+    private func completeEffect(
+        _ effectID: EffectID,
+        rootScopeID: SendScopeID
+    ) {
+        effectTasks[effectID] = nil
+        taskRegistry.remove([effectID])
+
+        guard var rootScope = rootScopes[rootScopeID] else { return }
+        rootScope.inFlightEffectIDs.remove(effectID)
+        rootScopes[rootScopeID] = rootScope
+
+        pruneRootScopeIfQuiescent(rootScopeID)
+    }
+
+    private func cancelEffect(
+        _ effectID: EffectID,
+        rootScopeID: SendScopeID
+    ) {
+        completeEffect(effectID, rootScopeID: rootScopeID)
+    }
+
+    private func makeEventTask(for rootScopeID: SendScopeID) -> EventTask {
+        guard rootScopes[rootScopeID] != nil else {
+            return EventTask(rawValue: nil)
+        }
+
+        return EventTask(
+            rawValue: RootScopeTasks.makeTask(
+                rootScopeID: rootScopeID,
+                isQuiescent: { [weak self] rootScopeID in
+                    self?.isRootScopeQuiescent(rootScopeID) ?? true
+                },
+                cancelScope: { [weak self] rootScopeID in
+                    self?.cancelRootScope(rootScopeID)
+                }
+            )
+        )
+    }
+
+    private func isRootScopeQuiescent(_ rootScopeID: SendScopeID) -> Bool {
+        rootScopes[rootScopeID]?.isQuiescent ?? true
+    }
+
+    private func cancelRootScope(_ rootScopeID: SendScopeID) {
+        guard let rootScope = rootScopes[rootScopeID] else { return }
+
+        for effectID in rootScope.inFlightEffectIDs {
+            effectTasks[effectID]?.cancel()
+        }
+    }
+
+    private func pruneRootScopeIfQuiescent(_ rootScopeID: SendScopeID) {
+        guard rootScopes[rootScopeID]?.isQuiescent == true else { return }
+        rootScopes[rootScopeID] = nil
     }
 }
 
