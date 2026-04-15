@@ -4,6 +4,10 @@ import Foundation
 ///
 /// Use `EventTask` to await transitive effect completion or cancel the in-flight work owned by that send.
 ///
+/// `EventTask` tracks a root send scope, not only the first generation of tasks created by an
+/// action. If an effect emits more actions and those actions start more work, that downstream work
+/// remains part of the same scope.
+///
 /// ## Usage
 ///
 /// Fire-and-forget (existing pattern):

@@ -10,6 +10,13 @@ import OrderedCollections
 ///
 /// `TestViewModel` mirrors the production execution helpers used by ``ViewModel``, but buffers
 /// effect-emitted actions until tests explicitly receive or skip them.
+///
+/// The testing contract is step-wise:
+///
+/// - ``send(_:assert:fileID:file:line:column:)`` asserts the immediately visible mutation.
+/// - ``receive(_:timeout:assert:fileID:file:line:column:)`` advances through buffered effect output.
+/// - ``domainState`` reflects the last asserted or received state, not hidden buffered state.
+/// - ``finish(timeout:fileID:file:line:column:)`` waits for effects, but does not implicitly drain receives.
 @MainActor
 public final class TestViewModel<F: FeatureProtocol> {
     public typealias Action = F.Action
@@ -69,6 +76,10 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     /// Sends an action into the feature and asserts the immediately visible state mutation.
+    ///
+    /// In exhaustive mode, all previously buffered received actions must be handled before a new
+    /// send can proceed. The returned ``TestEventTask`` is scoped to the downstream work started
+    /// from this send only.
     @discardableResult
     public func send(
         _ action: Action,
@@ -116,6 +127,9 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     /// Receives the next effect-emitted action matching the expected action.
+    ///
+    /// Receiving does not re-enter execution. It advances visible state by consuming the next
+    /// buffered receive whose action matches `expectedAction`.
     public func receive(
         _ expectedAction: Action,
         timeout duration: Duration? = nil,
@@ -204,6 +218,9 @@ public final class TestViewModel<F: FeatureProtocol> {
     #endif
 
     /// Waits for the feature to finish all in-flight effects.
+    ///
+    /// This checks for unhandled received actions before and after waiting. It does not
+    /// automatically consume buffered receives.
     public func finish(
         timeout duration: Duration? = nil,
         fileID: StaticString = #fileID,
@@ -224,6 +241,9 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     /// Explicitly advances visible state past any currently buffered received actions.
+    ///
+    /// This is the escape hatch for non-exhaustive tests that want to acknowledge already buffered
+    /// effect output without asserting each step individually.
     public func skipReceivedActions(
         strict: Bool = true,
         fileID: StaticString = #fileID,
@@ -237,6 +257,9 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     /// Cancels and waits for any currently in-flight effects.
+    ///
+    /// Already buffered receives remain buffered after cancellation and must still be handled or
+    /// skipped separately.
     public func skipInFlightEffects(
         strict: Bool = true,
         fileID: StaticString = #fileID,

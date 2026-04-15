@@ -23,7 +23,7 @@ protocol _ViewModel {
 /// 2. The ``Interactor`` processes the action synchronously and returns an ``Emission``
 /// 3. State mutations are applied immediately
 /// 4. The ``ViewStateReducer`` transforms domain state to view state
-/// 5. Any async effects from the emission are spawned as tasks
+/// 5. Any async effects from the emission are spawned as tasks inside the originating root send scope
 /// 6. View observes `viewState` changes and re-renders
 ///
 /// ## Initialization
@@ -68,7 +68,7 @@ protocol _ViewModel {
 ///
 /// ## Awaiting Effects
 ///
-/// Use ``EventTask/finish()`` to await effect completion when needed:
+/// Use ``EventTask/finish()`` to await transitive effect completion when needed:
 ///
 /// ```swift
 /// .refreshable {
@@ -188,10 +188,12 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         self.viewState[keyPath: keyPath]
     }
 
-    /// Sends an action to the interactor and returns a task handle.
+    /// Sends an action to the interactor and returns a handle for the root send scope.
     ///
     /// - Parameter event: The action to send.
-    /// - Returns: An ``EventTask`` representing the spawned effects.
+    /// - Returns: An ``EventTask`` whose `finish()` waits for recursively emitted child work
+    ///   started from this send, and whose `cancel()` cancels the currently tracked work in
+    ///   that scope.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
         let rootScopeID = SendScopeID()

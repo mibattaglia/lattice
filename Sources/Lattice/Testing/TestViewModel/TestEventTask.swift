@@ -1,6 +1,9 @@
 import Foundation
 
 /// A handle to the root send scope started by a single ``TestViewModel/send(_:assert:fileID:file:line:column:)`` call.
+///
+/// `TestEventTask` only waits for the work owned by that send scope. It does not automatically
+/// consume buffered received actions.
 public struct TestEventTask: Sendable {
     internal let rawValue: Task<Void, Never>?
     internal let timeout: Duration
@@ -20,6 +23,8 @@ public struct TestEventTask: Sendable {
     }
 
     /// Awaits quiescence of the underlying root send scope.
+    ///
+    /// Buffered receives remain queued on ``TestViewModel`` after this returns.
     public func finish(timeout duration: Duration? = nil) async throws {
         guard let rawValue else { return }
 

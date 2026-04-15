@@ -7,11 +7,11 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 
 - Unidirectional flow: views send actions, interactors mutate domain state, reducers derive view state.
 - Feature-based API: `ViewModel` is parameterized by a single feature type (`ViewModel<F>`).
-- Async effects: `.none`, `.action`, `.perform`, `.observe`, and `.merge` emissions.
+- Async effects: `.none`, `.action`, `.perform`, `.observe`, `.merge`, and `.append` emissions.
 - Effect-level debouncing: `Emission.debounce(using:)` and `Interactors.Debounce`.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
 - SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
-- Test tooling: `TestViewModel` and clock-based testing support.
+- Step-wise testing: `TestViewModel`, `TestEventTask`, exhaustivity, and clock-based testing support.
 
 ## Installation
 
@@ -135,10 +135,11 @@ let feature = Feature(
 ## Architecture
 
 1. The view sends an action via `sendViewEvent(_:)`.
-2. The interactor mutates domain state and returns an `Emission<Action>`.
-3. A stateless `ViewStateReducer` updates `viewState` from domain state.
-4. Async emissions spawn tasks and can dispatch more actions.
-5. `EventTask` can `finish()` or be cancelled by callers.
+2. `ViewModel` applies the synchronous interactor step immediately on the main actor.
+3. The interactor mutates domain state and returns an `Emission<Action>`.
+4. A stateless `ViewStateReducer` updates `viewState` from domain state.
+5. Async emissions spawn tasks and can dispatch more actions back into the same root send scope, whether they are concurrent (`.merge`) or sequential (`.append`).
+6. `EventTask.finish()` waits transitively for that root scope to become quiescent, and `cancel()` cancels the currently tracked work in the scope.
 
 ## State Modeling with Lattice
 
@@ -318,6 +319,40 @@ parentInteractor.when(state: \.childState, action: \.child) {
 }
 ```
 
+## Testing with `TestViewModel`
+
+Use `TestViewModel<F>` for domain-state-first, step-wise feature tests.
+
+```swift
+let feature = Feature(interactor: SearchInteractor())
+let model = TestViewModel(
+    initialDomainState: SearchState(),
+    feature: feature
+)
+
+let task = try await model.send(.queryChanged("lattice")) {
+    $0.query = "lattice"
+    $0.isLoading = true
+}
+
+try await model.receive(.searchResponse(["Lattice"])) {
+    $0.isLoading = false
+    $0.results = ["Lattice"]
+}
+
+try await task.finish()
+```
+
+`TestViewModel` semantics:
+
+- `send` asserts the immediately visible state mutation and returns a `TestEventTask` for that root send scope.
+- `domainState` always reflects the last asserted or received state, not newer buffered effect output.
+- Effect-emitted actions are buffered until you `receive` or `skipReceivedActions()`.
+- `finish()` checks for unhandled receives before waiting for in-flight effects.
+- `TestEventTask.finish()` waits for root-scope quiescence only; it does not implicitly drain buffered receives.
+- `skipInFlightEffects()` cancels and settles currently running effects when a test needs to move past long-lived work.
+- `exhaustivity` is on by default and enforces explicit handling of buffered receives.
+
 ## Testing
 
 Run all tests:
@@ -346,6 +381,15 @@ swift test --filter ViewModelBindingTests
 swift test --filter ViewModelTests
 ```
 
+Run focused runtime and testing-infrastructure suites:
+
+```bash
+swift test --filter EventTaskTests
+swift test --filter TestViewModel
+swift test --filter Append
+swift test --filter Observe
+```
+
 Run focused debounce tests:
 
 ```bash
@@ -361,11 +405,7 @@ Build all targets:
 swift build
 ```
 
-Format sources and tests:
-
-```bash
-swift-format format --in-place --recursive Sources Tests
-```
+Formatting is handled by the pre-push hook with `swift-format`. Do not run `swift-format` manually.
 
 Rebuild checked-in macro binary after macro source changes:
 

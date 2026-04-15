@@ -1,6 +1,10 @@
 import Foundation
 
 /// Error thrown by ``TestViewModel`` and ``TestEventTask`` when a test assertion fails.
+///
+/// These diagnostics describe contract violations in step-wise feature tests, such as unhandled
+/// received actions, effects that failed to finish, or state mutations that did not match the
+/// asserted expectation.
 public struct TestFailure: Error, CustomStringConvertible, Sendable {
     public let message: String
 

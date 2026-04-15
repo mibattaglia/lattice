@@ -17,6 +17,11 @@ public protocol FeatureProtocol {
 
 /// Bundles the architecture stack for a feature.
 ///
+/// A `Feature` is the shared configuration unit for both production and tests:
+///
+/// - ``ViewModel`` uses it to drive SwiftUI-facing execution and `viewState` updates.
+/// - ``TestViewModel`` uses the same interactor and equality rules for step-wise domain-state assertions.
+///
 /// Use a `Feature` to initialize a `ViewModel` with a single argument:
 ///
 /// ```swift
