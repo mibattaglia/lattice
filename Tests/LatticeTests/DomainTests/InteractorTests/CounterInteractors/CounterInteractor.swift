@@ -2,19 +2,19 @@ import Testing
 
 @testable import Lattice
 
-@Interactor
+struct CounterState: Equatable, Sendable {
+    var count: Int
+}
+
+enum CounterAction: Sendable {
+    case increment
+    case decrement
+    case reset
+}
+
+@Interactor<CounterState, CounterAction>
 struct CounterInteractor {
-    struct State: Equatable, Sendable {
-        var count: Int
-    }
-
-    enum Action: Sendable {
-        case increment
-        case decrement
-        case reset
-    }
-
-    var body: some Interactor<State, Action> {
+    var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
             case .increment:

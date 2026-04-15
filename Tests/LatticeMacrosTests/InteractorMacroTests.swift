@@ -13,7 +13,7 @@
             }
         }
 
-        func testBasics_NoGenericsInMacro() {
+        func testBasics_NoGenericsInMacro_EmitsError() {
             assertMacro {
                 """
                 @Interactor
@@ -23,45 +23,15 @@
                     }
                 }
                 """
-            } expansion: {
+            } diagnostics: {
                 """
+                @Interactor
+                 ┬─────────
+                 ╰─ 🛑 @Interactor requires 2 generic arguments: one for the Interactor's state type and one for its action type.
                 struct MyInteractor {
-                    @Lattice.InteractorBuilder<Int, String>
                     var body: some Interactor<Int, String> {
                         EmptyInteractor()
                     }
-                }
-
-                extension MyInteractor: Lattice.Interactor {
-                }
-                """
-            }
-        }
-
-        func testBasics_NoGenericsInMacro_NestedStateAndAction() {
-            assertMacro {
-                """
-                @Interactor
-                struct MyInteractor {
-                    struct DomainState {}
-                    enum Action {}
-                    var body: some InteractorOf<Self> {
-                        EmptyInteractor()
-                    }
-                }
-                """
-            } expansion: {
-                """
-                struct MyInteractor {
-                    struct DomainState {}
-                    enum Action {}
-                    @Lattice.InteractorBuilder<Self.State, Self.Action>
-                    var body: some InteractorOf<Self> {
-                        EmptyInteractor()
-                    }
-                }
-
-                extension MyInteractor: Lattice.Interactor {
                 }
                 """
             }
@@ -172,56 +142,6 @@
             }
         }
 
-        func testGenericsInMacro_EmitsError() {
-            assertMacro {
-                """
-                @Interactor<Int, String>
-                struct MyInteractor {
-                    var body: some Interactor<Int1, String> {
-                        EmptyInteractor()
-                    }
-                }
-                """
-            } diagnostics: {
-                """
-                @Interactor<Int, String>
-                struct MyInteractor {
-                    var body: some Interactor<Int1, String> {
-                        ┬───
-                        ╰─ 🛑 Generic parameters have already been applied to the attached macro and will take precedence over those specified in `body`
-                           ✏️ Replace 'some Interactor<Int1, String>' with 'some InteractorOf<Self>'
-                        EmptyInteractor()
-                    }
-                }
-                """
-            } fixes: {
-                """
-                @Interactor<Int, String>
-                struct MyInteractor {
-                    var body: some InteractorOf<Self> {
-                        EmptyInteractor()
-                    }
-                }
-                """
-            } expansion: {
-                """
-                struct MyInteractor {
-                    @Lattice.InteractorBuilder<Int, String>
-                    var body: some InteractorOf<Self> {
-                        EmptyInteractor()
-                    }
-
-                    typealias DomainState = Int
-
-                    typealias Action = String
-                }
-
-                extension MyInteractor: Lattice.Interactor {
-                }
-                """
-            }
-        }
-
         func testMoreThanTwoGenericsInMacro() {
             assertMacro {
                 """
@@ -236,7 +156,7 @@
                 """
                 @Interactor<Int, String, Bool>
                  ┬────────────────────────────
-                 ╰─ 🛑 Only 2 generic arguments should be applied the @Interactor macro. One for the Interactor's state type and one for its action type. 
+                 ╰─ 🛑 @Interactor requires exactly 2 generic arguments: one for the Interactor's state type and one for its action type.
                 struct MyInteractor {
                     var body: some Interactor<Int1, String> {
                         EmptyInteractor()

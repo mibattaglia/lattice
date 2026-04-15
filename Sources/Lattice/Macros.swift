@@ -29,7 +29,7 @@ import Observation
 )
 @attached(memberAttribute)
 @attached(extension, conformances: Interactor)
-public macro Interactor() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
+public macro Interactor<DomainState, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
 
 /// Generates conformance to the ``ViewStateReducer`` protocol.
 ///
@@ -60,7 +60,7 @@ public macro Interactor() = #externalMacro(module: "LatticeMacros", type: "Inter
 )
 @attached(memberAttribute)
 @attached(extension, conformances: ViewStateReducer)
-public macro ViewStateReducer() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
+public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
 
 /// Defines and implements conformance of the Observable protocol.
 @attached(extension, conformances: Observable, ObservableState)

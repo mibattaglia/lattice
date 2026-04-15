@@ -45,10 +45,10 @@ final class CounterInteractorTests {
     }
 
     private func makeModel()
-        -> TestViewModel<TestSupportFeature<CounterInteractor.Action, CounterInteractor.State>>
+        -> TestViewModel<TestSupportFeature<CounterAction, CounterState>>
     {
         makeTestViewModel(
-            initialDomainState: CounterInteractor.State(count: 0),
+            initialDomainState: CounterState(count: 0),
             interactor: CounterInteractor()
         )
     }

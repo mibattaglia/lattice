@@ -13,7 +13,7 @@
             }
         }
 
-        func testBasics_NoGenericsInMacro() {
+        func testBasics_NoGenericsInMacro_EmitsError() {
             assertMacro {
                 """
                 @ViewStateReducer
@@ -23,45 +23,15 @@
                     }
                 }
                 """
-            } expansion: {
+            } diagnostics: {
                 """
+                @ViewStateReducer
+                 ┬───────────────
+                 ╰─ 🛑 @ViewStateReducer requires 2 generic arguments: one for the ViewStateReducer's domain state type and one for its view state type.
                 struct MyViewStateReducer {
-                    @Lattice.ViewStateReducerBuilder<MyDomainState, MyViewState>
                     var body: some ViewStateReducer<MyDomainState, MyViewState> {
                         BuildViewState<MyDomainState, MyViewState> { .none }
                     }
-                }
-
-                extension MyViewStateReducer: Lattice.ViewStateReducer {
-                }
-                """
-            }
-        }
-
-        func testBasics_NoGenericsInMacro_NestedStateAndAction() {
-            assertMacro {
-                """
-                @ViewStateReducer
-                struct MyViewStateReducer {
-                    enum DomainState {}
-                    enum ViewState {}
-                    var body: some ViewStateReducerOf<Self> {
-                        BuildViewState<DomainState, ViewState> { .none }
-                    }
-                }
-                """
-            } expansion: {
-                """
-                struct MyViewStateReducer {
-                    enum DomainState {}
-                    enum ViewState {}
-                    @Lattice.ViewStateReducerBuilder<Self.DomainState, Self.ViewState>
-                    var body: some ViewStateReducerOf<Self> {
-                        BuildViewState<DomainState, ViewState> { .none }
-                    }
-                }
-
-                extension MyViewStateReducer: Lattice.ViewStateReducer {
                 }
                 """
             }
@@ -151,60 +121,6 @@
             }
         }
 
-        func testGenericsInMacro_EmitsError() {
-            assertMacro {
-                """
-                @ViewStateReducer<Int, String>
-                struct MyViewStateReducer {
-                    var body: some ViewStateReducer<Int1, String> {
-                        BuildViewState { .none }
-                    }
-                }
-                """
-            } diagnostics: {
-                """
-                @ViewStateReducer<Int, String>
-                struct MyViewStateReducer {
-                    var body: some ViewStateReducer<Int1, String> {
-                        ┬───
-                        ╰─ 🛑 Generic parameters have already been applied to the attached macro and will take precedence over those specified in `body`
-                           ✏️ Replace 'some ViewStateReducer<Int1, String>' with 'some ViewStateReducerOf<Self>'
-                        BuildViewState { .none }
-                    }
-                }
-                """
-            } fixes: {
-                """
-                @ViewStateReducer<Int, String>
-                struct MyViewStateReducer {
-                    var body: some ViewStateReducerOf<Self> {
-                        BuildViewState { .none }
-                    }
-                }
-                """
-            } expansion: {
-                """
-                struct MyViewStateReducer {
-                    @Lattice.ViewStateReducerBuilder<Int, String>
-                    var body: some ViewStateReducerOf<Self> {
-                        BuildViewState { .none }
-                    }
-
-                    typealias DomainState = Int
-
-                    typealias ViewState = String
-
-                    func initialViewState(for _: DomainState) -> ViewState {
-                        .defaultValue
-                    }
-                }
-
-                extension MyViewStateReducer: Lattice.ViewStateReducer {
-                }
-                """
-            }
-        }
-
         func testMoreThanTwoGenericsInMacro() {
             assertMacro {
                 """
@@ -219,7 +135,7 @@
                 """
                 @ViewStateReducer<Int, String, Bool>
                  ┬──────────────────────────────────
-                 ╰─ 🛑 Only 2 generic arguments should be applied the @ViewStateReducer macro. One for the ViewStateReducer's domain state type and one for its view state type. 
+                 ╰─ 🛑 @ViewStateReducer requires exactly 2 generic arguments: one for the ViewStateReducer's domain state type and one for its view state type.
                 struct MyViewStateReducer {
                     var body: some ViewStateReducer<Int1, String> {
                         BuildViewState { .none }

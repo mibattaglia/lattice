@@ -3,48 +3,48 @@ import Testing
 
 @testable import Lattice
 
+private struct ObserveSequenceState: Equatable, Sendable {
+    var log: [String] = []
+}
+
+private enum ObserveSequenceAction: Sendable, Equatable {
+    case startObserveThenPerform
+    case logged(String)
+}
+
+@Interactor<ObserveSequenceState, ObserveSequenceAction>
+private struct ObserveSequenceInteractor {
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .startObserveThenPerform:
+                return .append(
+                    .observe {
+                        AsyncStream { continuation in
+                            continuation.yield(.logged("stream-1"))
+                            continuation.yield(.logged("stream-2"))
+                            continuation.finish()
+                        }
+                    },
+                    .perform { .logged("after-stream") }
+                )
+
+            case .logged(let entry):
+                state.log.append(entry)
+                return .none
+            }
+        }
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct EmissionAppendObserveTests {
 
-    @Interactor
-    struct ObserveSequenceInteractor {
-        struct State: Equatable, Sendable {
-            var log: [String] = []
-        }
-
-        enum Action: Sendable, Equatable {
-            case startObserveThenPerform
-            case logged(String)
-        }
-
-        var body: some Interactor<State, Action> {
-            Interact { state, action in
-                switch action {
-                case .startObserveThenPerform:
-                    return .append(
-                        .observe {
-                            AsyncStream { continuation in
-                                continuation.yield(.logged("stream-1"))
-                                continuation.yield(.logged("stream-2"))
-                                continuation.finish()
-                            }
-                        },
-                        .perform { .logged("after-stream") }
-                    )
-
-                case .logged(let entry):
-                    state.log.append(entry)
-                    return .none
-                }
-            }
-        }
-    }
-
     @Test
     func finiteObserveCompletesBeforeNextStep() async throws {
         let model = makeTestViewModel(
-            initialDomainState: ObserveSequenceInteractor.State(),
+            initialDomainState: ObserveSequenceState(),
             interactor: ObserveSequenceInteractor()
         )
 

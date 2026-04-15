@@ -8,66 +8,66 @@ private struct AppendViewState: Equatable, Sendable {
     var log: [String] = []
 }
 
+private struct AppendState: Equatable, Sendable {
+    var log: [String] = []
+}
+
+private enum AppendAction: Sendable, Equatable {
+    case appendTwoPerforms
+    case appendMergeThenPerform
+    case appendPerformReturningNil
+    case logged(String)
+}
+
+@Interactor<AppendState, AppendAction>
+private struct AppendInteractor {
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .appendTwoPerforms:
+                return .append(
+                    .perform {
+                        try? await Task.sleep(for: .milliseconds(10))
+                        return .logged("first")
+                    },
+                    .perform {
+                        try? await Task.sleep(for: .milliseconds(10))
+                        return .logged("second")
+                    }
+                )
+
+            case .appendMergeThenPerform:
+                return .append(
+                    .merge([
+                        .perform { .logged("merge-a") },
+                        .perform { .logged("merge-b") },
+                    ]),
+                    .perform { .logged("after-merge") }
+                )
+
+            case .appendPerformReturningNil:
+                return .append(
+                    .perform { nil },
+                    .perform { .logged("after-nil") }
+                )
+
+            case .logged(let entry):
+                state.log.append(entry)
+                return .none
+            }
+        }
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct ViewModelAppendTests {
 
-    @Interactor
-    struct AppendInteractor {
-        struct State: Equatable, Sendable {
-            var log: [String] = []
-        }
-
-        enum Action: Sendable, Equatable {
-            case appendTwoPerforms
-            case appendMergeThenPerform
-            case appendPerformReturningNil
-            case logged(String)
-        }
-
-        var body: some Interactor<State, Action> {
-            Interact { state, action in
-                switch action {
-                case .appendTwoPerforms:
-                    return .append(
-                        .perform {
-                            try? await Task.sleep(for: .milliseconds(10))
-                            return .logged("first")
-                        },
-                        .perform {
-                            try? await Task.sleep(for: .milliseconds(10))
-                            return .logged("second")
-                        }
-                    )
-
-                case .appendMergeThenPerform:
-                    return .append(
-                        .merge([
-                            .perform { .logged("merge-a") },
-                            .perform { .logged("merge-b") },
-                        ]),
-                        .perform { .logged("after-merge") }
-                    )
-
-                case .appendPerformReturningNil:
-                    return .append(
-                        .perform { nil },
-                        .perform { .logged("after-nil") }
-                    )
-
-                case .logged(let entry):
-                    state.log.append(entry)
-                    return .none
-                }
-            }
-        }
-    }
-
     private func makeViewModel()
-        -> ViewModel<Feature<AppendInteractor.Action, AppendInteractor.State, AppendViewState>>
+        -> ViewModel<Feature<AppendAction, AppendState, AppendViewState>>
     {
         ViewModel(
-            initialDomainState: AppendInteractor.State(),
+            initialDomainState: AppendState(),
             feature: Feature(
                 interactor: AppendInteractor(),
                 reducer: BuildViewState(

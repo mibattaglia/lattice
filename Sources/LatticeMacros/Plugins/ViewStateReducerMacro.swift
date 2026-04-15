@@ -42,23 +42,12 @@ extension ViewStateReducerMacro: MemberAttributeMacro {
         providingAttributesFor member: M,
         in context: C
     ) throws -> [AttributeSyntax] {
-        let macroGenerics = node.attributeName.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
-        if let macroGenerics {
-            if macroGenerics.count > 2 {
-                context
-                    .diagnose(
-                        Diagnostic(
-                            node: node.attributeName,
-                            message: MacroExpansionErrorMessage(
-                                """
-                                Only 2 generic arguments should be applied the @ViewStateReducer macro. \
-                                One for the ViewStateReducer's domain state type and one for its view state type. 
-                                """
-                            )
-                        )
-                    )
-                return []
-            }
+        guard let macroGenerics = node.attributeName.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
+        else {
+            return []
+        }
+        guard macroGenerics.count == 2 else {
+            return []
         }
         if let body = member.as(VariableDeclSyntax.self),
             body.bindingSpecifier.text == "var",
@@ -66,50 +55,8 @@ extension ViewStateReducerMacro: MemberAttributeMacro {
             let binding = body.bindings.first,
             let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
             identifier.text == "body",
-            case .getter = binding.accessorBlock?.accessors,
-            let genericArgs = binding.typeAnnotation?
-                .type.as(SomeOrAnyTypeSyntax.self)?
-                .constraint.as(IdentifierTypeSyntax.self)?
-                .genericArgumentClause?
-                .arguments
+            case .getter = binding.accessorBlock?.accessors
         {
-            if macroGenerics != nil,
-                genericArgs.count != 1,
-                let argument = genericArgs.first?.argument.as(IdentifierTypeSyntax.self)?.name.text,
-                argument != "Self"
-            {
-                let bodyGenericArgNames =
-                    genericArgs
-                    .compactMap { $0.argument.as(IdentifierTypeSyntax.self)?.name.text }
-                var newTypeAnnotation = binding.typeAnnotation
-
-                newTypeAnnotation?.type = TypeSyntax(stringLiteral: "some ViewStateReducerOf<Self> ")
-
-                context.diagnose(
-                    Diagnostic(
-                        node: identifier,
-                        message: MacroExpansionErrorMessage(
-                            """
-                            Generic parameters have already been applied to the attached \
-                            macro and will take precedence over those specified in `body`
-                            """
-                        ),
-                        fixIt: .replace(
-                            message: MacroExpansionFixItMessage(
-                                """
-                                Replace 'some ViewStateReducer<\(bodyGenericArgNames.joined(separator: ", "))>' \
-                                with 'some ViewStateReducerOf<Self>'
-                                """
-                            ),
-                            oldNode: binding,
-                            newNode:
-                                binding
-                                .with(\.typeAnnotation, newTypeAnnotation)
-                        )
-                    )
-                )
-                return []
-            }
             for attribute in body.attributes {
                 guard case .attribute(let attributeSyntax) = attribute,
                     let attributeName = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self)?.name.text
@@ -124,15 +71,7 @@ extension ViewStateReducerMacro: MemberAttributeMacro {
             }
 
             let builderArguments: TokenSyntax =
-                if let macroGenerics {
-                    .identifier("Lattice.ViewStateReducerBuilder<\(macroGenerics)>")
-                } else if genericArgs.count == 1 {
-                    .identifier(
-                        "Lattice.ViewStateReducerBuilder<\(genericArgs.description).DomainState, \(genericArgs.description).ViewState>"
-                    )
-                } else {
-                    .identifier("Lattice.ViewStateReducerBuilder<\(genericArgs)>")
-                }
+                .identifier("Lattice.ViewStateReducerBuilder<\(macroGenerics)>")
             return [
                 AttributeSyntax(
                     attributeName: IdentifierTypeSyntax(name: builderArguments)
@@ -149,6 +88,43 @@ extension ViewStateReducerMacro: MemberMacro {
         providingMembersOf declaration: D,
         in context: C
     ) throws -> [DeclSyntax] {
+        let attributes = declaration.attributes
+        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
+            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
+        else {
+            return []
+        }
+
+        guard let generics = attrName.genericArgumentClause else {
+            context.diagnose(
+                Diagnostic(
+                    node: node.attributeName,
+                    message: MacroExpansionErrorMessage(
+                        """
+                        @ViewStateReducer requires 2 generic arguments: \
+                        one for the ViewStateReducer's domain state type and one for its view state type.
+                        """
+                    )
+                )
+            )
+            return []
+        }
+
+        guard generics.arguments.count == 2 else {
+            context.diagnose(
+                Diagnostic(
+                    node: node.attributeName,
+                    message: MacroExpansionErrorMessage(
+                        """
+                        @ViewStateReducer requires exactly 2 generic arguments: \
+                        one for the ViewStateReducer's domain state type and one for its view state type.
+                        """
+                    )
+                )
+            )
+            return []
+        }
+
         let memberBlock = declaration.memberBlock
         let existingTypeAliases = memberBlock
             .members
@@ -161,89 +137,75 @@ extension ViewStateReducerMacro: MemberMacro {
                 }
             }
 
-        let attributes = declaration.attributes
-        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
-            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
-        else {
-            // TODO: - Diagnostic?
-            return []
+        let argumentsArray = generics
+            .arguments
+            .compactMap { $0.argument.as(IdentifierTypeSyntax.self) }
+        let domainStateType = argumentsArray[0].name.text
+        let viewStateType = argumentsArray[1].name.text
+        var decls: [DeclSyntax] = []
+        let hasInitialViewState = hasInitialViewStateMethod(in: memberBlock)
+        let bodyUsesBuildViewState = bodyReferencesBuildViewState(in: memberBlock)
+        let defaultValueProviderConformance = localDefaultValueProviderConformance(
+            in: memberBlock,
+            forTypeNamed: viewStateType
+        )
+
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "DomainState",
+                typeName: domainStateType
+            )
+        ) {
+            decls.append(
+                """
+                typealias DomainState = \(raw: domainStateType)
+                """
+            )
         }
 
-        if let generics = attrName.genericArgumentClause,
-            generics.arguments.count == 2
-        {
-            let argumentsArray = generics
-                .arguments
-                .compactMap { $0.argument.as(IdentifierTypeSyntax.self) }
-            let domainStateType = argumentsArray[0].name.text
-            let viewStateType = argumentsArray[1].name.text
-            var decls: [DeclSyntax] = []
-            let hasInitialViewState = hasInitialViewStateMethod(in: memberBlock)
-            let bodyUsesBuildViewState = bodyReferencesBuildViewState(in: memberBlock)
-            let defaultValueProviderConformance = localDefaultValueProviderConformance(
-                in: memberBlock,
-                forTypeNamed: viewStateType
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "ViewState",
+                typeName: viewStateType
             )
-
-            handleTypeAlias(
-                existingTypeAliases,
-                context: context,
-                aliasType: .init(
-                    rawValue: "DomainState",
-                    typeName: domainStateType
-                )
-            ) {
-                decls.append(
-                    """
-                    typealias DomainState = \(raw: domainStateType)
-                    """
-                )
-            }
-
-            handleTypeAlias(
-                existingTypeAliases,
-                context: context,
-                aliasType: .init(
-                    rawValue: "ViewState",
-                    typeName: viewStateType
-                )
-            ) {
-                decls.append(
-                    """
-                    typealias ViewState = \(raw: viewStateType)
-                    """
-                )
-            }
-            if !hasInitialViewState,
-                bodyUsesBuildViewState
-            {
-                if defaultValueProviderConformance == false {
-                    context
-                        .diagnose(
-                            Diagnostic(
-                                node: declaration,
-                                message: MacroExpansionErrorMessage(
-                                    """
-                                    Missing `initialViewState(for:)` on this `@ViewStateReducer`. \
-                                    Add an explicit implementation or conform \(viewStateType) to DefaultValueProvider.
-                                    """
-                                )
+        ) {
+            decls.append(
+                """
+                typealias ViewState = \(raw: viewStateType)
+                """
+            )
+        }
+        if !hasInitialViewState,
+            bodyUsesBuildViewState
+        {
+            if defaultValueProviderConformance == false {
+                context
+                    .diagnose(
+                        Diagnostic(
+                            node: declaration,
+                            message: MacroExpansionErrorMessage(
+                                """
+                                Missing `initialViewState(for:)` on this `@ViewStateReducer`. \
+                                Add an explicit implementation or conform \(viewStateType) to DefaultValueProvider.
+                                """
                             )
                         )
-                } else {
-                    decls.append(
-                        """
-                        func initialViewState(for _: DomainState) -> ViewState {
-                            .defaultValue
-                        }
-                        """
                     )
-                }
+            } else {
+                decls.append(
+                    """
+                    func initialViewState(for _: DomainState) -> ViewState {
+                        .defaultValue
+                    }
+                    """
+                )
             }
-            return decls
-        } else {
-            return []
         }
+        return decls
     }
 
     private static func handleTypeAlias<C: MacroExpansionContext>(

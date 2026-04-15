@@ -9,7 +9,7 @@ final class AsyncCounterInteractorTests {
 
     @Test func asyncWork() async throws {
         let model = makeTestViewModel(
-            initialDomainState: AsyncCounterInteractor.State(count: 0),
+            initialDomainState: AsyncCounterState(count: 0),
             interactor: AsyncCounterInteractor()
         )
 

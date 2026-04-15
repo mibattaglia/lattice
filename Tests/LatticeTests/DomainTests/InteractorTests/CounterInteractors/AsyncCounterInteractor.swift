@@ -2,18 +2,18 @@ import Foundation
 
 @testable import Lattice
 
-@Interactor
+struct AsyncCounterState: Equatable, Sendable {
+    var count: Int
+}
+
+enum AsyncCounterAction: Sendable, Equatable {
+    case increment
+    case asyncIncrement
+}
+
+@Interactor<AsyncCounterState, AsyncCounterAction>
 struct AsyncCounterInteractor {
-    struct State: Equatable, Sendable {
-        var count: Int
-    }
-
-    enum Action: Sendable, Equatable {
-        case increment
-        case asyncIncrement
-    }
-
-    var body: some Interactor<State, Action> {
+    var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
             case .increment:

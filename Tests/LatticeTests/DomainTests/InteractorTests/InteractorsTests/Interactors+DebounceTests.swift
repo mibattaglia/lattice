@@ -20,7 +20,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterInteractor.State(count: 0),
+            initialDomainState: CounterState(count: 0),
             interactor: debounced
         )
 
@@ -47,7 +47,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterInteractor.State(count: 0),
+            initialDomainState: CounterState(count: 0),
             interactor: debounced
         )
 
@@ -115,7 +115,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterInteractor.State(count: 0),
+            initialDomainState: CounterState(count: 0),
             interactor: debounced
         )
 

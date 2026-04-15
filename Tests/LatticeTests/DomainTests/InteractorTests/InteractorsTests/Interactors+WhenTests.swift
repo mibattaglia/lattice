@@ -7,38 +7,38 @@ import Testing
 // MARK: - Test Domain Models
 
 struct ParentState: Equatable, Sendable {
-    var counter: CounterInteractor.State
+    var counter: CounterState
     var otherProperty: String
 }
 
 @CasePathable
 enum ParentAction: Sendable, Equatable {
-    case counter(CounterInteractor.Action)
+    case counter(CounterAction)
     case otherAction
 }
 
 struct TwoCounterState: Equatable, Sendable {
-    var counter1: CounterInteractor.State
-    var counter2: CounterInteractor.State
+    var counter1: CounterState
+    var counter2: CounterState
 }
 
 @CasePathable
 enum TwoCounterAction: Sendable {
-    case counter1(CounterInteractor.Action)
-    case counter2(CounterInteractor.Action)
+    case counter1(CounterAction)
+    case counter2(CounterAction)
 }
 
 @CasePathable
 enum LoadingState: Equatable, Sendable {
     case idle
     case loading
-    case loaded(CounterInteractor.State)
+    case loaded(CounterState)
 }
 
 @CasePathable
 enum LoadingAction: Sendable {
     case startLoading
-    case loaded(CounterInteractor.Action)
+    case loaded(CounterAction)
 }
 
 // MARK: - KeyPath Tests
@@ -49,7 +49,7 @@ struct WhenKeyPathTests {
 
     @Test
     func basicFunctionality() async throws {
-        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
@@ -73,7 +73,7 @@ struct WhenKeyPathTests {
 
     @Test
     func ignoresNonChildActions() async throws {
-        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
@@ -96,7 +96,7 @@ struct WhenKeyPathTests {
 
     @Test
     func multipleActions() async throws {
-        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
@@ -117,9 +117,9 @@ struct WhenKeyPathTests {
 
     @Test
     func childEmissionMapsToParentAction() async throws {
-        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
-        let childInteractor = Interact<CounterInteractor.State, CounterInteractor.Action> { state, action in
+        let childInteractor = Interact<CounterState, CounterAction> { state, action in
             switch action {
             case .increment:
                 state.count += 1
@@ -161,7 +161,7 @@ struct WhenModifierTests {
 
     @Test
     func modifierCombinesWithParent() async throws {
-        var state = ParentState(counter: CounterInteractor.State(count: 0), otherProperty: "test")
+        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interact<ParentState, ParentAction> { state, action in
             switch action {
@@ -187,8 +187,8 @@ struct WhenModifierTests {
     @Test
     func multipleWhenModifiers() async throws {
         var state = TwoCounterState(
-            counter1: CounterInteractor.State(count: 0),
-            counter2: CounterInteractor.State(count: 10)
+            counter1: CounterState(count: 0),
+            counter2: CounterState(count: 10)
         )
 
         let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in .none }
@@ -217,7 +217,7 @@ struct WhenCasePathTests {
 
     @Test
     func basicFunctionality() async throws {
-        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+        var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
             state: \.loaded,
@@ -267,7 +267,7 @@ struct WhenCasePathTests {
 
     @Test
     func ignoresNonChildActions() async throws {
-        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+        var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
             state: \.loaded,
@@ -294,7 +294,7 @@ struct WhenCasePathTests {
 
     @Test
     func casePathModifier() async throws {
-        var state = LoadingState.loaded(CounterInteractor.State(count: 0))
+        var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interact<LoadingState, LoadingAction> { state, action in
             switch action {

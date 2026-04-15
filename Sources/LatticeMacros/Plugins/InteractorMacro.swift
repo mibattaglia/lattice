@@ -42,23 +42,12 @@ extension InteractorMacro: MemberAttributeMacro {
         providingAttributesFor member: M,
         in context: C
     ) throws -> [AttributeSyntax] {
-        let macroGenerics = node.attributeName.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
-        if let macroGenerics {
-            if macroGenerics.count > 2 {
-                context
-                    .diagnose(
-                        Diagnostic(
-                            node: node.attributeName,
-                            message: MacroExpansionErrorMessage(
-                                """
-                                Only 2 generic arguments should be applied the @Interactor macro. \
-                                One for the Interactor's state type and one for its action type. 
-                                """
-                            )
-                        )
-                    )
-                return []
-            }
+        guard let macroGenerics = node.attributeName.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
+        else {
+            return []
+        }
+        guard macroGenerics.count == 2 else {
+            return []
         }
         if let body = member.as(VariableDeclSyntax.self),
             body.bindingSpecifier.text == "var",
@@ -66,50 +55,8 @@ extension InteractorMacro: MemberAttributeMacro {
             let binding = body.bindings.first,
             let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
             identifier.text == "body",
-            case .getter = binding.accessorBlock?.accessors,
-            let genericArgs = binding.typeAnnotation?
-                .type.as(SomeOrAnyTypeSyntax.self)?
-                .constraint.as(IdentifierTypeSyntax.self)?
-                .genericArgumentClause?
-                .arguments
+            case .getter = binding.accessorBlock?.accessors
         {
-            if macroGenerics != nil,
-                genericArgs.count != 1,
-                let argument = genericArgs.first?.argument.as(IdentifierTypeSyntax.self)?.name.text,
-                argument != "Self"
-            {
-                let bodyGenericArgNames =
-                    genericArgs
-                    .compactMap { $0.argument.as(IdentifierTypeSyntax.self)?.name.text }
-                var newTypeAnnotation = binding.typeAnnotation
-
-                newTypeAnnotation?.type = TypeSyntax(stringLiteral: "some InteractorOf<Self> ")
-
-                context.diagnose(
-                    Diagnostic(
-                        node: identifier,
-                        message: MacroExpansionErrorMessage(
-                            """
-                            Generic parameters have already been applied to the attached \
-                            macro and will take precedence over those specified in `body`
-                            """
-                        ),
-                        fixIt: .replace(
-                            message: MacroExpansionFixItMessage(
-                                """
-                                Replace 'some Interactor<\(bodyGenericArgNames.joined(separator: ", "))>' \
-                                with 'some InteractorOf<Self>'
-                                """
-                            ),
-                            oldNode: binding,
-                            newNode:
-                                binding
-                                .with(\.typeAnnotation, newTypeAnnotation)
-                        )
-                    )
-                )
-                return []
-            }
             for attribute in body.attributes {
                 guard case .attribute(let attributeSyntax) = attribute,
                     let attributeName = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self)?.name.text
@@ -124,15 +71,7 @@ extension InteractorMacro: MemberAttributeMacro {
             }
 
             let builderArguments: TokenSyntax =
-                if let macroGenerics {
-                    .identifier("Lattice.InteractorBuilder<\(macroGenerics)>")
-                } else if genericArgs.count == 1 {
-                    .identifier(
-                        "Lattice.InteractorBuilder<\(genericArgs.description).State, \(genericArgs.description).Action>"
-                    )
-                } else {
-                    .identifier("Lattice.InteractorBuilder<\(genericArgs)>")
-                }
+                .identifier("Lattice.InteractorBuilder<\(macroGenerics)>")
             return [
                 AttributeSyntax(
                     attributeName: IdentifierTypeSyntax(name: builderArguments)
@@ -149,6 +88,43 @@ extension InteractorMacro: MemberMacro {
         providingMembersOf declaration: D,
         in context: C
     ) throws -> [DeclSyntax] {
+        let attributes = declaration.attributes
+        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
+            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
+        else {
+            return []
+        }
+
+        guard let generics = attrName.genericArgumentClause else {
+            context.diagnose(
+                Diagnostic(
+                    node: node.attributeName,
+                    message: MacroExpansionErrorMessage(
+                        """
+                        @Interactor requires 2 generic arguments: \
+                        one for the Interactor's state type and one for its action type.
+                        """
+                    )
+                )
+            )
+            return []
+        }
+
+        guard generics.arguments.count == 2 else {
+            context.diagnose(
+                Diagnostic(
+                    node: node.attributeName,
+                    message: MacroExpansionErrorMessage(
+                        """
+                        @Interactor requires exactly 2 generic arguments: \
+                        one for the Interactor's state type and one for its action type.
+                        """
+                    )
+                )
+            )
+            return []
+        }
+
         let memberBlock = declaration.memberBlock
         let existingTypeAliases = memberBlock
             .members
@@ -161,55 +137,41 @@ extension InteractorMacro: MemberMacro {
                 }
             }
 
-        let attributes = declaration.attributes
-        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
-            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
-        else {
-            // TODO: - Diagnostic?
-            return []
+        let argumentsArray = Array(generics.arguments)
+        let domainStateType = argumentsArray[0].argument.trimmedDescription
+        let eventType = argumentsArray[1].argument.trimmedDescription
+        var decls: [DeclSyntax] = []
+
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "DomainState",
+                typeName: domainStateType
+            )
+        ) {
+            decls.append(
+                """
+                typealias DomainState = \(raw: domainStateType)
+                """
+            )
         }
 
-        if let generics = attrName.genericArgumentClause,
-            generics.arguments.count == 2
-        {
-            let argumentsArray = Array(generics.arguments)
-            let domainStateType = argumentsArray[0].argument.trimmedDescription
-            let eventType = argumentsArray[1].argument.trimmedDescription
-            var decls: [DeclSyntax] = []
-
-            handleTypeAlias(
-                existingTypeAliases,
-                context: context,
-                aliasType: .init(
-                    rawValue: "DomainState",
-                    typeName: domainStateType
-                )
-            ) {
-                decls.append(
-                    """
-                    typealias DomainState = \(raw: domainStateType)
-                    """
-                )
-            }
-
-            handleTypeAlias(
-                existingTypeAliases,
-                context: context,
-                aliasType: .init(
-                    rawValue: "Action",
-                    typeName: eventType
-                )
-            ) {
-                decls.append(
-                    """
-                    typealias Action = \(raw: eventType)
-                    """
-                )
-            }
-            return decls
-        } else {
-            return []
+        handleTypeAlias(
+            existingTypeAliases,
+            context: context,
+            aliasType: .init(
+                rawValue: "Action",
+                typeName: eventType
+            )
+        ) {
+            decls.append(
+                """
+                typealias Action = \(raw: eventType)
+                """
+            )
         }
+        return decls
     }
 
     private static func handleTypeAlias<C: MacroExpansionContext>(
