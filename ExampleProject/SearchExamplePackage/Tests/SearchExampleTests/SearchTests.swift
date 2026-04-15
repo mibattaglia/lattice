@@ -20,82 +20,147 @@ struct SearchTests {
             for: "new"
         )
 
-        let feature = Feature(
-            interactor: SearchInteractor(
-                weatherService: weatherService,
-                clock: clock,
-                debounceDuration: .milliseconds(300)
-            ),
-            reducer: SearchViewStateReducer()
-        )
-        let viewModel = ViewModel(
-            initialDomainState: .results(.none),
-            feature: feature
+        let model = makeTestViewModel(
+            weatherService: weatherService,
+            clock: clock,
+            initialDomainState: .results(.none)
         )
 
-        let t1 = viewModel.sendViewEvent(.search(.query("n")))
-        let t2 = viewModel.sendViewEvent(.search(.query("ne")))
-        let t3 = viewModel.sendViewEvent(.search(.query("new")))
+        let t1 = try await model.send(.search(.query("n"))) {
+            $0 = makeSearchDomainState(query: "n")
+        }
+        let t2 = try await model.send(.search(.query("ne"))) {
+            $0 = makeSearchDomainState(query: "ne")
+        }
+        let t3 = try await model.send(.search(.query("new"))) {
+            $0 = makeSearchDomainState(query: "new")
+        }
+
+        #expect(model.domainState == makeSearchDomainState(query: "new"))
 
         await clock.advance(by: .milliseconds(300))
-        await t1.finish()
-        await t2.finish()
-        await t3.finish()
+        try await t1.finish()
+        try await t2.finish()
+        try await t3.finish()
 
         let calls = await weatherService.searchCalls()
         #expect(calls == ["new"])
 
-        guard case .loaded(let content) = viewModel.viewState else {
-            Issue.record("Expected loaded view state")
-            return
+        try await model.receive(
+            .search(
+                .searchCompleted(
+                    query: "new",
+                    results: [makeResultItem(id: 1, name: "New York")]
+                )
+            )
+        ) {
+            $0 = makeSearchDomainState(
+                query: "new",
+                results: [makeResultItem(id: 1, name: "New York")]
+            )
         }
 
-        #expect(content.query == "new")
-        #expect(content.listItems.count == 1)
-        #expect(content.listItems.first?.name == "New York")
+        #expect(
+            model.domainState
+                == makeSearchDomainState(
+                    query: "new",
+                    results: [makeResultItem(id: 1, name: "New York")]
+                )
+        )
     }
 
     @Test
     func tappingNewLocationIgnoresOlderForecasts() async throws {
+        let clock = TestClock()
         let weatherService = TestWeatherService()
-        let first = makeResult(id: 1, name: "First")
-        let second = makeResult(id: 2, name: "Second")
 
-        let feature = Feature(
-            interactor: SearchInteractor(weatherService: weatherService),
-            reducer: SearchViewStateReducer()
+        let model = makeTestViewModel(
+            weatherService: weatherService,
+            clock: clock,
+            initialDomainState: makeSearchDomainState(
+                query: "",
+                results: [
+                    makeResultItem(id: 1, name: "First"),
+                    makeResultItem(id: 2, name: "Second"),
+                ],
+                forecastRequestNonce: 1
+            )
         )
-        let viewModel = ViewModel(
-            initialDomainState: .results(
-                .init(
+
+        let expectedInitialState = makeSearchDomainState(
+            query: "",
+            results: [
+                makeResultItem(id: 1, name: "First"),
+                makeResultItem(id: 2, name: "Second"),
+            ],
+            forecastRequestNonce: 1
+        )
+
+        try await model.send(
+            .forecastReceived(
+                index: 0,
+                forecast: makeForecast(dayOffset: 0),
+                requestNonce: 0
+            )
+        )
+        #expect(model.domainState == expectedInitialState)
+
+        try await model.send(
+            .forecastReceived(
+                index: 1,
+                forecast: makeForecast(dayOffset: 1),
+                requestNonce: 0
+            )
+        )
+        #expect(model.domainState == expectedInitialState)
+
+        try await model.send(
+            .forecastReceived(
+                index: 1,
+                forecast: makeForecast(dayOffset: 1),
+                requestNonce: 1
+            )
+        ) { state in
+            applyForecast(
+                makeForecast(dayOffset: 1),
+                at: 1,
+                in: &state
+            )
+        }
+
+        #expect(
+            model.domainState
+                == makeSearchDomainState(
                     query: "",
                     results: [
-                        .init(weatherModel: first, forecast: nil),
-                        .init(weatherModel: second, forecast: nil),
+                        makeResultItem(id: 1, name: "First"),
+                        makeResultItem(
+                            id: 2,
+                            name: "Second",
+                            forecast: makeForecast(dayOffset: 1)
+                        ),
                     ],
                     forecastRequestNonce: 1
                 )
-            ),
-            feature: feature
         )
+    }
 
-        viewModel.sendViewEvent(.forecastReceived(index: 0, forecast: makeForecast(dayOffset: 0), requestNonce: 0))
-        viewModel.sendViewEvent(.forecastReceived(index: 1, forecast: makeForecast(dayOffset: 1), requestNonce: 0))
-        viewModel.sendViewEvent(.forecastReceived(index: 1, forecast: makeForecast(dayOffset: 1), requestNonce: 1))
-
-        guard case .loaded(let content) = viewModel.viewState else {
-            Issue.record("Expected loaded view state")
-            return
-        }
-
-        #expect(content.listItems.count == 2)
-        let firstItem = content.listItems[0]
-        let secondItem = content.listItems[1]
-
-        #expect(firstItem.weather == nil)
-        #expect(secondItem.weather != nil)
-        #expect(firstItem.isLoading == false)
-        #expect(secondItem.isLoading == false)
+    private func makeTestViewModel(
+        weatherService: TestWeatherService,
+        clock: TestClock,
+        initialDomainState: SearchDomainState
+    ) -> TestViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>> {
+        TestViewModel(
+            initialDomainState: initialDomainState,
+            feature: Feature(
+                interactor: SearchInteractor(
+                    weatherService: weatherService,
+                    clock: clock,
+                    debounceDuration: .milliseconds(300)
+                ),
+                reducer: SearchViewStateReducer()
+            )
+        )
     }
 }
 
@@ -143,6 +208,47 @@ private func makeResult(id: Int, name: String) -> WeatherSearchDomainModel.Resul
         id: id,
         name: name
     )
+}
+
+private func makeSearchDomainState(
+    query: String,
+    results: [SearchDomainState.ResultState.ResultItem] = [],
+    forecastRequestNonce: Int = 0
+) -> SearchDomainState {
+    .results(
+        .init(
+            query: query,
+            results: results,
+            forecastRequestNonce: forecastRequestNonce
+        )
+    )
+}
+
+private func makeResultItem(
+    id: Int,
+    name: String,
+    forecast: ForecastDomainModel? = nil,
+    isLoading: Bool = false
+) -> SearchDomainState.ResultState.ResultItem {
+    .init(
+        isLoading: isLoading,
+        weatherModel: makeResult(id: id, name: name),
+        forecast: forecast
+    )
+}
+
+private func applyForecast(
+    _ forecast: ForecastDomainModel,
+    at index: Int,
+    in state: inout SearchDomainState
+) {
+    guard case .results(var resultState) = state, index < resultState.results.count else {
+        return
+    }
+
+    resultState.results[index].isLoading = false
+    resultState.results[index].forecast = forecast
+    state = .results(resultState)
 }
 
 private func makeForecast(dayOffset: Int) -> ForecastDomainModel {

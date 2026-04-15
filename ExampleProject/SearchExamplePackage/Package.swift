@@ -17,7 +17,7 @@ let package = Package(
         .target(
             name: "SearchExample",
             dependencies: [
-                .product(name: "Lattice", package: "swift-lattice")
+                .product(name: "Lattice", package: "lattice")
             ]
         ),
         .testTarget(
