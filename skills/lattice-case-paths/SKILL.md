@@ -20,7 +20,7 @@ Use CasePaths to make Lattice enums (Actions, ViewState enums, Effect-like enums
 
 ## Quick start
 
-1. Add the `swift-case-paths` package dependency (1.0.0+).
+1. Add the `swift-case-paths` package dependency (1.7.0+).
 2. Add the `CasePaths` product to your target's dependencies.
 3. `import CasePaths` where needed.
 4. Apply `@CasePathable` to enums.
@@ -102,7 +102,18 @@ Use a fallback value when the case may be inactive:
 let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default: "")
 ```
 
+## Testing buffered receives
+
+When action enums are `CasePathable`, `TestViewModel.receive` can match by case path instead of full-value equality.
+
+```swift
+try await model.receive(\.loadResponse) {
+    $0.count = 42
+}
+```
+
 ## Gotchas
 
 - Case paths are for enums only. Use regular key paths for structs.
 - For view state, prefer enums with simple associated values and keep domain state in the interactor.
+- `sending(_:)` on a case binding crashes if that case is inactive; use `sending(_:default:)` when the view may read outside the active case.

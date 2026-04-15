@@ -6,7 +6,7 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Lattice architecture: Interactor, ViewModel, ViewStateReducer, Emission",
+      "description": "Lattice architecture: Interactor, Feature, ViewModel, ViewStateReducer, Emission",
       "promptTriggers": {
         "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission"],
         "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)"]
@@ -27,7 +27,7 @@
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/**"],
-        "contentPatterns": ["CasePathable", "AnyCasePath", "\.sending\\("]
+        "contentPatterns": ["CasePathable", "AnyCasePath", "\\.sending\\("]
       }
     },
     "lattice-modern-swiftui": {
@@ -62,14 +62,14 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Testing Lattice interactors with InteractorTestHarness and TestClock",
+      "description": "Testing Lattice features with TestViewModel, TestEventTask, and TestClock",
       "promptTriggers": {
-        "keywords": ["test", "interactor test harness", "testclock", "asyncstreamrecorder"],
-        "intentPatterns": ["(test|assert|verify).*?(interactor|emission)"]
+        "keywords": ["test", "testviewmodel", "testeventtask", "testclock", "exhaustivity"],
+        "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|emission)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Tests/**"],
-        "contentPatterns": ["InteractorTestHarness", "TestClock", "AsyncStreamRecorder"]
+        "contentPatterns": ["TestViewModel", "TestEventTask", "TestClock", "skipReceivedActions", "skipInFlightEffects", "receive\\("]
       }
     }
   }

@@ -1,6 +1,6 @@
 ---
 name: lattice
-description: Build Swift application features using Lattice interactors, view models, and view state reducers.
+description: Build Swift application features using Lattice interactors, features, view models, and view state reducers.
 license: MIT
 metadata:
   short-description: Build features with Lattice.
@@ -10,7 +10,7 @@ metadata:
 
 ## Goal
 
-Build Swift features using Lattice's Interactor + ViewModel + ViewStateReducer architecture.
+Build Swift features using Lattice's Interactor + Feature + ViewModel + ViewStateReducer architecture.
 For new feature setup, use the bootstrap checklist in `resources/bootstrapping.md`.
 
 ## State modeling rules
@@ -19,13 +19,14 @@ For new feature setup, use the bootstrap checklist in `resources/bootstrapping.m
 - `ViewState` is render instructions only. Keep raw formatting concerns out of views.
 - Interactors own side effects and external data access via dependencies.
 - `ViewStateReducer` is a synchronous, stateless translation from domain data to presentation values.
-- Prefer Interactor + reducer layering; use interactor-only features for lightweight BFF/server-driven or inert UI paths.
+- Prefer Interactor + reducer layering; use `Feature(interactor:)` only when `DomainState == ViewState`.
 
 ## Quick start
 
 1. Add the `swift-lattice` package dependency.
 2. Add the `Lattice` product to your target's dependencies.
 3. `import Lattice` as needed.
+4. `@Interactor<DomainState, Action>` and `@ViewStateReducer<DomainState, ViewState>` require explicit generic arguments.
 
 ## Build a basic feature
 
@@ -83,7 +84,7 @@ struct CounterViewStateReducer: Sendable {
 }
 
 struct CounterView: View {
-    @State var viewModel = ViewModel(
+    @State private var viewModel = ViewModel(
         initialDomainState: CounterState(),
         feature: Feature(
             interactor: CounterInteractor(),
@@ -105,6 +106,9 @@ struct CounterView: View {
 - Do use `@ObservableState` on view state types.
 - `BuildViewState { domainState, viewState in ... }` is the standard reducer style.
 - If view state does not conform to `DefaultValueProvider`, provide `initialViewState(for:)`.
+- `sendViewEvent(_:)` returns an `EventTask`; use `finish()` when the view must await root-scope completion, and `cancel()` when lifecycle-bound work should stop.
+- If `DomainState == ViewState`, initialize `Feature` with only an interactor.
+- Pass `areStatesEqual:` when `DomainState` is not `Equatable` or when version/identity comparison is more appropriate than full equality.
 - Don't push formatting (`Date` to text, enum display labels, color decisions) into SwiftUI views.
 
 ## Async work
@@ -127,8 +131,12 @@ struct SearchInteractor: Sendable {
             case .queryChanged(let query):
                 state.query = query
                 return .perform { [searchClient] in
-                    let results = try await searchClient.search(query)
-                    return .searchResponse(results)
+                    do {
+                        let results = try await searchClient.search(query)
+                        return .searchResponse(results)
+                    } catch {
+                        return nil
+                    }
                 }
             case .searchResponse(let results):
                 state.results = results
@@ -139,6 +147,8 @@ struct SearchInteractor: Sendable {
 }
 ```
 
+- `.perform` returns `Action?`; return `nil` when cancelled work or error handling should emit nothing.
+- Use `.append`, `appending(with:)`, or `.then(...)` when follow-up emissions must run sequentially.
 Advanced effect orchestration techniques (debouncing, stream observation, and composition) are covered in `resources/advanced-composition.md`.
 
 ## Bindings from SwiftUI

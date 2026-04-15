@@ -1,6 +1,6 @@
 ---
 name: lattice-testing
-description: Test Lattice interactors, emissions, and view models with InteractorTestHarness and TestClock.
+description: Test Lattice features with TestViewModel, TestEventTask, exhaustivity, and TestClock.
 license: MIT
 metadata:
   short-description: Testing patterns for Lattice.
@@ -10,61 +10,89 @@ metadata:
 
 ## Goal
 
-Write deterministic tests for Lattice features using the provided testing helpers. Prefer testing interactors directly, and use `ViewModel` tests only when UI wiring needs coverage.
+Write deterministic tests for Lattice features with the current step-wise testing model. Prefer `TestViewModel` for feature behavior, and use production `ViewModel` tests only when SwiftUI-facing wiring needs coverage.
 
 ## Core tools
 
-- `InteractorTestHarness` for testing interactors and emissions.
-- `AsyncStreamRecorder` for observing streams in tests.
-- `TestClock` for time control in debounced or delayed effects.
-- `EventTask.finish()` for awaiting all effects spawned by a send.
+- `TestViewModel<F>` for domain-state-first, step-wise feature tests.
+- `TestEventTask` for root-send-scope completion and cancellation.
+- `TestClock` from `Clocks` for debounce and time-based behavior.
+- `exhaustivity`, `skipReceivedActions()`, and `skipInFlightEffects()` for buffered receives and long-lived work.
 
-## Interactor tests
+## Step-wise feature tests
 
 ```swift
+import Clocks
+import Lattice
+import Testing
+
 @Suite
 @MainActor
 final class CounterInteractorTests {
 
-    @Test func increment() throws {
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
-            interactor: CounterInteractor()
+    @Test
+    func increment() async throws {
+        let model = TestViewModel(
+            initialDomainState: CounterState(count: 0),
+            feature: Feature(
+                interactor: CounterInteractor(),
+                reducer: CounterViewStateReducer()
+            )
         )
 
-        harness.send(.increment, .increment)
+        let task = try await model.send(.increment) {
+            $0.count = 1
+        }
 
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-        ])
+        try await task.finish()
     }
 }
 ```
 
-## Async actions
+## Async effect output
 
 ```swift
-@Test func asyncIncrement() async throws {
-    let harness = InteractorTestHarness(
-        initialState: AsyncCounterInteractor.State(count: 0),
-        interactor: AsyncCounterInteractor()
+@Test
+@MainActor
+func asyncIncrement() async throws {
+    let model = TestViewModel(
+        initialDomainState: CounterState(count: 0),
+        feature: Feature(
+            interactor: AsyncCounterInteractor(),
+            reducer: CounterViewStateReducer()
+        )
     )
 
-    await harness.send(.asyncIncrement).finish()
-    try harness.assertLatestState(.init(count: 1))
+    let task = try await model.send(.asyncIncrement)
+
+    try await model.receive(.increment) {
+        $0.count = 1
+    }
+
+    try await task.finish()
 }
 ```
+
+Use `receive(...)` to commit the next buffered effect-emitted action.
+If `Action` is `CasePathable`, prefer `receive(\.loaded)` for case-based assertions.
 
 ## Time-based behavior
 
 Use `TestClock` when effects depend on time (debounce/delay/retry windows).
-At the interactor level, assert both immediate state transitions and post-time-window effect outcomes.
+Assert the synchronous mutation first, advance the clock, then `receive(...)` the emitted action and `finish()` the send scope.
 
-## ViewModel tests
+## Buffered work semantics
 
-Only test ViewModel behavior when you need to validate state mapping or event wiring.
+- `send` asserts only the immediately visible state mutation.
+- `receive(...)` advances through buffered effect output one step at a time.
+- `TestEventTask.finish(timeout:)` waits for root-scope quiescence only; it does not drain buffered receives.
+- `skipReceivedActions()` advances visible state past already buffered receives when a test intentionally skips step-wise assertions.
+- `skipInFlightEffects()` cancels and settles currently running work when a test needs to move past long-lived effects.
+- `exhaustivity` is on by default and enforces explicit handling of buffered receives before later assertions.
+
+## Production ViewModel tests
+
+Only test production `ViewModel` behavior when you need to validate view-state mapping or event wiring.
 
 ```swift
 @Test func viewStateMapping() async throws {
@@ -78,16 +106,16 @@ Only test ViewModel behavior when you need to validate state mapping or event wi
     )
 
     await viewModel.sendViewEvent(.increment).finish()
-    #expect(viewModel.viewState.count == 1)
+    #expect(viewModel.viewState.countText == "1")
 }
 ```
 
 ## Tips
 
-- Prefer `assertStates` for full history and `assertLatestState` for targeted checks.
-- Use `assertActions` to validate action history including effect-emitted actions.
-- Use `AsyncStreamRecorder.waitForNextEmission(timeout:)` for stepwise stream assertions.
-- Cancel long-running recorders with `cancel()` / `cancelAsync()` in teardown paths.
+- Prefer `TestViewModel` for feature behavior and reserve production `ViewModel` tests for reducer/wiring coverage.
+- Keep assertions local to `send` and `receive` blocks so the test documents the intended state transition at each step.
+- Import `Clocks` anywhere you use `TestClock`.
+- Use `task.cancel()` or `skipInFlightEffects()` for intentionally unbounded work.
 
 ## References
 - See `resources/async-and-time.md` for async sequencing and time control.
