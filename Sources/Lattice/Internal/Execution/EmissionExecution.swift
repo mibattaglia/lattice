@@ -5,6 +5,29 @@ enum EmissionExecution {
     static func spawnTasks<Action: Sendable>(
         from emission: Emission<Action>,
         rootScopeID: SendScopeID,
+        cancellationRegistry: EffectCancellationRegistry,
+        makeEffectID: @escaping @Sendable () -> EffectID,
+        effectDidStart: @MainActor @escaping (EffectID) -> Void,
+        effectDidComplete: @MainActor @escaping (EffectID) -> Void,
+        effectDidCancel: @MainActor @escaping (EffectID) -> Void,
+        enqueueEmittedAction: @MainActor @escaping (Action, SendScopeID) -> Void
+    ) -> [EffectID: Task<Void, Never>] {
+        spawnTasks(
+            from: emission,
+            rootScopeID: rootScopeID,
+            effectCancellationRegistry: cancellationRegistry,
+            makeEffectID: makeEffectID,
+            effectDidStart: effectDidStart,
+            effectDidComplete: effectDidComplete,
+            effectDidCancel: effectDidCancel,
+            enqueueEmittedAction: enqueueEmittedAction
+        )
+    }
+
+    static func spawnTasks<Action: Sendable>(
+        from emission: Emission<Action>,
+        rootScopeID: SendScopeID,
+        effectCancellationRegistry: EffectCancellationRegistry,
         makeEffectID: @escaping @Sendable () -> EffectID,
         effectDidStart: @MainActor @escaping (EffectID) -> Void,
         effectDidComplete: @MainActor @escaping (EffectID) -> Void,
@@ -20,18 +43,77 @@ enum EmissionExecution {
             return [:]
 
         case .perform(let work):
-            return makeTrackedTask(
-                effectID: makeEffectID(),
-                effectDidStart: effectDidStart,
-                effectDidComplete: effectDidComplete,
-                effectDidCancel: effectDidCancel
-            ) {
-                guard let action = await work() else { return }
-                guard !Task.isCancelled else { return }
+            guard let debounce = emission.executionOptions?.debounce else {
+                return makeTrackedTask(
+                    effectID: makeEffectID(),
+                    effectDidStart: effectDidStart,
+                    effectDidComplete: effectDidComplete,
+                    effectDidCancel: effectDidCancel
+                ) {
+                    guard let action = await work() else { return }
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        enqueueEmittedAction(action, rootScopeID)
+                    }
+                }
+            }
+
+            let effectID = makeEffectID()
+            effectDidStart(effectID)
+
+            let taskID = UUID()
+
+            let task = Task { @MainActor in
+                defer {
+                    effectCancellationRegistry.removeCurrentTask(
+                        taskID,
+                        for: debounce.token
+                    )
+                }
+
+                do {
+                    try await debounce.sleep()
+                } catch {
+                    // Cancellation during the debounce sleep is expected.
+                }
+
+                guard !Task.isCancelled else {
+                    effectDidCancel(effectID)
+                    return
+                }
+
+                guard let action = await work() else {
+                    if Task.isCancelled {
+                        effectDidCancel(effectID)
+                    } else {
+                        effectDidComplete(effectID)
+                    }
+                    return
+                }
+
+                guard !Task.isCancelled else {
+                    effectDidCancel(effectID)
+                    return
+                }
+
                 await MainActor.run {
                     enqueueEmittedAction(action, rootScopeID)
                 }
+
+                if Task.isCancelled {
+                    effectDidCancel(effectID)
+                } else {
+                    effectDidComplete(effectID)
+                }
             }
+
+            let trackedTask = EffectCancellationRegistry.TrackedTask(id: taskID, task: task)
+            _ = effectCancellationRegistry.replace(
+                trackedTask,
+                for: debounce.token
+            )
+
+            return [effectID: task]
 
         case .observe(let stream):
             return makeTrackedTask(
@@ -56,6 +138,7 @@ enum EmissionExecution {
                     spawnTasks(
                         from: childEmission,
                         rootScopeID: rootScopeID,
+                        effectCancellationRegistry: effectCancellationRegistry,
                         makeEffectID: makeEffectID,
                         effectDidStart: effectDidStart,
                         effectDidComplete: effectDidComplete,
@@ -80,6 +163,7 @@ enum EmissionExecution {
                     let childTasks = spawnTasks(
                         from: childEmission,
                         rootScopeID: rootScopeID,
+                        effectCancellationRegistry: effectCancellationRegistry,
                         makeEffectID: makeEffectID,
                         effectDidStart: { _ in },
                         effectDidComplete: { _ in },

@@ -78,9 +78,9 @@ struct DebounceInteractorTests {
         )
 
         // Send multiple triggers rapidly
-        _ = try await model.send(.trigger) { $0.triggerCount = 1 }
-        _ = try await model.send(.trigger) { $0.triggerCount = 2 }
-        let task = try await model.send(.trigger) { $0.triggerCount = 3 }
+        let task1 = try await model.send(.trigger) { $0.triggerCount = 1 }
+        let task2 = try await model.send(.trigger) { $0.triggerCount = 2 }
+        let task3 = try await model.send(.trigger) { $0.triggerCount = 3 }
 
         // All state changes happened immediately
         #expect(model.domainState.triggerCount == 3)
@@ -90,7 +90,9 @@ struct DebounceInteractorTests {
 
         // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        try await task.finish()
+        try await task1.finish()
+        try await task2.finish()
+        try await task3.finish()
 
         // Only ONE effect executed (the last one)
         #expect(await effectExecutionCount.value == 1)

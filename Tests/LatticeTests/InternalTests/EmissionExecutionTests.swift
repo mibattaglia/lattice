@@ -1,3 +1,4 @@
+import Clocks
 import Foundation
 import Testing
 
@@ -12,6 +13,7 @@ struct EmissionExecutionTests {
 
     @MainActor
     final class Probe {
+        let cancellationRegistry = EffectCancellationRegistry()
         var startedEffectIDs: [EffectID] = []
         var completedEffectIDs: [EffectID] = []
         var cancelledEffectIDs: [EffectID] = []
@@ -24,6 +26,7 @@ struct EmissionExecutionTests {
             EmissionExecution.spawnTasks(
                 from: emission,
                 rootScopeID: rootScopeID,
+                cancellationRegistry: cancellationRegistry,
                 makeEffectID: { EffectID() },
                 effectDidStart: { [weak self] effectID in
                     self?.startedEffectIDs.append(effectID)
@@ -51,6 +54,25 @@ struct EmissionExecutionTests {
         func snapshot() -> [String] {
             events
         }
+    }
+
+    private func makeDebouncedEmission(
+        label: String,
+        clock: TestClock<Duration>,
+        recorder: EventRecorder,
+        token: DebounceToken
+    ) -> Emission<Action> {
+        let debounceDuration: Duration = .milliseconds(300)
+
+        return Emission<Action>.perform {
+            await recorder.append(label)
+            return .logged(label)
+        }.withDebounceExecution(
+            token: token,
+            sleep: {
+                try await clock.sleep(for: debounceDuration)
+            }
+        )
     }
 
     @Test
@@ -215,6 +237,83 @@ struct EmissionExecutionTests {
         #expect(!events.contains("second-started"))
         #expect(!probe.enqueuedActions.contains(.logged("second")))
         #expect(probe.cancelledEffectIDs.count == 1)
+    }
+
+    @Test
+    func debouncedPerformCancellationReplacesEarlierTaskBeforeItRuns() async {
+        let probe = Probe()
+        let clock = TestClock()
+        let recorder = EventRecorder()
+        let token = DebounceToken()
+
+        let firstTasks = probe.spawn(
+            makeDebouncedEmission(
+                label: "first",
+                clock: clock,
+                recorder: recorder,
+                token: token
+            )
+        )
+        let secondTasks = probe.spawn(
+            makeDebouncedEmission(
+                label: "second",
+                clock: clock,
+                recorder: recorder,
+                token: token
+            )
+        )
+
+        #expect(probe.startedEffectIDs.count == 2)
+
+        await clock.advance(by: .milliseconds(300))
+        await wait(for: firstTasks)
+        await wait(for: secondTasks)
+
+        #expect(await recorder.snapshot() == ["second"])
+        #expect(probe.enqueuedActions == [.logged("second")])
+        #expect(probe.completedEffectIDs.count == 1)
+        #expect(probe.cancelledEffectIDs.count == 1)
+    }
+
+    @Test
+    func cancellingOwningRootScopeCancelsCurrentDebouncedTask() async {
+        let probe = Probe()
+        let clock = TestClock()
+        let recorder = EventRecorder()
+        let token = DebounceToken()
+
+        let firstTasks = probe.spawn(
+            makeDebouncedEmission(
+                label: "first",
+                clock: clock,
+                recorder: recorder,
+                token: token
+            )
+        )
+        let secondTasks = probe.spawn(
+            makeDebouncedEmission(
+                label: "second",
+                clock: clock,
+                recorder: recorder,
+                token: token
+            )
+        )
+
+        guard let owningTask = secondTasks.values.first else {
+            Issue.record("Expected debounced emission to create a root task")
+            return
+        }
+
+        owningTask.cancel()
+
+        await clock.advance(by: .milliseconds(300))
+        await wait(for: firstTasks)
+        await wait(for: secondTasks)
+
+        #expect(await recorder.snapshot().isEmpty)
+        #expect(probe.enqueuedActions.isEmpty)
+        #expect(probe.completedEffectIDs.isEmpty)
+        #expect(probe.cancelledEffectIDs.count == 2)
     }
 
     private func wait(for tasks: [EffectID: Task<Void, Never>]) async {

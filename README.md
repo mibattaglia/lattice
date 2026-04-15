@@ -8,7 +8,7 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - Unidirectional flow: views send actions, interactors mutate domain state, reducers derive view state.
 - Feature-based API: `ViewModel` is parameterized by a single feature type (`ViewModel<F>`).
 - Async effects: `.none`, `.action`, `.perform`, `.observe`, `.merge`, and `.append` emissions.
-- Effect-level debouncing: `Emission.debounce(using:)` and `Interactors.Debounce`.
+- Effect-level debouncing: `Emission.debounce(using:)` / `Debouncer`, and `Interactors.Debounce` for one-shot `.perform` effects.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
 - SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
 - Step-wise testing: `TestViewModel`, `TestEventTask`, exhaustivity, and clock-based testing support.
@@ -273,7 +273,7 @@ Use `sending(_:default:)` when the view may access a binding while the state is 
 
 ## Debouncing
 
-Debounce effect emissions while preserving immediate state updates:
+`Interactors.Debounce` preserves immediate synchronous state updates, then debounces top-level one-shot `.perform` emissions with action-ordered cancel-in-flight behavior, closer to TCA's `sleep + cancellable(id:cancelInFlight:)` model.
 
 ```swift
 import Clocks
@@ -301,7 +301,9 @@ struct SearchInteractor: Sendable {
 }
 ```
 
-Or wrap a child interactor:
+For lower-level emission debouncing, `Debouncer` and `Emission.debounce(using:)` still exist separately.
+
+Wrap a child interactor when you want the same runtime behavior around a feature:
 
 ```swift
 Interactors.Debounce(for: .milliseconds(300)) {

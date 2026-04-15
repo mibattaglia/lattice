@@ -94,6 +94,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     private nonisolated let taskRegistry = EffectTaskRegistry()
+    private nonisolated let cancellationRegistry = EffectCancellationRegistry()
 
     private let _$observationRegistrar = ObservationRegistrar()
 
@@ -204,6 +205,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
 
     deinit {
         taskRegistry.cancelAll()
+        cancellationRegistry.cancelAll()
     }
 
     private func enqueue(
@@ -276,6 +278,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         let spawnedTasks = EmissionExecution.spawnTasks(
             from: emission,
             rootScopeID: rootScopeID,
+            cancellationRegistry: cancellationRegistry,
             makeEffectID: { EffectID() },
             effectDidStart: { [weak self] effectID in
                 self?.enrollEffect(effectID, rootScopeID: rootScopeID)

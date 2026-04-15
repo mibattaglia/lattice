@@ -1,5 +1,26 @@
 import Foundation
 
+struct DebounceToken: Hashable, Sendable {
+    let rawValue: UUID
+
+    init(rawValue: UUID = UUID()) {
+        self.rawValue = rawValue
+    }
+}
+
+struct EmissionExecutionOptions: Sendable {
+    var debounce: DebounceExecutionOptions?
+
+    init(debounce: DebounceExecutionOptions? = nil) {
+        self.debounce = debounce
+    }
+}
+
+struct DebounceExecutionOptions: Sendable {
+    let token: DebounceToken
+    let sleep: @Sendable () async throws -> Void
+}
+
 /// Describes how an interactor emits actions after processing an action.
 ///
 /// `Emission` is returned from ``Interactor/interact(state:action:)`` to specify
@@ -97,6 +118,12 @@ public struct Emission<Action: Sendable>: Sendable {
     }
 
     let kind: Kind
+    let executionOptions: EmissionExecutionOptions?
+
+    init(kind: Kind, executionOptions: EmissionExecutionOptions? = nil) {
+        self.kind = kind
+        self.executionOptions = executionOptions
+    }
 
     /// No action to emit.
     public static var none: Emission {
@@ -257,10 +284,13 @@ extension Emission {
             return .action(transform(action))
 
         case .perform(let work):
-            return .perform {
+            return Emission<ParentAction>(
+                kind: .perform {
                 guard let action = await work() else { return nil }
                 return transform(action)
-            }
+                },
+                executionOptions: executionOptions
+            )
 
         case .observe(let stream):
             return .observe {
@@ -281,5 +311,18 @@ extension Emission {
         case .append(let emissions):
             return .append(emissions.map { $0.map(transform) })
         }
+    }
+}
+
+extension Emission {
+    func withDebounceExecution(
+        token: DebounceToken,
+        sleep: @escaping @Sendable () async throws -> Void
+    ) -> Emission {
+        guard case .perform = kind else { return self }
+
+        var options = executionOptions ?? EmissionExecutionOptions()
+        options.debounce = DebounceExecutionOptions(token: token, sleep: sleep)
+        return Emission(kind: kind, executionOptions: options)
     }
 }

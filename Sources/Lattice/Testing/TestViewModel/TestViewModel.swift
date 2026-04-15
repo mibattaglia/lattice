@@ -46,6 +46,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     private let interactor: AnyInteractor<DomainState, Action>
     private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
     private nonisolated let taskRegistry = EffectTaskRegistry()
+    private nonisolated let cancellationRegistry = EffectCancellationRegistry()
 
     /// Creates a test model for a concrete feature.
     public convenience init(
@@ -73,6 +74,7 @@ public final class TestViewModel<F: FeatureProtocol> {
 
     deinit {
         taskRegistry.cancelAll()
+        cancellationRegistry.cancelAll()
     }
 
     /// Sends an action into the feature and asserts the immediately visible state mutation.
@@ -361,6 +363,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         let spawnedTasks = EmissionExecution.spawnTasks(
             from: emission,
             rootScopeID: rootScopeID,
+            cancellationRegistry: cancellationRegistry,
             makeEffectID: { EffectID() },
             effectDidStart: { [weak self] effectID in
                 self?.enrollEffect(effectID, rootScopeID: rootScopeID)

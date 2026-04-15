@@ -29,7 +29,8 @@ extension Interactors {
         public typealias Action = Child.Action
 
         private let child: Child
-        private let debouncer: Debouncer<C, Action?>
+        private let token: DebounceToken
+        private let sleeper: Sleeper
 
         /// Creates a debouncing interactor.
         ///
@@ -39,16 +40,42 @@ extension Interactors {
         ///   - child: A closure that returns the child interactor to wrap.
         public init(for duration: C.Duration, clock: C, child: () -> Child) {
             self.child = child()
-            self.debouncer = Debouncer(for: duration, clock: clock)
+            self.token = DebounceToken()
+            self.sleeper = Sleeper(duration: duration, clock: clock)
         }
 
         public var body: some InteractorOf<Self> { self }
 
         public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
-            // Process child actions immediately
-            child.interact(state: &state, action: action)
-                // Emissions are debounced
-                .debounce(using: debouncer)
+            let emission = child.interact(state: &state, action: action)
+
+            switch emission.kind {
+            case .none:
+                return .none
+
+            case .action:
+                return emission
+
+            case .perform:
+                return emission.withDebounceExecution(token: token) {
+                    try await sleeper.sleep()
+                }
+
+            case .observe:
+                fatalError(
+                    "Interactors.Debounce only supports top-level .perform, .none, and .action child emissions; received .observe."
+                )
+
+            case .merge:
+                fatalError(
+                    "Interactors.Debounce only supports top-level .perform, .none, and .action child emissions; received .merge."
+                )
+
+            case .append:
+                fatalError(
+                    "Interactors.Debounce only supports top-level .perform, .none, and .action child emissions; received .append."
+                )
+            }
         }
     }
 }
@@ -66,3 +93,19 @@ extension Interactors.Debounce where C == ContinuousClock {
 
 public typealias DebounceInteractor<C: Clock & Sendable, Child: Interactor & Sendable> = Interactors.Debounce<C, Child>
 where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable
+
+extension Interactors.Debounce {
+    private actor Sleeper {
+        private let duration: C.Duration
+        private let clock: C
+
+        init(duration: C.Duration, clock: C) {
+            self.duration = duration
+            self.clock = clock
+        }
+
+        func sleep() async throws {
+            try await clock.sleep(for: duration)
+        }
+    }
+}
