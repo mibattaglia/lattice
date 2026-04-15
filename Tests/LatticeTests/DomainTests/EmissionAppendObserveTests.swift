@@ -43,13 +43,24 @@ struct EmissionAppendObserveTests {
 
     @Test
     func finiteObserveCompletesBeforeNextStep() async throws {
-        let harness = InteractorTestHarness(
-            initialState: ObserveSequenceInteractor.State(),
+        let model = makeTestViewModel(
+            initialDomainState: ObserveSequenceInteractor.State(),
             interactor: ObserveSequenceInteractor()
         )
 
-        await harness.send(.startObserveThenPerform).finish()
+        let task = try await model.send(.startObserveThenPerform)
+        try await task.finish()
 
-        #expect(harness.currentState.log == ["stream-1", "stream-2", "after-stream"])
+        #expect(model.domainState.log.isEmpty)
+
+        try await model.receive(.logged("stream-1")) {
+            $0.log = ["stream-1"]
+        }
+        try await model.receive(.logged("stream-2")) {
+            $0.log = ["stream-1", "stream-2"]
+        }
+        try await model.receive(.logged("after-stream")) {
+            $0.log = ["stream-1", "stream-2", "after-stream"]
+        }
     }
 }

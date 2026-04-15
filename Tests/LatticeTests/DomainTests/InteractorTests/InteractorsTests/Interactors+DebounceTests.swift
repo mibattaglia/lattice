@@ -19,18 +19,20 @@ struct DebounceInteractorTests {
             CounterInteractor()
         }
 
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
+        let model = makeTestViewModel(
+            initialDomainState: CounterInteractor.State(count: 0),
             interactor: debounced
         )
 
-        #expect(harness.states == [.init(count: 0)])
+        #expect(model.domainState == .init(count: 0))
 
         // Send action - state changes IMMEDIATELY (effect-level debouncing)
-        harness.send(.increment)
+        _ = try await model.send(.increment) {
+            $0.count = 1
+        }
 
         // State already changed
-        #expect(harness.states == [.init(count: 0), .init(count: 1)])
+        #expect(model.domainState == .init(count: 1))
     }
 
     @Test
@@ -44,24 +46,18 @@ struct DebounceInteractorTests {
             CounterInteractor()
         }
 
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
+        let model = makeTestViewModel(
+            initialDomainState: CounterInteractor.State(count: 0),
             interactor: debounced
         )
 
         // Send multiple rapid actions - ALL state changes happen immediately
-        harness.send(.increment)
-        harness.send(.increment)
-        harness.send(.increment)
+        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = try await model.send(.increment) { $0.count = 2 }
+        _ = try await model.send(.increment) { $0.count = 3 }
 
         // All three increments processed immediately
-        #expect(
-            harness.states == [
-                .init(count: 0),
-                .init(count: 1),
-                .init(count: 2),
-                .init(count: 3),
-            ])
+        #expect(model.domainState == .init(count: 3))
     }
 
     @Test
@@ -76,33 +72,34 @@ struct DebounceInteractorTests {
             EffectInteractor(counter: effectExecutionCount)
         }
 
-        let harness = InteractorTestHarness(
-            initialState: EffectInteractor.State(),
+        let model = makeTestViewModel(
+            initialDomainState: EffectInteractor.State(),
             interactor: debounced
         )
 
         // Send multiple triggers rapidly
-        harness.send(.trigger)
-        harness.send(.trigger)
-        let task = harness.send(.trigger)
+        _ = try await model.send(.trigger) { $0.triggerCount = 1 }
+        _ = try await model.send(.trigger) { $0.triggerCount = 2 }
+        let task = try await model.send(.trigger) { $0.triggerCount = 3 }
 
         // All state changes happened immediately
-        #expect(harness.currentState.triggerCount == 3)
+        #expect(model.domainState.triggerCount == 3)
 
         // But NO effects have executed yet
         #expect(await effectExecutionCount.value == 0)
 
         // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        await task.finish()
+        try await task.finish()
 
         // Only ONE effect executed (the last one)
         #expect(await effectExecutionCount.value == 1)
 
-        await Task.megaYield()
-
         // Effect result reflects the last trigger
-        #expect(harness.currentState.effectResult == 3)
+        try await model.receive(.effectCompleted(3)) {
+            $0.effectResult = 3
+        }
+        #expect(model.domainState.effectResult == 3)
     }
 
     @Test
@@ -117,17 +114,17 @@ struct DebounceInteractorTests {
             CounterInteractor()
         }
 
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
+        let model = makeTestViewModel(
+            initialDomainState: CounterInteractor.State(count: 0),
             interactor: debounced
         )
 
-        harness.send(.increment)
-        harness.send(.decrement)
-        harness.send(.increment)
+        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = try await model.send(.decrement) { $0.count = 0 }
+        _ = try await model.send(.increment) { $0.count = 1 }
 
         // All processed immediately since .none emissions pass through
-        #expect(harness.currentState.count == 1)
+        #expect(model.domainState.count == 1)
     }
 }
 

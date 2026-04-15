@@ -8,22 +8,26 @@ import Testing
 final class AsyncCounterInteractorTests {
 
     @Test func asyncWork() async throws {
-        let interactor = AsyncCounterInteractor()
-        let harness = InteractorTestHarness(
-            initialState: AsyncCounterInteractor.State(count: 0),
-            interactor: interactor
+        let model = makeTestViewModel(
+            initialDomainState: AsyncCounterInteractor.State(count: 0),
+            interactor: AsyncCounterInteractor()
         )
 
-        harness.send(.increment)
-        await harness.send(.asyncIncrement).finish()
-        await Task.yield()
-        harness.send(.increment)
+        _ = try await model.send(.increment) {
+            $0.count = 1
+        }
 
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 3),
-        ])
+        let task = try await model.send(.asyncIncrement) { _ in }
+        try await task.finish()
+
+        try await model.receive(.increment) {
+            $0.count = 2
+        }
+
+        _ = try await model.send(.increment) {
+            $0.count = 3
+        }
+
+        #expect(model.domainState == .init(count: 3))
     }
 }

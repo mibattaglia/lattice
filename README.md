@@ -11,7 +11,7 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - Effect-level debouncing: `Emission.debounce(using:)` and `Interactors.Debounce`.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
 - SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
-- Test tooling: `InteractorTestHarness`, `AsyncStreamRecorder`, and clock-based testing support.
+- Test tooling: `TestViewModel` and clock-based testing support.
 
 ## Installation
 

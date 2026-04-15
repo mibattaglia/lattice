@@ -3,6 +3,11 @@ import Testing
 
 @testable import Lattice
 
+@ObservableState
+private struct AppendViewState: Equatable, Sendable {
+    var log: [String] = []
+}
+
 @Suite(.serialized)
 @MainActor
 struct ViewModelAppendTests {
@@ -58,75 +63,85 @@ struct ViewModelAppendTests {
         }
     }
 
-    private func makeHarness() -> InteractorTestHarness<AppendInteractor.State, AppendInteractor.Action> {
-        InteractorTestHarness(
-            initialState: AppendInteractor.State(),
-            interactor: AppendInteractor()
+    private func makeViewModel()
+        -> ViewModel<Feature<AppendInteractor.Action, AppendInteractor.State, AppendViewState>>
+    {
+        ViewModel(
+            initialDomainState: AppendInteractor.State(),
+            feature: Feature(
+                interactor: AppendInteractor(),
+                reducer: BuildViewState(
+                    initial: { _ in AppendViewState() },
+                    reducerBlock: { domainState, viewState in
+                        viewState.log = domainState.log
+                    }
+                )
+            )
         )
     }
 
     @Test
     func appendedPerformsExecuteInOrder() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        await harness.send(.appendTwoPerforms).finish()
+        await viewModel.sendViewEvent(.appendTwoPerforms).finish()
 
-        #expect(harness.currentState.log == ["first", "second"])
+        #expect(viewModel.viewState.log == ["first", "second"])
     }
 
     @Test
     func appendWaitsForInnerMergeBeforeNext() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        await harness.send(.appendMergeThenPerform).finish()
+        await viewModel.sendViewEvent(.appendMergeThenPerform).finish()
 
-        #expect(harness.currentState.log.contains("merge-a"))
-        #expect(harness.currentState.log.contains("merge-b"))
-        #expect(harness.currentState.log.last == "after-merge")
+        #expect(viewModel.viewState.log.contains("merge-a"))
+        #expect(viewModel.viewState.log.contains("merge-b"))
+        #expect(viewModel.viewState.log.last == "after-merge")
     }
 
     @Test
     func nilPerformDoesNotBlockNextStep() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        await harness.send(.appendPerformReturningNil).finish()
+        await viewModel.sendViewEvent(.appendPerformReturningNil).finish()
 
-        #expect(harness.currentState.log == ["after-nil"])
+        #expect(viewModel.viewState.log == ["after-nil"])
     }
 
     @Test
     func cancelStopsRemainingAppendedSteps() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        let task = harness.send(.appendTwoPerforms)
+        let task = viewModel.sendViewEvent(.appendTwoPerforms)
         task.cancel()
-        try? await Task.sleep(for: .milliseconds(50))
+        await task.finish()
 
         // At most the first step ran; second should not have started
-        #expect(harness.currentState.log.count <= 1)
+        #expect(viewModel.viewState.log.count <= 1)
     }
 
     @Test
     func finishAwaitsAllAppendedSteps() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        let task = harness.send(.appendTwoPerforms)
+        let task = viewModel.sendViewEvent(.appendTwoPerforms)
         #expect(task.hasEffects)
 
         await task.finish()
-        #expect(harness.currentState.log.count == 2)
+        #expect(viewModel.viewState.log.count == 2)
     }
 
     @Test
     func mergeRemainsUnaffected() async throws {
-        let harness = makeHarness()
+        let viewModel = makeViewModel()
 
-        await harness.send(.appendMergeThenPerform).finish()
+        await viewModel.sendViewEvent(.appendMergeThenPerform).finish()
 
         // merge-a and merge-b both appear before after-merge
-        let indexA = harness.currentState.log.firstIndex(of: "merge-a")!
-        let indexB = harness.currentState.log.firstIndex(of: "merge-b")!
-        let indexAfter = harness.currentState.log.firstIndex(of: "after-merge")!
+        let indexA = viewModel.viewState.log.firstIndex(of: "merge-a")!
+        let indexB = viewModel.viewState.log.firstIndex(of: "merge-b")!
+        let indexAfter = viewModel.viewState.log.firstIndex(of: "after-merge")!
 
         #expect(indexA < indexAfter)
         #expect(indexB < indexAfter)

@@ -7,57 +7,49 @@ import Testing
 @MainActor
 final class CounterInteractorTests {
 
-    @Test func increment() throws {
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
-            interactor: CounterInteractor()
-        )
+    @Test
+    func increment() async throws {
+        let model = makeModel()
 
-        harness.send(.increment, .increment, .increment)
+        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = try await model.send(.increment) { $0.count = 2 }
+        _ = try await model.send(.increment) { $0.count = 3 }
 
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 3),
-        ])
+        #expect(model.domainState == .init(count: 3))
     }
 
-    @Test func decrement() throws {
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
-            interactor: CounterInteractor()
-        )
+    @Test
+    func decrement() async throws {
+        let model = makeModel()
 
-        harness.send(.increment, .increment, .increment)
-        harness.send(.decrement, .decrement, .decrement)
+        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = try await model.send(.increment) { $0.count = 2 }
+        _ = try await model.send(.increment) { $0.count = 3 }
+        _ = try await model.send(.decrement) { $0.count = 2 }
+        _ = try await model.send(.decrement) { $0.count = 1 }
+        _ = try await model.send(.decrement) { $0.count = 0 }
 
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 3),
-            .init(count: 2),
-            .init(count: 1),
-            .init(count: 0),
-        ])
+        #expect(model.domainState == .init(count: 0))
     }
 
-    @Test func reset() throws {
-        let harness = InteractorTestHarness(
-            initialState: CounterInteractor.State(count: 0),
+    @Test
+    func reset() async throws {
+        let model = makeModel()
+
+        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = try await model.send(.increment) { $0.count = 2 }
+        _ = try await model.send(.increment) { $0.count = 3 }
+        _ = try await model.send(.reset) { $0.count = 0 }
+
+        #expect(model.domainState == .init(count: 0))
+    }
+
+    private func makeModel()
+        -> TestViewModel<TestSupportFeature<CounterInteractor.Action, CounterInteractor.State>>
+    {
+        makeTestViewModel(
+            initialDomainState: CounterInteractor.State(count: 0),
             interactor: CounterInteractor()
         )
-
-        harness.send(.increment, .increment, .increment)
-        harness.send(.reset)
-
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 3),
-            .init(count: 0),
-        ])
     }
 }

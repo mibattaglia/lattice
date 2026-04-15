@@ -423,6 +423,8 @@ Acceptance:
 
 ### Phase 4: Delete `FeatureRuntime`
 
+Status: completed on April 14, 2026.
+
 Goal:
 
 - remove the obsolete shared runtime owner entirely
@@ -443,6 +445,8 @@ Acceptance:
 - `rg -n "FeatureRuntime" Sources Tests ExampleProject` only finds intentional historical/spec references
 
 ### Phase 5: Replace harness tests and delete the harness
+
+Status: completed on April 14, 2026.
 
 Goal:
 

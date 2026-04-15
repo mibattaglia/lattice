@@ -792,6 +792,8 @@ Acceptance:
 
 ### Phase 4: Remove `FeatureRuntime`
 
+Status: completed on April 14, 2026.
+
 Files:
 
 - [`FeatureRuntime.swift`](/Users/michaelbattaglia/Documents/lattice/lattice/Sources/Lattice/Internal/FeatureRuntime.swift)
@@ -808,6 +810,8 @@ Acceptance:
 - `rg -n "FeatureRuntime" Sources Tests ExampleProject` only finds historical/spec references or intentionally renamed helper text
 
 ### Phase 5: Remove `InteractorTestHarness` and migrate tests
+
+Status: completed on April 14, 2026.
 
 Files:
 

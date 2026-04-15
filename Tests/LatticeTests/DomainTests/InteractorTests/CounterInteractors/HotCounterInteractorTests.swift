@@ -9,32 +9,47 @@ import Testing
 final class HotCounterInteractorTests {
 
     @Test func asyncWork() async throws {
-        let harness = InteractorTestHarness(
-            initialState: HotCounterInteractor.DomainState(count: 0),
+        let model = makeTestViewModel(
+            initialDomainState: HotCounterInteractor.DomainState(count: 0),
             interactor: HotCounterInteractor()
         )
 
-        harness.send(.increment)
+        _ = try await model.send(.increment) {
+            $0.count = 1
+        }
 
         let intPublisher = CurrentValueSubject<Int, Never>(1)
-        let observeTask = harness.send(.observe(intPublisher.eraseToAnyPublisher()))
+        let observeTask = try await model.send(.observe(intPublisher.eraseToAnyPublisher())) { _ in }
 
-        // Allow the CurrentValueSubject's initial value (1) to propagate
-        try await Task.sleep(for: .milliseconds(50))
+        try await model.receive(
+            {
+                if case .addValue(1) = $0 {
+                    return true
+                }
+                return false
+            }
+        ) {
+            $0.count = 2
+        }
 
         intPublisher.send(2)
-        try await Task.sleep(for: .milliseconds(50))
+        try await model.receive(
+            {
+                if case .addValue(2) = $0 {
+                    return true
+                }
+                return false
+            }
+        ) {
+            $0.count = 4
+        }
 
-        harness.send(.increment)
+        _ = try await model.send(.increment) {
+            $0.count = 5
+        }
         intPublisher.send(completion: .finished)
-        await observeTask.finish()
+        try await observeTask.finish()
 
-        try harness.assertStates([
-            .init(count: 0),
-            .init(count: 1),
-            .init(count: 2),
-            .init(count: 4),
-            .init(count: 5),
-        ])
+        #expect(model.domainState == .init(count: 5))
     }
 }
