@@ -9,7 +9,7 @@ import Testing
 struct DebounceInteractorTests {
 
     @Test
-    func stateChangesImmediately() async throws {
+    func stateChangesImmediately() async {
         let clock = TestClock()
 
         let debounced = Interactors.Debounce(
@@ -27,7 +27,7 @@ struct DebounceInteractorTests {
         #expect(model.domainState == .init(count: 0))
 
         // Send action - state changes IMMEDIATELY (effect-level debouncing)
-        _ = try await model.send(.increment) {
+        _ = await model.send(.increment) {
             $0.count = 1
         }
 
@@ -36,7 +36,7 @@ struct DebounceInteractorTests {
     }
 
     @Test
-    func allActionsProcessedImmediately() async throws {
+    func allActionsProcessedImmediately() async {
         let clock = TestClock()
 
         let debounced = Interactors.Debounce(
@@ -52,16 +52,16 @@ struct DebounceInteractorTests {
         )
 
         // Send multiple rapid actions - ALL state changes happen immediately
-        _ = try await model.send(.increment) { $0.count = 1 }
-        _ = try await model.send(.increment) { $0.count = 2 }
-        _ = try await model.send(.increment) { $0.count = 3 }
+        _ = await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.increment) { $0.count = 2 }
+        _ = await model.send(.increment) { $0.count = 3 }
 
         // All three increments processed immediately
         #expect(model.domainState == .init(count: 3))
     }
 
     @Test
-    func effectsAreDebounced() async throws {
+    func effectsAreDebounced() async {
         let clock = TestClock()
         let effectExecutionCount = Counter()
 
@@ -78,9 +78,9 @@ struct DebounceInteractorTests {
         )
 
         // Send multiple triggers rapidly
-        let task1 = try await model.send(.trigger) { $0.triggerCount = 1 }
-        let task2 = try await model.send(.trigger) { $0.triggerCount = 2 }
-        let task3 = try await model.send(.trigger) { $0.triggerCount = 3 }
+        let task1 = await model.send(.trigger) { $0.triggerCount = 1 }
+        let task2 = await model.send(.trigger) { $0.triggerCount = 2 }
+        let task3 = await model.send(.trigger) { $0.triggerCount = 3 }
 
         // All state changes happened immediately
         #expect(model.domainState.triggerCount == 3)
@@ -90,22 +90,22 @@ struct DebounceInteractorTests {
 
         // Advance past debounce period
         await clock.advance(by: .milliseconds(300))
-        try await task1.finish()
-        try await task2.finish()
-        try await task3.finish()
+        await task1.finish()
+        await task2.finish()
+        await task3.finish()
 
         // Only ONE effect executed (the last one)
         #expect(await effectExecutionCount.value == 1)
 
         // Effect result reflects the last trigger
-        try await model.receive(.effectCompleted(3)) {
+        await model.receive(.effectCompleted(3)) {
             $0.effectResult = 3
         }
         #expect(model.domainState.effectResult == 3)
     }
 
     @Test
-    func noneEmissionsPassThrough() async throws {
+    func noneEmissionsPassThrough() async {
         let clock = TestClock()
 
         // CounterInteractor returns .none, should work fine
@@ -121,9 +121,9 @@ struct DebounceInteractorTests {
             interactor: debounced
         )
 
-        _ = try await model.send(.increment) { $0.count = 1 }
-        _ = try await model.send(.decrement) { $0.count = 0 }
-        _ = try await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.decrement) { $0.count = 0 }
+        _ = await model.send(.increment) { $0.count = 1 }
 
         // All processed immediately since .none emissions pass through
         #expect(model.domainState.count == 1)

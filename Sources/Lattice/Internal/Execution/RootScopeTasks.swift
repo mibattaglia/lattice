@@ -1,17 +1,16 @@
 enum RootScopeTasks {
-    @MainActor
     static func makeTask(
         rootScopeID: SendScopeID,
         isQuiescent: @MainActor @escaping (SendScopeID) -> Bool,
         cancelScope: @MainActor @escaping (SendScopeID) -> Void
     ) -> Task<Void, Never> {
-        Task { @MainActor in
+        Task {
             await withTaskCancellationHandler {
-                while !isQuiescent(rootScopeID) {
-                    await Task.yield()
+                while !(await isQuiescent(rootScopeID)) {
+                    try? await Task.sleep(for: .milliseconds(1))
                 }
             } onCancel: {
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     cancelScope(rootScopeID)
                 }
             }

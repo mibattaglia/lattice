@@ -8,38 +8,38 @@ import Testing
 final class CounterInteractorTests {
 
     @Test
-    func increment() async throws {
+    func increment() async {
         let model = makeModel()
 
-        _ = try await model.send(.increment) { $0.count = 1 }
-        _ = try await model.send(.increment) { $0.count = 2 }
-        _ = try await model.send(.increment) { $0.count = 3 }
+        _ = await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.increment) { $0.count = 2 }
+        _ = await model.send(.increment) { $0.count = 3 }
 
         #expect(model.domainState == .init(count: 3))
     }
 
     @Test
-    func decrement() async throws {
+    func decrement() async {
         let model = makeModel()
 
-        _ = try await model.send(.increment) { $0.count = 1 }
-        _ = try await model.send(.increment) { $0.count = 2 }
-        _ = try await model.send(.increment) { $0.count = 3 }
-        _ = try await model.send(.decrement) { $0.count = 2 }
-        _ = try await model.send(.decrement) { $0.count = 1 }
-        _ = try await model.send(.decrement) { $0.count = 0 }
+        _ = await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.increment) { $0.count = 2 }
+        _ = await model.send(.increment) { $0.count = 3 }
+        _ = await model.send(.decrement) { $0.count = 2 }
+        _ = await model.send(.decrement) { $0.count = 1 }
+        _ = await model.send(.decrement) { $0.count = 0 }
 
         #expect(model.domainState == .init(count: 0))
     }
 
     @Test
-    func reset() async throws {
+    func reset() async {
         let model = makeModel()
 
-        _ = try await model.send(.increment) { $0.count = 1 }
-        _ = try await model.send(.increment) { $0.count = 2 }
-        _ = try await model.send(.increment) { $0.count = 3 }
-        _ = try await model.send(.reset) { $0.count = 0 }
+        _ = await model.send(.increment) { $0.count = 1 }
+        _ = await model.send(.increment) { $0.count = 2 }
+        _ = await model.send(.increment) { $0.count = 3 }
+        _ = await model.send(.reset) { $0.count = 0 }
 
         #expect(model.domainState == .init(count: 0))
     }

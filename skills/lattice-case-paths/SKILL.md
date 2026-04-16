@@ -107,7 +107,7 @@ let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default
 When action enums are `CasePathable`, `TestViewModel.receive` can match by case path instead of full-value equality.
 
 ```swift
-try await model.receive(\.loadResponse) {
+await model.receive(\.loadResponse) {
     $0.count = 42
 }
 ```

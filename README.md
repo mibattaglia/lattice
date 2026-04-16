@@ -323,7 +323,8 @@ parentInteractor.when(state: \.childState, action: \.child) {
 
 ## Testing with `TestViewModel`
 
-Use `TestViewModel<F>` for domain-state-first, step-wise feature tests.
+Use `TestViewModel<F>` for domain-state-first, step-wise feature tests. Its assertion APIs are
+non-throwing, so you call them without `try`.
 
 ```swift
 let feature = Feature(interactor: SearchInteractor())
@@ -332,27 +333,27 @@ let model = TestViewModel(
     feature: feature
 )
 
-let task = try await model.send(.queryChanged("lattice")) {
+let task = await model.send(.queryChanged("lattice")) {
     $0.query = "lattice"
     $0.isLoading = true
 }
 
-try await model.receive(.searchResponse(["Lattice"])) {
+await model.receive(.searchResponse(["Lattice"])) {
     $0.isLoading = false
     $0.results = ["Lattice"]
 }
 
-try await task.finish()
+await task.finish()
 ```
 
 `TestViewModel` semantics:
 
 - `send` asserts the immediately visible state mutation and returns a `TestEventTask` for that root send scope.
-- `domainState` always reflects the last asserted or received state, not newer buffered effect output.
-- Effect-emitted actions are buffered until you `receive` or `skipReceivedActions()`.
-- `finish()` checks for unhandled receives before waiting for in-flight effects.
+- `domainState` always reflects the last asserted or received state, not newer buffered emission output.
+- Actions emitted from emissions are buffered until you `receive` or `skipReceivedActions()`.
+- `finish()` checks for unhandled receives before waiting for in-flight emission work.
 - `TestEventTask.finish()` waits for root-scope quiescence only; it does not implicitly drain buffered receives.
-- `skipInFlightEffects()` cancels and settles currently running effects when a test needs to move past long-lived work.
+- `skipInFlightEffects()` cancels and settles currently running emission work when a test needs to move past long-lived work.
 - `exhaustivity` is on by default and enforces explicit handling of buffered receives.
 
 ## Testing

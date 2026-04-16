@@ -37,6 +37,14 @@ let package = Package(
             url: "https://github.com/pointfreeco/swift-clocks",
             .upToNextMajor(from: "1.0.0")
         ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-custom-dump",
+            from: "1.0.0"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/xctest-dynamic-overlay",
+            from: "1.0.0"
+        ),
         .package(url: "https://github.com/apple/swift-collections", from: "1.1.0"),
         .package(url: "https://github.com/pointfreeco/swift-identified-collections", from: "1.1.0"),
     ],
@@ -49,6 +57,8 @@ let package = Package(
                 .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "Clocks", package: "swift-clocks"),
+                .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "IdentifiedCollections", package: "swift-identified-collections"),
                 .product(name: "OrderedCollections", package: "swift-collections"),
             ]
@@ -68,7 +78,9 @@ let package = Package(
         .testTarget(
             name: "LatticeTests",
             dependencies: [
-                "Lattice"
+                "Lattice",
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+                .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
             ]
         ),
         .testTarget(

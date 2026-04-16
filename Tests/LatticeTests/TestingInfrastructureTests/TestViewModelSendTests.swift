@@ -41,17 +41,17 @@ private struct TestSendInteractor: Sendable {
 @MainActor
 struct TestViewModelSendTests {
     @Test
-    func sendBuffersEmittedActionsUntilReceive() async throws {
+    func sendBuffersEmittedActionsUntilReceive() async {
         let model = makeModel()
 
-        let task = try await model.send(.load) {
+        let task = await model.send(.load) {
             $0.count = 1
         }
 
         #expect(task.hasEffects)
         #expect(model.domainState.count == 1)
 
-        try await model.receive(.loaded(41)) {
+        await model.receive(.loaded(41)) {
             $0.count = 42
         }
 
@@ -59,14 +59,14 @@ struct TestViewModelSendTests {
     }
 
     @Test
-    func receiveSupportsPredicateMatching() async throws {
+    func receiveSupportsPredicateMatching() async {
         let model = makeModel()
 
-        _ = try await model.send(.load) {
+        _ = await model.send(.load) {
             $0.count = 1
         }
 
-        try await model.receive(
+        await model.receive(
             {
                 if case .loaded = $0 {
                     return true
@@ -81,18 +81,47 @@ struct TestViewModelSendTests {
     }
 
     @Test
-    func receiveSupportsCasePathMatching() async throws {
+    func receiveSupportsCasePathMatching() async {
         let model = makeModel()
 
-        _ = try await model.send(.load) {
+        _ = await model.send(.load) {
             $0.count = 1
         }
 
-        try await model.receive(\.loaded) {
+        await model.receive(\.loaded) {
             $0.count = 42
         }
 
         #expect(model.domainState.count == 42)
+    }
+
+    @Test
+    func sendFailureIncludesStateDiffAndCallerAttribution() async {
+        let model = makeModel()
+        let matchesSendIssue: @Sendable (Issue) -> Bool = { issue in
+            issue.description.contains("A state change does not match expectation.")
+                && issue.description.contains("count: 999")
+                && issue.description.contains("count: 1")
+                && issue.description.contains("(Expected: −, Actual: +)")
+        }
+        let sendLine = #line + 1
+        await expectIssue(line: sendLine, matching: matchesSendIssue) { _ = await model.send(.load) { $0.count = 999 } }
+    }
+
+    @Test
+    func receiveFailureIncludesActionDiffAndCallerAttribution() async {
+        let model = makeModel()
+        _ = await model.send(.load) {
+            $0.count = 1
+        }
+        let matchesReceiveIssue: @Sendable (Issue) -> Bool = { issue in
+            issue.description.contains("Received unexpected action")
+                && issue.description.contains("increment")
+                && issue.description.contains("loaded(41)")
+                && issue.description.contains("(Expected: −, Received: +)")
+        }
+        let receiveLine = #line + 1
+        await expectIssue(line: receiveLine, matching: matchesReceiveIssue) { await model.receive(.increment) }
     }
 
     private func makeModel() -> TestViewModel<Feature<TestSendAction, TestSendState, TestSendState>> {

@@ -42,24 +42,24 @@ private struct ObserveSequenceInteractor {
 struct EmissionAppendObserveTests {
 
     @Test
-    func finiteObserveCompletesBeforeNextStep() async throws {
+    func finiteObserveCompletesBeforeNextStep() async {
         let model = makeTestViewModel(
             initialDomainState: ObserveSequenceState(),
             interactor: ObserveSequenceInteractor()
         )
 
-        let task = try await model.send(.startObserveThenPerform)
-        try await task.finish()
+        let task = await model.send(.startObserveThenPerform)
+        await task.finish()
 
         #expect(model.domainState.log.isEmpty)
 
-        try await model.receive(.logged("stream-1")) {
+        await model.receive(.logged("stream-1")) {
             $0.log = ["stream-1"]
         }
-        try await model.receive(.logged("stream-2")) {
+        await model.receive(.logged("stream-2")) {
             $0.log = ["stream-1", "stream-2"]
         }
-        try await model.receive(.logged("after-stream")) {
+        await model.receive(.logged("after-stream")) {
             $0.log = ["stream-1", "stream-2", "after-stream"]
         }
     }

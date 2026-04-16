@@ -1,3 +1,4 @@
+import Clocks
 import DequeModule
 import Foundation
 import OrderedCollections
@@ -9,14 +10,14 @@ import OrderedCollections
 /// A domain-state-first testing model for a Lattice feature.
 ///
 /// `TestViewModel` mirrors the production execution helpers used by ``ViewModel``, but buffers
-/// effect-emitted actions until tests explicitly receive or skip them.
+/// actions emitted from emissions until tests explicitly receive or skip them.
 ///
 /// The testing contract is step-wise:
 ///
 /// - ``send(_:assert:fileID:file:line:column:)`` asserts the immediately visible mutation.
-/// - ``receive(_:timeout:assert:fileID:file:line:column:)`` advances through buffered effect output.
+/// - ``receive(_:timeout:assert:fileID:file:line:column:)`` advances through buffered emission output.
 /// - ``domainState`` reflects the last asserted or received state, not hidden buffered state.
-/// - ``finish(timeout:fileID:file:line:column:)`` waits for effects, but does not implicitly drain receives.
+/// - ``finish(timeout:fileID:file:line:column:)`` waits for emissions, but does not implicitly drain receives.
 @MainActor
 public final class TestViewModel<F: FeatureProtocol> {
     public typealias Action = F.Action
@@ -42,6 +43,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     private var rootSendOrigins: OrderedDictionary<SendScopeID, RootSendOrigin<Action>> = [:]
     private var startedRootScopes: Set<SendScopeID> = []
     private var isSending = false
+    private let effectDidStart = AsyncStream.makeStream(of: Void.self)
 
     private let interactor: AnyInteractor<DomainState, Action>
     private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
@@ -90,17 +92,51 @@ public final class TestViewModel<F: FeatureProtocol> {
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws -> TestEventTask {
+    ) async -> TestEventTask {
+        let location = TestIssueLocation(
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
+
         switch exhaustivity {
         case .on:
             guard pendingReceives.isEmpty else {
-                throw TestFailure.mustHandleReceivedActionsBeforeSending(
-                    pendingReceives.map(\.action)
+                reportTestFailure(
+                    TestFailure.mustHandleReceivedActionsBeforeSending(
+                        pendingReceives.map(\.action)
+                    ),
+                    at: location
+                )
+                return TestEventTask(
+                    rawValue: nil,
+                    timeout: timeout
                 )
             }
 
         case .off:
-            try skipPendingReceives(strict: false)
+            do {
+                try skipPendingReceives(strict: false)
+            } catch let failure as TestFailure {
+                reportTestFailure(
+                    failure,
+                    at: location
+                )
+                return TestEventTask(
+                    rawValue: nil,
+                    timeout: timeout
+                )
+            } catch {
+                reportUnexpectedTestError(
+                    error,
+                    at: location
+                )
+                return TestEventTask(
+                    rawValue: nil,
+                    timeout: timeout
+                )
+            }
         }
 
         let previousState = assertedState
@@ -116,19 +152,33 @@ public final class TestViewModel<F: FeatureProtocol> {
 
         enqueue(action, source: .sent, rootScopeID: rootScopeID)
         drainBufferedActionsIfNeeded()
+        let task = makeEventTask(for: rootScopeID)
         await awaitEffectStartup(for: rootScopeID)
 
-        try assertStateChange(
-            operation: "send(\(describe(action)))",
-            previousState: previousState,
-            actualState: domainState,
-            assert: update
-        )
+        do {
+            try assertStateChange(
+                operation: "send(\(describe(action)))",
+                previousState: previousState,
+                actualState: domainState,
+                assert: update
+            )
+        } catch let failure as TestFailure {
+            reportTestFailure(
+                failure,
+                at: location
+            )
+        } catch {
+            reportUnexpectedTestError(
+                error,
+                at: location
+            )
+        }
 
-        return makeEventTask(for: rootScopeID)
+        await Task.megaYield()
+        return task
     }
 
-    /// Receives the next effect-emitted action matching the expected action.
+    /// Receives the next action emitted from an emission matching the expected action.
     ///
     /// Receiving does not re-enter execution. It advances visible state by consuming the next
     /// buffered receive whose action matches `expectedAction`.
@@ -140,20 +190,41 @@ public final class TestViewModel<F: FeatureProtocol> {
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws where Action: Equatable {
-        try await receive(
-            matching: { $0 == expectedAction },
-            expectedActionDescription: describe(expectedAction),
-            timeout: duration,
-            assert: update,
+    ) async where Action: Equatable {
+        let location = TestIssueLocation(
             fileID: fileID,
             filePath: filePath,
             line: line,
             column: column
         )
+
+        await withReportedTestFailures(at: location) {
+            try await receive(
+                matching: { $0 == expectedAction },
+                expectedActionDescription: describe(expectedAction),
+                unexpectedActionFailure: { receivedAction, receivedActionLater in
+                    TestFailure.unexpectedReceivedAction(
+                        receivedAction,
+                        expected: expectedAction,
+                        receivedActionLater: receivedActionLater
+                    )
+                },
+                missingActionFailure: {
+                    TestFailure.expectedToReceiveAction(
+                        expectedAction,
+                        timeout: duration ?? self.timeout,
+                        hasInFlightEffects: !self.inFlightEffects.isEmpty
+                    )
+                },
+                timeout: duration,
+                assert: update
+            )
+        }
+
+        await Task.megaYield()
     }
 
-    /// Receives the next effect-emitted action matching the predicate.
+    /// Receives the next action emitted from an emission matching the predicate.
     public func receive(
         _ isMatching: (_ action: Action) -> Bool,
         timeout duration: Duration? = nil,
@@ -162,21 +233,28 @@ public final class TestViewModel<F: FeatureProtocol> {
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws {
-        try await receive(
-            matching: isMatching,
-            expectedActionDescription: "an action matching predicate",
-            timeout: duration,
-            assert: update,
+    ) async {
+        let location = TestIssueLocation(
             fileID: fileID,
             filePath: filePath,
             line: line,
             column: column
         )
+
+        await withReportedTestFailures(at: location) {
+            try await receive(
+                matching: isMatching,
+                expectedActionDescription: "an action matching predicate",
+                timeout: duration,
+                assert: update
+            )
+        }
+
+        await Task.megaYield()
     }
 
     #if canImport(CasePaths)
-        /// Receives the next effect-emitted action matching a case path.
+        /// Receives the next action emitted from an emission matching a case path.
         public func receive<Value>(
             _ actionCase: KeyPath<Action.AllCasePaths, AnyCasePath<Action, Value>>,
             timeout duration: Duration? = nil,
@@ -185,41 +263,40 @@ public final class TestViewModel<F: FeatureProtocol> {
             file filePath: StaticString = #filePath,
             line: UInt = #line,
             column: UInt = #column
-        ) async throws where Action: CasePathable {
-            try await receive(
-                Action.allCasePaths[keyPath: actionCase],
-                timeout: duration,
-                assert: update,
-                fileID: fileID,
-                file: filePath,
-                line: line,
-                column: column
-            )
-        }
-
-        func receive<Value>(
-            _ actionCase: AnyCasePath<Action, Value>,
-            timeout duration: Duration? = nil,
-            assert update: ((inout DomainState) throws -> Void)? = nil,
-            fileID: StaticString = #fileID,
-            file filePath: StaticString = #filePath,
-            line: UInt = #line,
-            column: UInt = #column
-        ) async throws {
-            try await receive(
-                matching: { actionCase.extract(from: $0) != nil },
-                expectedActionDescription: "an action matching case path",
-                timeout: duration,
-                assert: update,
+        ) async where Action: CasePathable {
+            let location = TestIssueLocation(
                 fileID: fileID,
                 filePath: filePath,
                 line: line,
                 column: column
             )
+
+            await withReportedTestFailures(at: location) {
+                try await receive(
+                    Action.allCasePaths[keyPath: actionCase],
+                    timeout: duration,
+                    assert: update
+                )
+            }
+
+            await Task.megaYield()
+        }
+
+        private func receive<Value>(
+            _ actionCase: AnyCasePath<Action, Value>,
+            timeout duration: Duration? = nil,
+            assert update: ((inout DomainState) throws -> Void)? = nil
+        ) async throws {
+            try await receive(
+                matching: { actionCase.extract(from: $0) != nil },
+                expectedActionDescription: "an action matching case path",
+                timeout: duration,
+                assert: update
+            )
         }
     #endif
 
-    /// Waits for the feature to finish all in-flight effects.
+    /// Waits for the feature to finish all in-flight emissions.
     ///
     /// This checks for unhandled received actions before and after waiting. It does not
     /// automatically consume buffered receives.
@@ -229,36 +306,52 @@ public final class TestViewModel<F: FeatureProtocol> {
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws {
-        guard pendingReceives.isEmpty else {
-            throw TestFailure.unhandledReceivedActions(pendingReceives.map(\.action))
-        }
+    ) async {
+        let location = TestIssueLocation(
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
 
-        _ = (fileID, filePath, line, column)
-        try await waitForEffectsToFinish(timeout: duration ?? timeout)
+        await withReportedTestFailures(at: location) {
+            guard pendingReceives.isEmpty else {
+                throw TestFailure.unhandledReceivedActions(pendingReceives.map(\.action))
+            }
 
-        guard pendingReceives.isEmpty else {
-            throw TestFailure.unhandledReceivedActions(pendingReceives.map(\.action))
+            try await waitForEffectsToFinish(timeout: duration ?? timeout)
+
+            guard pendingReceives.isEmpty else {
+                throw TestFailure.unhandledReceivedActions(pendingReceives.map(\.action))
+            }
         }
     }
 
     /// Explicitly advances visible state past any currently buffered received actions.
     ///
     /// This is the escape hatch for non-exhaustive tests that want to acknowledge already buffered
-    /// effect output without asserting each step individually.
+    /// emission output without asserting each step individually.
     public func skipReceivedActions(
         strict: Bool = true,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws {
-        _ = (fileID, filePath, line, column)
-        await Task.yield()
-        try skipPendingReceives(strict: strict)
+    ) async {
+        let location = TestIssueLocation(
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
+
+        await withReportedTestFailures(at: location) {
+            await Task.yield()
+            try skipPendingReceives(strict: strict)
+        }
     }
 
-    /// Cancels and waits for any currently in-flight effects.
+    /// Cancels and waits for any currently in-flight emissions.
     ///
     /// Already buffered receives remain buffered after cancellation and must still be handled or
     /// skipped separately.
@@ -268,21 +361,29 @@ public final class TestViewModel<F: FeatureProtocol> {
         file filePath: StaticString = #filePath,
         line: UInt = #line,
         column: UInt = #column
-    ) async throws {
-        _ = (fileID, filePath, line, column)
-        await Task.yield()
+    ) async {
+        let location = TestIssueLocation(
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
 
-        guard !inFlightEffects.isEmpty else {
-            guard strict else { return }
-            throw TestFailure.noInFlightEffectsToSkip()
+        await withReportedTestFailures(at: location) {
+            await Task.yield()
+
+            guard !inFlightEffects.isEmpty else {
+                guard strict else { return }
+                throw TestFailure.noInFlightEffectsToSkip()
+            }
+
+            let tasks = Array(effectTasks.values)
+            for task in tasks {
+                task.cancel()
+            }
+
+            try await waitForEffectsToFinish(timeout: timeout)
         }
-
-        let tasks = Array(effectTasks.values)
-        for task in tasks {
-            task.cancel()
-        }
-
-        try await waitForEffectsToFinish(timeout: timeout)
     }
 
     private func enqueue(
@@ -400,6 +501,7 @@ public final class TestViewModel<F: FeatureProtocol> {
             rootScopeID: rootScopeID
         )
         startedRootScopes.insert(rootScopeID)
+        effectDidStart.continuation.yield()
     }
 
     private func completeEffect(
@@ -465,28 +567,33 @@ public final class TestViewModel<F: FeatureProtocol> {
 
     private func awaitEffectStartup(for rootScopeID: SendScopeID) async {
         guard !startedRootScopes.contains(rootScopeID) else { return }
-        await Task.yield()
+        guard rootScopes[rootScopeID] != nil else { return }
+
+        for await _ in effectDidStart.stream {
+            if startedRootScopes.contains(rootScopeID) || rootScopes[rootScopeID] == nil {
+                return
+            }
+        }
     }
 
     private func receive(
         matching predicate: (Action) -> Bool,
         expectedActionDescription: String,
+        unexpectedActionFailure: ((Action, Bool) -> TestFailure)? = nil,
+        missingActionFailure: (() -> TestFailure)? = nil,
         timeout: Duration?,
-        assert update: ((inout DomainState) throws -> Void)?,
-        fileID: StaticString,
-        filePath: StaticString,
-        line: UInt,
-        column: UInt
+        assert update: ((inout DomainState) throws -> Void)?
     ) async throws {
-        _ = (fileID, filePath, line, column)
         try await waitForPendingReceive(
             matching: predicate,
             expectedActionDescription: expectedActionDescription,
+            missingActionFailure: missingActionFailure,
             timeout: timeout
         )
         try consumePendingReceive(
             matching: predicate,
             expectedActionDescription: expectedActionDescription,
+            unexpectedActionFailure: unexpectedActionFailure,
             assert: update
         )
     }
@@ -494,6 +601,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     private func waitForPendingReceive(
         matching predicate: (Action) -> Bool,
         expectedActionDescription: String,
+        missingActionFailure: (() -> TestFailure)?,
         timeout duration: Duration?
     ) async throws {
         if isReceiveReady(matching: predicate) {
@@ -504,8 +612,11 @@ public final class TestViewModel<F: FeatureProtocol> {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
 
-        while clock.now < deadline {
-            await Task.yield()
+        await Task.megaYield()
+        while !Task.isCancelled {
+            await Task.detached(priority: .background) {
+                await Task.yield()
+            }.value
 
             if isReceiveReady(matching: predicate) {
                 return
@@ -514,6 +625,14 @@ public final class TestViewModel<F: FeatureProtocol> {
             if pendingReceives.isEmpty && inFlightEffects.isEmpty {
                 break
             }
+
+            guard clock.now < deadline else {
+                break
+            }
+        }
+
+        if let missingActionFailure {
+            throw missingActionFailure()
         }
 
         throw TestFailure.expectedToReceiveAction(
@@ -538,6 +657,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     private func consumePendingReceive(
         matching predicate: (Action) -> Bool,
         expectedActionDescription: String,
+        unexpectedActionFailure: ((Action, Bool) -> TestFailure)?,
         assert update: ((inout DomainState) throws -> Void)?
     ) throws {
         if case .off = exhaustivity {
@@ -560,6 +680,10 @@ public final class TestViewModel<F: FeatureProtocol> {
 
         guard predicate(pendingReceive.action) else {
             let receivedActionLater = pendingReceives.contains(where: { predicate($0.action) })
+            if let unexpectedActionFailure {
+                throw unexpectedActionFailure(pendingReceive.action, receivedActionLater)
+            }
+
             throw TestFailure.unexpectedReceivedAction(
                 pendingReceive.action,
                 expected: expectedActionDescription,
@@ -598,6 +722,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
 
+        await Task.megaYield()
         while !inFlightEffects.isEmpty {
             guard clock.now < deadline else {
                 throw TestFailure.expectedEffectsToFinish(
@@ -639,9 +764,9 @@ public final class TestViewModel<F: FeatureProtocol> {
 
         guard areStatesEqual(expectedState, actualState) else {
             throw TestFailure.stateMutationDidNotMatchExpectation(
-                operation: operation,
                 expected: expectedState,
-                actual: actualState
+                actual: actualState,
+                didExpectStateChange: update != nil
             )
         }
     }
