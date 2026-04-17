@@ -54,7 +54,7 @@ private struct WaitingInteractor: Sendable {
     }
 }
 
-@Suite(.serialized)
+@Suite
 @MainActor
 struct TestViewModelWaitingTests {
     @Test
