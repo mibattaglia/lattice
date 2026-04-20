@@ -31,7 +31,7 @@ import Testing
 final class CounterInteractorTests {
 
     @Test
-    func increment() async throws {
+    func increment() async {
         let model = TestViewModel(
             initialDomainState: CounterState(count: 0),
             feature: Feature(
@@ -40,21 +40,24 @@ final class CounterInteractorTests {
             )
         )
 
-        let task = try await model.send(.increment) {
+        let task = await model.send(.increment) {
             $0.count = 1
         }
 
-        try await task.finish()
+        await task.finish()
     }
 }
 ```
 
-## Async effect output
+These assertion APIs are non-throwing: use `send`, `receive`, `finish`, and
+`TestEventTask.finish()` directly without `try`.
+
+## Async emission output
 
 ```swift
 @Test
 @MainActor
-func asyncIncrement() async throws {
+func asyncIncrement() async {
     let model = TestViewModel(
         initialDomainState: CounterState(count: 0),
         feature: Feature(
@@ -63,17 +66,17 @@ func asyncIncrement() async throws {
         )
     )
 
-    let task = try await model.send(.asyncIncrement)
+    let task = await model.send(.asyncIncrement)
 
-    try await model.receive(.increment) {
+    await model.receive(.increment) {
         $0.count = 1
     }
 
-    try await task.finish()
+    await task.finish()
 }
 ```
 
-Use `receive(...)` to commit the next buffered effect-emitted action.
+Use `receive(...)` to commit the next buffered emitted action.
 If `Action` is `CasePathable`, prefer `receive(\.loaded)` for case-based assertions.
 
 ## Time-based behavior
@@ -84,10 +87,10 @@ Assert the synchronous mutation first, advance the clock, then `receive(...)` th
 ## Buffered work semantics
 
 - `send` asserts only the immediately visible state mutation.
-- `receive(...)` advances through buffered effect output one step at a time.
+- `receive(...)` advances through buffered emission output one step at a time.
 - `TestEventTask.finish(timeout:)` waits for root-scope quiescence only; it does not drain buffered receives.
 - `skipReceivedActions()` advances visible state past already buffered receives when a test intentionally skips step-wise assertions.
-- `skipInFlightEffects()` cancels and settles currently running work when a test needs to move past long-lived effects.
+- `skipInFlightEffects()` cancels and settles currently running emission work when a test needs to move past long-lived observations or performs.
 - `exhaustivity` is on by default and enforces explicit handling of buffered receives before later assertions.
 
 ## Production ViewModel tests
@@ -95,7 +98,7 @@ Assert the synchronous mutation first, advance the clock, then `receive(...)` th
 Only test production `ViewModel` behavior when you need to validate view-state mapping or event wiring.
 
 ```swift
-@Test func viewStateMapping() async throws {
+@Test func viewStateMapping() async {
     let feature = Feature(
         interactor: CounterInteractor(),
         reducer: CounterViewStateReducer()
@@ -115,7 +118,7 @@ Only test production `ViewModel` behavior when you need to validate view-state m
 - Prefer `TestViewModel` for feature behavior and reserve production `ViewModel` tests for reducer/wiring coverage.
 - Keep assertions local to `send` and `receive` blocks so the test documents the intended state transition at each step.
 - Import `Clocks` anywhere you use `TestClock`.
-- Use `task.cancel()` or `skipInFlightEffects()` for intentionally unbounded work.
+- Use `task.cancel()` or `skipInFlightEffects()` for intentionally unbounded emission work.
 
 ## References
 - See `resources/async-and-time.md` for async sequencing and time control.

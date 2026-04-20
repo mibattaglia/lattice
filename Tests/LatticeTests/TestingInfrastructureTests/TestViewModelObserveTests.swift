@@ -39,18 +39,18 @@ private struct ObserveSequenceInteractor: Sendable {
 @MainActor
 struct TestViewModelObserveTests {
     @Test
-    func observeEmissionsStayBufferedUntilReceived() async throws {
+    func observeEmissionsStayBufferedUntilReceived() async {
         let model = makeModel()
 
-        let task = try await model.send(.start)
-        try await task.finish()
+        let task = await model.send(.start)
+        await task.finish()
 
         #expect(model.domainState.log.isEmpty)
 
-        try await model.receive(.logged("stream-1")) {
+        await model.receive(.logged("stream-1")) {
             $0.log = ["stream-1"]
         }
-        try await model.receive(.logged("stream-2")) {
+        await model.receive(.logged("stream-2")) {
             $0.log = ["stream-1", "stream-2"]
         }
     }

@@ -1,3 +1,4 @@
+import Clocks
 import Foundation
 
 /// A handle to the root send scope started by a single ``TestViewModel/send(_:assert:fileID:file:line:column:)`` call.
@@ -17,30 +18,68 @@ public struct TestEventTask: Sendable {
     }
 
     /// Cancels the underlying root send scope and waits for cancellation to settle.
+    @MainActor
     public func cancel() async {
-        rawValue?.cancel()
-        await rawValue?.value
+        guard let rawValue else { return }
+
+        rawValue.cancel()
+        await rawValue.cancellableValue
     }
 
     /// Awaits quiescence of the underlying root send scope.
     ///
     /// Buffered receives remain queued on ``TestViewModel`` after this returns.
-    public func finish(timeout duration: Duration? = nil) async throws {
+    @MainActor
+    public func finish(
+        timeout duration: Duration? = nil,
+        fileID: StaticString = #fileID,
+        file filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) async {
+        let location = TestIssueLocation(
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
+
+        do {
+            try await finishThrowing(timeout: duration)
+        } catch let failure as TestFailure {
+            reportTestFailure(
+                failure,
+                at: location
+            )
+        } catch {
+            reportUnexpectedTestError(
+                error,
+                at: location
+            )
+        }
+    }
+
+    private func finishThrowing(timeout duration: Duration? = nil) async throws {
         guard let rawValue else { return }
 
         let timeout = duration ?? self.timeout
+        await Task.megaYield()
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await rawValue.value
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw TestFailure.expectedTaskToFinish(timeout: timeout)
-            }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    await rawValue.cancellableValue
+                }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw CancellationError()
+                }
 
-            _ = try await group.next()
-            group.cancelAll()
+                try await group.next()
+                group.cancelAll()
+            }
+        } catch is CancellationError {
+            throw TestFailure.expectedTaskToFinish(timeout: timeout)
         }
     }
 
@@ -49,7 +88,7 @@ public struct TestEventTask: Sendable {
         rawValue?.isCancelled ?? false
     }
 
-    /// Whether this task owns any effect work.
+    /// Whether this task owns any emission work.
     public var hasEffects: Bool {
         rawValue != nil
     }

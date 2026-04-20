@@ -7,24 +7,24 @@ import Testing
 @MainActor
 final class AsyncCounterInteractorTests {
 
-    @Test func asyncWork() async throws {
+    @Test func asyncWork() async {
         let model = makeTestViewModel(
             initialDomainState: AsyncCounterState(count: 0),
             interactor: AsyncCounterInteractor()
         )
 
-        _ = try await model.send(.increment) {
+        _ = await model.send(.increment) {
             $0.count = 1
         }
 
-        let task = try await model.send(.asyncIncrement) { _ in }
-        try await task.finish()
+        let task = await model.send(.asyncIncrement) { _ in }
+        await task.finish()
 
-        try await model.receive(.increment) {
+        await model.receive(.increment) {
             $0.count = 2
         }
 
-        _ = try await model.send(.increment) {
+        _ = await model.send(.increment) {
             $0.count = 3
         }
 

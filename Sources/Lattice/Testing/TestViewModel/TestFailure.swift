@@ -1,18 +1,19 @@
 import Foundation
 
-/// Error thrown by ``TestViewModel`` and ``TestEventTask`` when a test assertion fails.
-///
-/// These diagnostics describe contract violations in step-wise feature tests, such as unhandled
-/// received actions, effects that failed to finish, or state mutations that did not match the
-/// asserted expectation.
-public struct TestFailure: Error, CustomStringConvertible, Sendable {
-    public let message: String
+#if canImport(CustomDump)
+    import CustomDump
+#endif
 
-    public init(_ message: String) {
+/// Internal diagnostic built by ``TestViewModel`` and ``TestEventTask`` when a test assertion
+/// fails.
+struct TestFailure: Error, CustomStringConvertible, Sendable {
+    let message: String
+
+    init(_ message: String) {
         self.message = message
     }
 
-    public var description: String {
+    var description: String {
         message
     }
 }
@@ -21,11 +22,13 @@ extension TestFailure {
     static func mustHandleReceivedActionsBeforeSending<Action>(
         _ actions: some Sequence<Action>
     ) -> Self {
-        Self(
+        let actions = Array(actions)
+        return Self(
             """
-            Must handle received actions before sending another action.
+            Must handle \(actions.count) received action\(actions.count == 1 ? "" : "s") before \
+            sending another action.
 
-            Unhandled actions: \(describe(Array(actions)))
+            Unhandled actions: \(describeActions(actions))
             """
         )
     }
@@ -45,6 +48,25 @@ extension TestFailure {
         )
     }
 
+    static func unexpectedReceivedAction<Action>(
+        _ action: Action,
+        expected expectedAction: Action,
+        receivedActionLater: Bool
+    ) -> Self {
+        let qualifier = receivedActionLater ? " before this one" : ""
+        return Self(
+            """
+            Received unexpected action\(qualifier):
+
+            \(diffMessage(
+                expected: expectedAction,
+                actual: action,
+                actualLabel: "Received"
+            ))
+            """
+        )
+    }
+
     static func expectedToReceiveAction(
         _ expectedActionDescription: String,
         timeout: Duration?,
@@ -56,20 +78,53 @@ extension TestFailure {
         if hasInFlightEffects {
             suggestion =
                 """
-                There are effects in flight. If this action depends on time, make sure the clock \
-                has advanced far enough for the effect to complete.
+                There are emissions in flight. If this action depends on time, make sure the clock \
+                has advanced far enough for the emission to complete.
                 """
         } else {
             suggestion =
                 """
-                There are no in-flight effects that could deliver this action. The expected \
-                effect may have already completed or been cancelled.
+                There are no in-flight emissions that could deliver this action. The expected \
+                emission may have already completed or been cancelled.
                 """
         }
 
         return Self(
             """
             Expected to receive \(expectedActionDescription), but none arrived\(timing).
+
+            \(suggestion)
+            """
+        )
+    }
+
+    static func expectedToReceiveAction<Action>(
+        _ expectedAction: Action,
+        timeout: Duration?,
+        hasInFlightEffects: Bool
+    ) -> Self {
+        let timing = timeout.map { " after \($0)" } ?? ""
+        let suggestion: String
+
+        if hasInFlightEffects {
+            suggestion =
+                """
+                There are emissions in flight. If this action depends on time, make sure the clock \
+                has advanced far enough for the emission to complete.
+                """
+        } else {
+            suggestion =
+                """
+                There are no in-flight emissions that could deliver this action. The expected \
+                emission may have already completed or been cancelled.
+                """
+        }
+
+        return Self(
+            """
+            Expected to receive the following action, but didn't\(timing):
+
+            \(describe(expectedAction).indent(by: 2))
 
             \(suggestion)
             """
@@ -84,7 +139,7 @@ extension TestFailure {
 
         return Self(
             """
-            Expected effects to finish, but \(count) effect\(count == 1 ? "" : "s") \
+            Expected emissions to finish, but \(count) emission\(count == 1 ? "" : "s") \
             remained in flight\(timing).
             """
         )
@@ -96,16 +151,18 @@ extension TestFailure {
     }
 
     static func stateMutationDidNotMatchExpectation<State>(
-        operation: String,
         expected: State,
-        actual: State
+        actual: State,
+        didExpectStateChange: Bool
     ) -> Self {
-        Self(
+        let heading = didExpectStateChange
+            ? "A state change does not match expectation."
+            : "State was not expected to change, but a change occurred."
+        return Self(
             """
-            State mutation did not match expectation while processing \(operation).
+            \(heading)
 
-            Expected: \(describe(expected))
-            Actual: \(describe(actual))
+            \(diffMessage(expected: expected, actual: actual, actualLabel: "Actual"))
             """
         )
     }
@@ -116,10 +173,13 @@ extension TestFailure {
     ) -> Self {
         Self(
             """
-            Assertion closure made no changes while processing \(operation), but the feature \
-            mutated state to:
+            Expected state to change, but no change occurred.
 
-            \(describe(state))
+            The trailing closure made no observable modifications to state. If no change to state \
+            is expected, omit the trailing closure.
+
+            Actual state after \(operation):
+            \(describe(state).indent(by: 2))
             """
         )
     }
@@ -134,11 +194,13 @@ extension TestFailure {
     static func unhandledReceivedActions<Action>(
         _ actions: some Sequence<Action>
     ) -> Self {
-        Self(
+        let actions = Array(actions)
+        return Self(
             """
-            Received unexpected action\(Array(actions).count == 1 ? "" : "s") left unhandled.
+            Received \(actions.count) unexpected action\(actions.count == 1 ? "" : "s") left \
+            unhandled.
 
-            Unhandled actions: \(describe(Array(actions)))
+            Unhandled actions: \(describeActions(actions))
             """
         )
     }
@@ -148,10 +210,45 @@ extension TestFailure {
     }
 
     static func noInFlightEffectsToSkip() -> Self {
-        Self("There were no in-flight effects to skip.")
+        Self("There were no in-flight emissions to skip.")
     }
 }
 
 private func describe<T>(_ value: T) -> String {
-    String(reflecting: value)
+    #if canImport(CustomDump)
+        String(customDumping: value)
+    #else
+        String(reflecting: value)
+    #endif
+}
+
+private func describeActions<Action>(_ actions: [Action]) -> String {
+    describe(actions)
+}
+
+private func diffMessage<T>(
+    expected: T,
+    actual: T,
+    actualLabel: String
+) -> String {
+    #if canImport(CustomDump)
+        if let difference = diff(expected, actual, format: .proportional) {
+            return "\(difference.indent(by: 4))\n\n(Expected: −, \(actualLabel): +)"
+        }
+    #endif
+
+    return """
+        Expected:
+        \(describe(expected).indent(by: 2))
+
+        \(actualLabel):
+        \(describe(actual).indent(by: 2))
+        """
+}
+
+private extension String {
+    func indent(by indent: Int) -> String {
+        let indentation = String(repeating: " ", count: indent)
+        return indentation + self.replacingOccurrences(of: "\n", with: "\n\(indentation)")
+    }
 }

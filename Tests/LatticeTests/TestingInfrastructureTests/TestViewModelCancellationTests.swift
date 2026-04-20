@@ -96,19 +96,42 @@ private struct CancellationInteractor: Sendable {
 @MainActor
 struct TestViewModelCancellationTests {
     @Test
-    func skipInFlightEffectsCancelsRunningEffectWork() async throws {
+    func skipInFlightEffectsCancelsRunningEffectWork() async {
         let probe = CancellationProbe()
         let model = makeModel(probe: probe)
 
-        let task = try await model.send(.start)
+        let task = await model.send(.start)
 
         await probe.waitUntilStarted()
 
-        try await model.skipInFlightEffects()
-        try await task.finish()
+        await model.skipInFlightEffects()
+        await task.finish()
 
         #expect(await probe.cancelled())
         #expect(model.domainState.finished == false)
+    }
+
+    @Test
+    func skipInFlightEffectsCanCancelImmediatelyAfterSendReturns() async {
+        let probe = CancellationProbe()
+        let model = makeModel(probe: probe)
+
+        let task = await model.send(.start)
+
+        await model.skipInFlightEffects()
+        await task.finish()
+
+        #expect(await probe.cancelled())
+        #expect(model.domainState.finished == false)
+    }
+
+    @Test
+    func skipInFlightEffectsReportsMissingWorkAtCaller() async {
+        let probe = CancellationProbe()
+        let model = makeModel(probe: probe)
+
+        let skipLine = #line + 1
+        await expectIssue(comment: "There were no in-flight emissions to skip.", line: skipLine) { await model.skipInFlightEffects() }
     }
 
     private func makeModel(

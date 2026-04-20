@@ -10,6 +10,7 @@ private struct AppendState: Equatable, Sendable {
 
 private enum AppendAction: Equatable, Sendable {
     case runSequence
+    case hang
     case logged(String)
 }
 
@@ -31,6 +32,12 @@ private struct AppendSequenceInteractor: Sendable {
                     }
                 )
 
+            case .hang:
+                return .perform {
+                    try? await Task.sleep(for: .seconds(60))
+                    return nil
+                }
+
             case .logged(let value):
                 state.log.append(value)
                 return .none
@@ -43,23 +50,34 @@ private struct AppendSequenceInteractor: Sendable {
 @MainActor
 struct TestViewModelAppendTests {
     @Test
-    func eventTaskFinishWaitsForEntireAppendSequenceWithoutDrainingReceives() async throws {
+    func eventTaskFinishWaitsForEntireAppendSequenceWithoutDrainingReceives() async {
         let model = makeModel()
 
-        let task = try await model.send(.runSequence)
-        try await task.finish()
+        let task = await model.send(.runSequence)
+        await task.finish()
 
         #expect(model.domainState.log.isEmpty)
 
-        try await model.receive(.logged("first")) {
+        await model.receive(.logged("first")) {
             $0.log = ["first"]
         }
-        try await model.receive(.logged("second")) {
+        await model.receive(.logged("second")) {
             $0.log = ["first", "second"]
         }
-        try await model.receive(.logged("third")) {
+        await model.receive(.logged("third")) {
             $0.log = ["first", "second", "third"]
         }
+    }
+
+    @Test
+    func eventTaskFinishTimeoutReportsAtCaller() async {
+        let model = makeModel()
+        let task = await model.send(.hang)
+
+        let finishLine = #line + 1
+        await expectIssue(containing: "Expected task to finish, but it remained in flight after 0.01 seconds.", line: finishLine) { await task.finish(timeout: .milliseconds(10)) }
+
+        await task.cancel()
     }
 
     private func makeModel() -> TestViewModel<Feature<AppendAction, AppendState, AppendState>> {

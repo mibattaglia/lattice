@@ -46,22 +46,21 @@ struct TestViewModelExhaustivityTests {
     func exhaustiveSendRequiresPendingReceivesToBeHandledFirst() async {
         let model = makeModel()
 
-        let task = try? await model.send(.startSequence)
-        try? await task?.finish()
+        let task = await model.send(.startSequence)
+        await task.finish()
 
-        await expectTestFailure(containing: "Must handle received actions before sending") {
-            _ = try await model.send(.reset)
-        }
+        let sendLine = #line + 1
+        await expectIssue(containing: "Must handle 2 received actions before sending another action", line: sendLine) { _ = await model.send(.reset) }
     }
 
     @Test
-    func nonExhaustiveReceiveCanSkipEarlierBufferedActions() async throws {
+    func nonExhaustiveReceiveCanSkipEarlierBufferedActions() async {
         let model = makeModel()
         model.exhaustivity = .off()
 
-        _ = try await model.send(.startSequence)
+        _ = await model.send(.startSequence)
 
-        try await model.receive(.step(2)) {
+        await model.receive(.step(2)) {
             $0.values = [1, 2]
         }
 
@@ -69,24 +68,23 @@ struct TestViewModelExhaustivityTests {
     }
 
     @Test
-    func skipReceivedActionsAdvancesToLatestBufferedState() async throws {
+    func skipReceivedActionsAdvancesToLatestBufferedState() async {
         let model = makeModel()
 
-        _ = try await model.send(.startSequence)
-        try await model.skipReceivedActions()
+        _ = await model.send(.startSequence)
+        await model.skipReceivedActions()
 
         #expect(model.domainState.values == [1, 2])
     }
 
     @Test
-    func finishFailsWhileReceivedActionsRemainUnhandled() async {
+    func finishReportsUnhandledReceivedActionsAtCaller() async {
         let model = makeModel()
 
-        _ = try? await model.send(.startSequence)
+        _ = await model.send(.startSequence)
 
-        await expectTestFailure(containing: "left unhandled") {
-            try await model.finish()
-        }
+        let finishLine = #line + 1
+        await expectIssue(containing: "left unhandled", line: finishLine) { await model.finish() }
     }
 
     private func makeModel()

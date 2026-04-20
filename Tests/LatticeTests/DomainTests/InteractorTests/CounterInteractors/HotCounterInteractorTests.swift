@@ -8,20 +8,20 @@ import Testing
 @MainActor
 final class HotCounterInteractorTests {
 
-    @Test func asyncWork() async throws {
+    @Test func asyncWork() async {
         let model = makeTestViewModel(
             initialDomainState: HotCounterInteractor.DomainState(count: 0),
             interactor: HotCounterInteractor()
         )
 
-        _ = try await model.send(.increment) {
+        _ = await model.send(.increment) {
             $0.count = 1
         }
 
         let intPublisher = CurrentValueSubject<Int, Never>(1)
-        let observeTask = try await model.send(.observe(intPublisher.eraseToAnyPublisher())) { _ in }
+        let observeTask = await model.send(.observe(intPublisher.eraseToAnyPublisher())) { _ in }
 
-        try await model.receive(
+        await model.receive(
             {
                 if case .addValue(1) = $0 {
                     return true
@@ -33,7 +33,7 @@ final class HotCounterInteractorTests {
         }
 
         intPublisher.send(2)
-        try await model.receive(
+        await model.receive(
             {
                 if case .addValue(2) = $0 {
                     return true
@@ -44,11 +44,11 @@ final class HotCounterInteractorTests {
             $0.count = 4
         }
 
-        _ = try await model.send(.increment) {
+        _ = await model.send(.increment) {
             $0.count = 5
         }
         intPublisher.send(completion: .finished)
-        try await observeTask.finish()
+        await observeTask.finish()
 
         #expect(model.domainState == .init(count: 5))
     }
