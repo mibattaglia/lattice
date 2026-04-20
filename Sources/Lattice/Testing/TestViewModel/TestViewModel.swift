@@ -1,3 +1,4 @@
+#if canImport(Clocks)
 import Clocks
 import DequeModule
 import Foundation
@@ -775,3 +776,4 @@ public final class TestViewModel<F: FeatureProtocol> {
 private func describe<T>(_ value: T) -> String {
     String(reflecting: value)
 }
+#endif
