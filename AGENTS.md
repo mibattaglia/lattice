@@ -55,3 +55,4 @@
 - Keep Swift concurrency annotations consistent (`Sendable`, `@MainActor`) and avoid breaking API surface.
 - Update README/examples if public APIs or macros change.
 - When updating release tags or creating GitHub releases, make sure `Lattice.podspec` has the matching `s.version` first.
+- CocoaPods runtime consumers do not use test helpers; keep `Sources/Lattice/Testing` excluded from `Lattice.podspec` unless adding a dedicated test-support pod.

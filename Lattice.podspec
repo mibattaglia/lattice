@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name           = 'Lattice'
-  s.version        = '0.2.3'
+  s.version        = '0.2.4'
   s.summary        = 'Composable architecture utilities with macros'
   s.description    = 'Lattice runtime + macros (prebuilt plugin) for Swift 6'
   s.author         = 'Lattice'
@@ -12,8 +12,9 @@ Pod::Spec.new do |s|
 
   s.static_framework = true
 
-  # Runtime library sources (exclude macro target)
+  # Runtime library sources (exclude macro target and test helpers)
   s.source_files = 'Sources/Lattice/**/*.{swift}'
+  s.exclude_files = 'Sources/Lattice/Testing/**/*.{swift}'
 
   # Preserve the prebuilt macro binary (you must provide this at release time)
   s.preserve_paths = ['Macros/LatticeMacros']
@@ -37,6 +38,7 @@ Pod::Spec.new do |s|
 
   # CocoaPods dependencies for modules imported by Lattice
   s.dependency 'swift-collections', '~> 1.1'
+  s.dependency 'DequeModule', '~> 1.0.2'
   s.dependency 'OrderedCollections', '~> 1.0.2'
   s.dependency 'swift-identified-collections', '0.1.0'
   s.dependency 'CasePaths', '0.1.1'
