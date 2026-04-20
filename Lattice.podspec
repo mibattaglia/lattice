@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name           = 'Lattice'
-  s.version        = '0.2.2'
+  s.version        = '0.2.3'
   s.summary        = 'Composable architecture utilities with macros'
   s.description    = 'Lattice runtime + macros (prebuilt plugin) for Swift 6'
   s.author         = 'Lattice'
