@@ -183,6 +183,12 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
                 }
             }
         }
+        _modify {
+            defer {
+                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
+            }
+            yield &_viewState
+        }
     }
 
     public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
