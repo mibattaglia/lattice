@@ -6,4 +6,6 @@
   </FileRef>
   <FileRef location = "group:TodosExamplePackage">
   </FileRef>
+  <FileRef location = "group:TimerLeakExamplePackage">
+  </FileRef>
 </Workspace>

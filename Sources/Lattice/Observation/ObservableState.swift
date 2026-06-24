@@ -30,6 +30,12 @@ public struct ObservableStateID: Equatable, Hashable, Sendable {
 
     private var storage: Storage
 
+    #if DEBUG
+        /// Test-only: the identity of the backing storage, so tests can assert that an id's
+        /// storage instance is shared across content-equal assignments.
+        public var _$storageObjectID: ObjectIdentifier { ObjectIdentifier(self.storage) }
+    #endif
+
     private init(storage: Storage) {
         self.storage = storage
     }

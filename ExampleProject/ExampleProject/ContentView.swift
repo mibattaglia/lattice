@@ -7,6 +7,7 @@
 
 import SearchExample
 import SwiftUI
+import TimerLeakExample
 import TodosExample
 
 struct ContentView: View {
@@ -33,6 +34,7 @@ struct ContentView: View {
 private enum Example: String, CaseIterable, Identifiable {
     case search
     case todos
+    case timerLeak
 
     var id: String { rawValue }
 
@@ -42,6 +44,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Search Example"
         case .todos:
             "Todos Example"
+        case .timerLeak:
+            "Timer Leak Example"
         }
     }
 
@@ -51,6 +55,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Search"
         case .todos:
             "Todos"
+        case .timerLeak:
+            "Timer Leak"
         }
     }
 
@@ -61,6 +67,8 @@ private enum Example: String, CaseIterable, Identifiable {
             SearchExampleAppView()
         case .todos:
             TodosExampleAppView()
+        case .timerLeak:
+            TimerLeakExampleAppView()
         }
     }
 }

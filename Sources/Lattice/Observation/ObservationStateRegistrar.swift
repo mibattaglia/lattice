@@ -59,6 +59,38 @@ extension ObservationStateRegistrar {
         }
     }
 
+    /// Mutates an `ObservableState` member, preserving its observation identity when the
+    /// incoming value is content-equal.
+    ///
+    /// Overload resolution prefers this (more-constrained) variant wherever a stored member
+    /// conforms to `ObservableState`. When `newValue` is content-equal to the current value
+    /// but carries a different `_$id` (a freshly constructed value), the current value — and
+    /// its `ObservationRegistrar`/`_$id` at every nested depth — is kept as-is rather than
+    /// replaced, so observers continue tracking the same identity. Identity-equal and
+    /// content-changed assignments behave exactly as the unconstrained `mutate`.
+    @inlinable
+    public func mutate<Subject: Observable, Member, Value: ObservableState>(
+        _ subject: Subject,
+        keyPath: KeyPath<Subject, Member>,
+        _ value: inout Value,
+        _ newValue: Value,
+        _ isIdentityEqual: (Value, Value) -> Bool,
+        _ shouldNotifyObservers: (Value, Value) -> Bool = { _, _ in true }
+    ) {
+        if isIdentityEqual(value, newValue) {
+            // Same identity: the registrar context is shared with `newValue`, so assign
+            // directly.
+            value = newValue
+        } else if !shouldNotifyObservers(value, newValue) {
+            // Content-equal with a different identity: keep the current value so its
+            // registrar/`_$id` — and those of its nested members — are preserved.
+        } else {
+            self.registrar.withMutation(of: subject, keyPath: keyPath) {
+                value = newValue
+            }
+        }
+    }
+
     /// A no-op for non-observable values.
     ///
     /// See ``willModify(_:keyPath:_:)-29op6`` info on what this method does when used with
