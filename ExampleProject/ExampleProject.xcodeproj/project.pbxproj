@@ -10,6 +10,7 @@
 		FF27D95E304512A682826313 /* SearchExample in Frameworks */ = {isa = PBXBuildFile; productRef = C7365673AEF03E05AC1BAC9C /* SearchExample */; };
 		FF0B86F40F8C4289B39DD7BB /* TodosExample in Frameworks */ = {isa = PBXBuildFile; productRef = 029D174D5D0A4D4588DA0862 /* TodosExample */; };
 		536533EFC48B66E680709772 /* TimerLeakExample in Frameworks */ = {isa = PBXBuildFile; productRef = FDABE6693C42640697BB08E2 /* TimerLeakExample */; };
+		FE00000000000000000000B1 /* FineGrainedExample in Frameworks */ = {isa = PBXBuildFile; productRef = FE00000000000000000000B2 /* FineGrainedExample */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +62,7 @@
 				FF27D95E304512A682826313 /* SearchExample in Frameworks */,
 				FF0B86F40F8C4289B39DD7BB /* TodosExample in Frameworks */,
 				536533EFC48B66E680709772 /* TimerLeakExample in Frameworks */,
+				FE00000000000000000000B1 /* FineGrainedExample in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +126,7 @@
 				C7365673AEF03E05AC1BAC9C /* SearchExample */,
 				029D174D5D0A4D4588DA0862 /* TodosExample */,
 				FDABE6693C42640697BB08E2 /* TimerLeakExample */,
+				FE00000000000000000000B2 /* FineGrainedExample */,
 			);
 			productName = ExampleProject;
 			productReference = 1E2338902F3517C6003A76D8 /* ExampleProject.app */;
@@ -215,6 +218,7 @@
 				9CCDBE0658833100E58F2538 /* SearchExamplePackage */,
 				E2DA3E1A1E3B44EDA7A6515F /* TodosExamplePackage */,
 				AD2F7B11648284C0C08866FB /* TimerLeakExamplePackage */,
+				FE00000000000000000000B3 /* FineGrainedExamplePackage */,
 			);
 			targets = (
 				1E23388F2F3517C6003A76D8 /* ExampleProject */,
@@ -289,12 +293,14 @@
 		9CCDBE0658833100E58F2538 /* SearchExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = SearchExamplePackage; };
 		E2DA3E1A1E3B44EDA7A6515F /* TodosExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = TodosExamplePackage; };
 		AD2F7B11648284C0C08866FB /* TimerLeakExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = TimerLeakExamplePackage; };
+		FE00000000000000000000B3 /* FineGrainedExamplePackage */ = {isa = XCLocalSwiftPackageReference; relativePath = FineGrainedExamplePackage; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		C7365673AEF03E05AC1BAC9C /* SearchExample */ = {isa = XCSwiftPackageProductDependency; productName = SearchExample; };
 		029D174D5D0A4D4588DA0862 /* TodosExample */ = {isa = XCSwiftPackageProductDependency; productName = TodosExample; };
 		FDABE6693C42640697BB08E2 /* TimerLeakExample */ = {isa = XCSwiftPackageProductDependency; productName = TimerLeakExample; };
+		FE00000000000000000000B2 /* FineGrainedExample */ = {isa = XCSwiftPackageProductDependency; productName = FineGrainedExample; };
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */

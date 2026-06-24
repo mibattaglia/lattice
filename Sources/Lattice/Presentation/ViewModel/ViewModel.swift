@@ -184,10 +184,11 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
             }
         }
         _modify {
-            defer {
+            let oldID = _viewState._$id
+            yield &_viewState
+            if _viewState._$id != oldID {
                 _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
             }
-            yield &_viewState
         }
     }
 

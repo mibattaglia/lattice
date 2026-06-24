@@ -9,6 +9,7 @@ import SearchExample
 import SwiftUI
 import TimerLeakExample
 import TodosExample
+import FineGrainedExample
 
 struct ContentView: View {
     var body: some View {
@@ -35,6 +36,7 @@ private enum Example: String, CaseIterable, Identifiable {
     case search
     case todos
     case timerLeak
+    case fineGrained
 
     var id: String { rawValue }
 
@@ -46,6 +48,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Todos Example"
         case .timerLeak:
             "Timer Leak Example"
+        case .fineGrained:
+            "Fine-Grained Observation Example"
         }
     }
 
@@ -57,6 +61,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Todos"
         case .timerLeak:
             "Timer Leak"
+        case .fineGrained:
+            "Fine-Grained"
         }
     }
 
@@ -69,6 +75,8 @@ private enum Example: String, CaseIterable, Identifiable {
             TodosExampleAppView()
         case .timerLeak:
             TimerLeakExampleAppView()
+        case .fineGrained:
+            FineGrainedExampleAppView()
         }
     }
 }

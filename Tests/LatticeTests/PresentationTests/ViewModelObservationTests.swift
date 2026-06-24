@@ -25,8 +25,14 @@ struct ViewModelObservationTests {
         #expect(viewModel.viewState.phase.active?.value == "1")
     }
 
+    // Fine-grained observation: an in-place payload mutation (case unchanged) does NOT fire the
+    // coarse `\.phase` keyPath, so an observer that reads only the *whole* enum is not
+    // invalidated. Real views read the payload leaf (see
+    // `casePathMutationReducerInvalidatesNestedValueObservation`) and do re-render. This matches
+    // the documented precision model: in-place mutations flow through the nested registrar, not
+    // the parent keyPath.
     @Test
-    func casePathMutationReducerInvalidatesPhaseObservation() {
+    func casePathMutationDoesNotInvalidateWholePhaseObservation() {
         let viewModel = makeViewModel(reducer: CasePathMutationObservationTestReducer())
         let changeProbe = ObservationChangeProbe()
 
@@ -38,7 +44,7 @@ struct ViewModelObservationTests {
 
         viewModel.sendViewEvent(.increment)
 
-        #expect(changeProbe.didChange)
+        #expect(!changeProbe.didChange)
         #expect(viewModel.viewState.phase.active?.value == "1")
     }
 

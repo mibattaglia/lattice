@@ -8,4 +8,6 @@
   </FileRef>
   <FileRef location = "group:TimerLeakExamplePackage">
   </FileRef>
+  <FileRef location = "group:FineGrainedExamplePackage">
+  </FileRef>
 </Workspace>
