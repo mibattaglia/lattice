@@ -8,12 +8,12 @@
       "priority": "high",
       "description": "Lattice architecture: Interactor, Feature, ViewModel, ViewStateReducer, Emission",
       "promptTriggers": {
-        "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission"],
-        "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)"]
+        "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission", "scope", "scopedviewmodel"],
+        "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)", "(scope|compose).*?(view|child)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/Lattice/**"],
-        "contentPatterns": ["@Interactor", "ViewModel", "ViewStateReducer"]
+        "contentPatterns": ["@Interactor", "ViewModel", "ViewStateReducer", "ScopedViewModel"]
       }
     },
     "lattice-case-paths": {
@@ -22,12 +22,12 @@
       "priority": "medium",
       "description": "CasePaths ergonomics for Lattice actions and view state",
       "promptTriggers": {
-        "keywords": ["case paths", "casepathable", "case path", "enum", "associated value"],
-        "intentPatterns": ["(bind|extract|embed).*?case"]
+        "keywords": ["case paths", "casepathable", "case path", "enum", "associated value", "scopeifactive", "enum scoping"],
+        "intentPatterns": ["(bind|extract|embed|scope).*?case"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/**"],
-        "contentPatterns": ["CasePathable", "AnyCasePath", "\\.sending\\("]
+        "contentPatterns": ["CasePathable", "AnyCasePath", "\\.sending\\(", "scopeIfActive"]
       }
     },
     "lattice-modern-swiftui": {
@@ -36,12 +36,12 @@
       "priority": "medium",
       "description": "SwiftUI with Lattice ViewModel and @Bindable",
       "promptTriggers": {
-        "keywords": ["swiftui", "view", "@bindable", "sendviewevent"],
-        "intentPatterns": ["(build|wire|connect).*?(swiftui|view)"]
+        "keywords": ["swiftui", "view", "@bindable", "sendviewevent", "scoped view", "child view"],
+        "intentPatterns": ["(build|wire|connect|scope).*?(swiftui|view)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/Lattice/Presentation/**"],
-        "contentPatterns": ["@Bindable", "sendViewEvent", "ViewModel"]
+        "contentPatterns": ["@Bindable", "sendViewEvent", "ViewModel", "ScopedViewModel"]
       }
     },
     "lattice-observable-models": {

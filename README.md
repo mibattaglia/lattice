@@ -10,6 +10,7 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - Async effects: `.none`, `.action`, `.perform`, `.observe`, `.merge`, and `.append` emissions.
 - Effect-level debouncing: `Emission.debounce(using:)` / `Debouncer`, and `Interactors.Debounce` for one-shot `.perform` effects.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
+- View composition: `scope(state:action:)` and `ScopedViewModel` project fine-grained child slices of view state, including enum-case payloads via `scopeIfActive`.
 - SwiftUI integration: `@ObservableState`, `@Bindable`, dynamic member lookup, and `EventTask`.
 - Step-wise testing: `TestViewModel`, `TestEventTask`, exhaustivity, and clock-based testing support.
 
@@ -321,6 +322,71 @@ parentInteractor.when(state: \.childState, action: \.child) {
 }
 ```
 
+## Scoped View Composition
+
+`ViewModel.scope(state:action:)` projects a parent view model onto a child slice of view state and a child action space, so child views depend only on their own `ScopedViewModel<ChildState, ChildAction>` instead of the parent's `ViewModel` type.
+
+```swift
+@CasePathable
+enum DashboardAction: Sendable {
+    case header(HeaderAction)
+    case footer(FooterAction)
+}
+
+struct DashboardView: View {
+    @State private var viewModel: ViewModel<DashboardFeature>
+
+    var body: some View {
+        VStack {
+            HeaderView(model: viewModel.scope(state: \.header, action: \.header))
+            FooterView(model: viewModel.scope(state: \.footer, action: \.footer))
+        }
+    }
+}
+
+struct HeaderView: View {
+    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+
+    var body: some View {
+        Text(model.title) // fine-grained: re-renders only when `title` changes
+        Button("Refresh") { model.sendViewEvent(.refreshTapped) }
+    }
+}
+```
+
+`ScopedViewModel` is a stateless value type: it owns no state, effects, or lifecycle, so it is cheap to recreate on every render. Reads walk the parent's live `@ObservableState` getter chain, so child views observe fine-grained; sends embed into the parent action and return the parent's `EventTask`.
+
+- Read members through the scope (`model.title`, `model.badge.count`) for fine-grained observation. Reading the whole `model.viewState` value is coarse: it registers only the slice's identity and re-renders only on wholesale replacement.
+- Create scopes inline in `body`; do not store them in `@State` or long-lived properties (a scope retains its parent view model).
+- Overloads: case-path action embedding (shown above), a closure-based `scope(state:action:)` for non-`CasePathable` actions, and a read-only `scope(state:)` whose action type is `Never`.
+- Scopes compose: `ScopedViewModel.scope(state:action:)` projects a grandchild slice through the parent.
+- Two-way bindings: `model.binding(\.name, sending: \.nameChanged)`.
+
+### Enum-case scoping
+
+When view state is a `CasePathable` enum, scope onto the active case's payload:
+
+```swift
+switch viewModel.viewState {
+case .loading:
+    LoadingView()
+case .success:
+    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
+}
+```
+
+`scope(state:action:)` traps with `fatalError` if the case is not active; inside a matched `switch` case this cannot happen because body evaluation is synchronous. Use `scopeIfActive(state:action:)` when the case may legitimately be inactive:
+
+```swift
+if let success = viewModel.scopeIfActive(state: \.success, action: \.success) {
+    SuccessView(model: success)
+}
+```
+
+Reads through a case scope are live — in-place payload mutations are observed fine-grained — and the scope serves a creation snapshot for at most one transitional render if the case flips while the view is still on screen. Sends that arrive after a case flip should be dropped by the interactor.
+
+See `ExampleProject/ScopedCompositionExamplePackage` for a runnable demo of both styles, and `specs/scoped-view-composition.md` / `specs/enum-case-scoping.md` for design details.
+
 ## Testing with `TestViewModel`
 
 Use `TestViewModel<F>` for domain-state-first, step-wise feature tests. Its assertion APIs are
@@ -382,6 +448,8 @@ Run focused presentation tests:
 swift test --filter FeatureViewModelTests
 swift test --filter ViewModelBindingTests
 swift test --filter ViewModelTests
+swift test --filter ScopedViewModelTests
+swift test --filter EnumCaseScopingTests
 ```
 
 Run focused runtime and testing-infrastructure suites:

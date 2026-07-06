@@ -108,6 +108,57 @@ TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 
 For enum view state case bindings, use `sending(_:default:)` when the case may not be active.
 
+## Scoped child views
+
+Pass child views a `ScopedViewModel` instead of the parent's `ViewModel` type. Create scopes inline in `body` with `scope(state:action:)`:
+
+```swift
+struct DashboardView: View {
+    @State private var viewModel: ViewModel<DashboardFeature>
+
+    var body: some View {
+        VStack {
+            HeaderView(model: viewModel.scope(state: \.header, action: \.header))
+            FooterView(model: viewModel.scope(state: \.footer, action: \.footer))
+            BadgeView(model: viewModel.scope(state: \.header.badge)) // read-only, action type is Never
+        }
+    }
+}
+
+struct HeaderView: View {
+    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+
+    var body: some View {
+        Text(model.title) // fine-grained: re-renders only when `title` changes
+        TextField("Name", text: model.binding(\.name, sending: \.nameChanged))
+        Button("Refresh") { model.sendViewEvent(.refreshTapped) }
+    }
+}
+```
+
+Rules:
+
+- Read members through the scope (`model.title`, `model.badge.count`); reading the whole `model.viewState` is coarse and misses in-place leaf mutations.
+- Create scopes inline in `body`. Never store a scope in `@State` or another long-lived property; it retains the parent view model.
+- Case-path action embedding requires the parent action to be `@CasePathable`; use the closure overload `scope(state:action: { .child($0) })` otherwise.
+- `scope(state:)` with no action produces a read-only scope (`ChildAction == Never`) for display-only children.
+- `model.sendViewEvent(_:)` returns the parent's `EventTask`; await `finish()` for async boundaries just like on `ViewModel`.
+
+### Enum view state
+
+Switch over the enum and scope onto the matched case's payload:
+
+```swift
+switch viewModel.viewState {
+case .loading:
+    ProgressView()
+case .success:
+    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
+}
+```
+
+The trapping `scope(state:action:)` is safe inside a matched `switch` case (body evaluation is synchronous). Outside a matched case, use `scopeIfActive(state:action:)`, which returns `nil` when the case is inactive.
+
 ## Presentation
 
 Keep navigation and presentation decisions in ViewState. Use optional state or enum cases, then drive SwiftUI modifiers from view state.

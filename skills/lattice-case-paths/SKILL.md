@@ -102,6 +102,23 @@ Use a fallback value when the case may be inactive:
 let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default: "")
 ```
 
+## Enum-case scoping
+
+Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when view state itself is a `CasePathable` enum, `scope(state: CaseKeyPath, action: CaseKeyPath)` projects onto the active case's payload:
+
+```swift
+switch viewModel.viewState {
+case .list:
+    ListView(model: viewModel.scope(state: \.list, action: \.list))
+case .detail:
+    DetailView(model: viewModel.scope(state: \.detail, action: \.detail))
+}
+```
+
+- The trapping `scope` is for use inside a matched `switch` case; it `fatalError`s if the case is inactive.
+- `scopeIfActive(state:action:)` returns `nil` instead, for conditional contexts.
+- In reducers, mutate the active payload in place with `modify` (`viewState.modify(\.detail) { ... }`) so case scopes observe the change fine-grained; rebuilding the whole case value is a wholesale replacement.
+
 ## Testing buffered receives
 
 When action enums are `CasePathable`, `TestViewModel.receive` can match by case path instead of full-value equality.

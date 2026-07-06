@@ -175,6 +175,30 @@ Model child state in domain, and use `ViewStateReducer` to derive view state as 
 Prefer composing interactors rather than nesting logic in views.
 Use `when(state:action:child:)` or `Interactors.When` for scoped child handling.
 
+## Scoped child views
+
+Decouple child views from the parent's `ViewModel` type with `scope(state:action:)`, which returns a stateless `ScopedViewModel<ChildState, ChildAction>`:
+
+```swift
+// Parent body
+HeaderView(model: viewModel.scope(state: \.header, action: \.header))
+
+// Child view
+struct HeaderView: View {
+    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+
+    var body: some View {
+        Text(model.title)
+        Button("Refresh") { model.sendViewEvent(.refreshTapped) }
+    }
+}
+```
+
+- Do read members through the scope (`model.title`) for fine-grained observation; don't read the whole `model.viewState` (coarse, identity-only).
+- Do create scopes inline in `body`; don't store them (`@State` etc.) — a scope retains its parent view model.
+- For enum view state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive.
+- Details and more overloads (closure embedding, read-only, nested scopes, bindings) in `resources/advanced-composition.md`.
+
 ## References
 - See `resources/advanced-composition.md` for composition, navigation, and stream guidance.
 - See `resources/bootstrapping.md` for state modeling, DI boundaries, and feature setup.
