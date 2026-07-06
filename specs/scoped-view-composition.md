@@ -623,7 +623,7 @@ The root view hosts two buttons that drive non-leaf mutations, mirroring the fin
 demo's button row: **Rename header** (sends `.dashboard(.header(.titleChanged(...)))` with a
 random suffix) and **Update footer** (sends `.setFooter(...)`). `BadgeView` is the leaf and
 carries the `binding(_:sending:)` text field plus a counter button. Every view holds a
-`ponytail:`-marked render counter (same instrumentation as `FineGrainedExamplePackage`'s
+render counter (same instrumentation as `FineGrainedExamplePackage`'s
 `HeaderView`) so re-render boundaries are visible:
 
 ```swift

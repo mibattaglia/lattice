@@ -597,7 +597,7 @@ Payloadless cases (`.loading`, `.idle`) are reassigned on every reduce; their `_
 ids make those assignments identity-equal no-ops.
 
 The root view is a plain exhaustive `switch` over `viewModel.viewState`, with load/reset
-buttons outside the switch and a `ponytail:`-marked render counter (the same instrumentation as
+buttons outside the switch and a render counter (the same instrumentation as
 Spec B's demo views) on **every** view in the chain. The view tree mirrors the state tree:
 
 - `PhaseExampleView` — owns the outer `switch`; `.success` renders

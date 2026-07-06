@@ -47,7 +47,6 @@ struct FineGrainedView: View {
 
 struct HeaderView: View {
     let viewModel: FineGrainedViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -68,7 +67,6 @@ struct HeaderView: View {
 
 struct FooterView: View {
     let viewModel: FineGrainedViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -89,7 +87,6 @@ struct FooterView: View {
 
 struct PhaseView: View {
     let viewModel: FineGrainedViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 

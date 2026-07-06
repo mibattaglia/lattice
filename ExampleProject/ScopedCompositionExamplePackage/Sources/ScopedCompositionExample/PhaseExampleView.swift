@@ -25,7 +25,6 @@ typealias PhaseExampleViewModel = ViewModel<
 ///   re-rendered once per second while showing an unchanged spinner.
 struct PhaseExampleView: View {
     let viewModel: PhaseExampleViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -74,7 +73,6 @@ struct PhaseExampleView: View {
 /// `SummaryView` is the sibling branch that must stay put while the deep leaf ticks.
 struct SuccessView: View {
     let model: ScopedViewModel<SuccessViewState, SuccessAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -99,7 +97,6 @@ struct SuccessView: View {
 /// and inner case changes.
 struct SummaryView: View {
     let model: ScopedViewModel<SummaryViewState, SummaryAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -122,7 +119,6 @@ struct SummaryView: View {
 /// Level 2: reads only `name`; a thin pass-through that scopes deeper.
 struct SessionView: View {
     let model: ScopedViewModel<SessionViewState, SessionAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -147,7 +143,6 @@ struct SessionView: View {
 /// mutations inside `.active` do not advance its counter.
 struct TelemetryView: View {
     let model: ScopedViewModel<TelemetryViewState, TelemetryAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -187,7 +182,6 @@ struct TelemetryView: View {
 /// note field round-trips through a binding — only this counter advances on either.
 struct ActiveView: View {
     let model: ScopedViewModel<ActiveViewState, ActiveAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
