@@ -5,6 +5,7 @@
 //  Created by Michael Battaglia on 2/5/26.
 //
 
+import ScopedCompositionExample
 import SearchExample
 import SwiftUI
 import TimerLeakExample
@@ -37,6 +38,7 @@ private enum Example: String, CaseIterable, Identifiable {
     case todos
     case timerLeak
     case fineGrained
+    case scopedComposition
 
     var id: String { rawValue }
 
@@ -50,6 +52,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Timer Leak Example"
         case .fineGrained:
             "Fine-Grained Observation Example"
+        case .scopedComposition:
+            "Scoped Composition Example"
         }
     }
 
@@ -63,6 +67,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Timer Leak"
         case .fineGrained:
             "Fine-Grained"
+        case .scopedComposition:
+            "Scoped Composition"
         }
     }
 
@@ -77,6 +83,8 @@ private enum Example: String, CaseIterable, Identifiable {
             TimerLeakExampleAppView()
         case .fineGrained:
             FineGrainedExampleAppView()
+        case .scopedComposition:
+            ScopedCompositionExampleAppView()
         }
     }
 }

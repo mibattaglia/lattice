@@ -10,4 +10,6 @@
   </FileRef>
   <FileRef location = "group:FineGrainedExamplePackage">
   </FileRef>
+  <FileRef location = "group:ScopedCompositionExamplePackage">
+  </FileRef>
 </Workspace>
