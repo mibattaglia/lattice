@@ -152,6 +152,107 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
             )
         }
     }
+
+    extension ViewModel where ViewState: CasePathable, Action: CasePathable {
+        /// Projects this view model onto the payload of an enum case of view state, if that case
+        /// is currently active.
+        ///
+        /// This is the primitive form; ``scope(state:action:fileID:line:)`` is trapping sugar over
+        /// it for use inside a matched `switch` case. Reads are live: the returned scope
+        /// re-extracts the payload from the current view state on every access, so in-place payload
+        /// mutations are observed fine-grained. If the case deactivates while the scope is still
+        /// held (at most one transitional render), reads serve the payload captured at creation.
+        ///
+        /// Sends are embedded into this feature's action with `embed` and run on this view model's
+        /// action loop. A send can arrive after the case has deactivated; the interactor should
+        /// drop actions that no longer apply to the current state.
+        ///
+        /// - Parameters:
+        ///   - casePath: A case key path to an `@ObservableState` payload of the view state enum.
+        ///   - embed: A case key path that embeds the child action into this feature's action.
+        /// - Returns: A scope over the case's payload, or `nil` if the case is not active.
+        public func scopeIfActive<Child: ObservableState, ChildAction: Sendable>(
+            state casePath: CaseKeyPath<ViewState, Child>,
+            action embed: CaseKeyPath<Action, ChildAction>
+        ) -> ScopedViewModel<Child, ChildAction>? {
+            guard let snapshot = self.viewState[case: casePath] else { return nil }
+            return ScopedViewModel(
+                state: { [self] in self.viewState[case: casePath] ?? snapshot },
+                send: { [self] childAction in self.sendViewEvent(embed(childAction)) }
+            )
+        }
+
+        /// Projects this view model onto the payload of the currently active enum case of view
+        /// state, trapping if the case is not active.
+        ///
+        /// Call this only inside a `switch` case that just matched the same case:
+        ///
+        /// ```swift
+        /// switch viewModel.viewState {
+        /// case .loading:
+        ///     LoadingView()
+        /// case .success:
+        ///     SuccessView(model: viewModel.scope(state: \.success, action: \.success))
+        /// }
+        /// ```
+        ///
+        /// Body evaluation is synchronous on the main actor, so within a matched case this cannot
+        /// trap. Use ``scopeIfActive(state:action:)`` when the case may legitimately be inactive.
+        public func scope<Child: ObservableState, ChildAction: Sendable>(
+            state casePath: CaseKeyPath<ViewState, Child>,
+            action embed: CaseKeyPath<Action, ChildAction>,
+            fileID: StaticString = #fileID,
+            line: UInt = #line
+        ) -> ScopedViewModel<Child, ChildAction> {
+            guard let scoped = scopeIfActive(state: casePath, action: embed) else {
+                fatalError(
+                    """
+                    scope(state:action:) at \(fileID):\(line): scoped into case '\(casePath)' \
+                    while it is not the active case of the view state. Call this only inside a \
+                    switch case that matched the same case, or use scopeIfActive(state:action:).
+                    """
+                )
+            }
+            return scoped
+        }
+    }
+
+    extension ScopedViewModel where ChildState: CasePathable {
+        /// Projects this scope onto the payload of an enum case of the child slice, if active.
+        /// See ``ViewModel/scopeIfActive(state:action:)``.
+        public func scopeIfActive<CaseState: ObservableState, CaseAction: Sendable>(
+            state casePath: CaseKeyPath<ChildState, CaseState>,
+            action embed: CaseKeyPath<ChildAction, CaseAction>
+        ) -> ScopedViewModel<CaseState, CaseAction>? {
+            guard let snapshot = _state()[case: casePath] else { return nil }
+            let state = self._state
+            let send = self._send
+            return ScopedViewModel<CaseState, CaseAction>(
+                state: { state()[case: casePath] ?? snapshot },
+                send: { caseAction in send(embed(caseAction)) }
+            )
+        }
+
+        /// Projects this scope onto the payload of the currently active enum case of the child
+        /// slice, trapping if the case is not active. See ``ViewModel/scope(state:action:fileID:line:)``.
+        public func scope<CaseState: ObservableState, CaseAction: Sendable>(
+            state casePath: CaseKeyPath<ChildState, CaseState>,
+            action embed: CaseKeyPath<ChildAction, CaseAction>,
+            fileID: StaticString = #fileID,
+            line: UInt = #line
+        ) -> ScopedViewModel<CaseState, CaseAction> {
+            guard let scoped = scopeIfActive(state: casePath, action: embed) else {
+                fatalError(
+                    """
+                    scope(state:action:) at \(fileID):\(line): scoped into case '\(casePath)' \
+                    while it is not the active case of the child slice. Call this only inside a \
+                    switch case that matched the same case, or use scopeIfActive(state:action:).
+                    """
+                )
+            }
+            return scoped
+        }
+    }
 #endif
 
 extension ViewModel {

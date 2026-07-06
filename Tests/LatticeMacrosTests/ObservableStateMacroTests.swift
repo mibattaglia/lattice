@@ -586,7 +586,7 @@
                   public var _$id: Lattice.ObservableStateID {
                     switch self {
                     case .foo:
-                      return ObservableStateID()._$tag(0)
+                      return ObservableStateID._$inert._$tag(0)
                     }
                   }
 
