@@ -521,11 +521,14 @@ Example", navigation title "Enum Case Scoping", `destinationView` `PhaseExampleA
 Use the example project's macro conventions (`@Interactor`, `@ViewStateReducer` with
 `Self.buildViewState`) rather than this spec's protocol-spelled test fixtures.
 
-The demo must make three things visible in a running app: the fine-grained in-place path
-through a case scope, the coarse case-change path, and the `_$inert` fix.
+The demo must make four things visible in a running app: the fine-grained in-place path
+through a case scope (down a deep chain of nested slices), the coarse case-change path at
+both enum levels, and the `_$inert` fix.
 
-Shape — the whole view state is the enum, same names as this spec's fixtures, with a `tick`
-added to the success payload so the tick stream is visible on screen:
+Shape — the whole view state is the enum, and the success payload is a deep chain of nested
+`@ObservableState` slices (`Success > Session > Telemetry > Subphase > Active`) with a
+`Summary` sibling branch at the first level and a nested sub-phase **enum** at the third, so
+the render counters can show exactly which boundaries a change crosses:
 
 ```swift
 @CasePathable
@@ -538,93 +541,102 @@ enum PhaseViewState: Equatable, Sendable {
 @ObservableState
 struct SuccessViewState: Equatable, Sendable {
     var title: String
-    var count: Int
-    var tick: Int
+    var summary: SummaryViewState    // sibling branch: count
+    var session: SessionViewState    // deep branch: name > telemetry
+}
+
+@ObservableState
+struct SessionViewState: Equatable, Sendable {
+    var name: String
+    var telemetry: TelemetryViewState    // status + nested sub-phase enum
+}
+
+@ObservableState
+struct TelemetryViewState: Equatable, Sendable {
+    var status: String
+    var subphase: SubphaseViewState
+}
+
+@CasePathable
+@ObservableState
+enum SubphaseViewState: Equatable, Sendable {
+    case idle
+    case active(ActiveViewState)    // deep leaf: tick + note
 }
 ```
 
-Domain state is flat (`isLoaded`/`title`/`count`/`tick`); the root event enum `PhaseEvent` has
-`loadTapped`, `loaded`, `resetTapped`, `startTicking`, `tick`, and `success(SuccessAction)`
-cases, with `SuccessAction` as in the fixtures (`titleChanged(String)`/`incremented`). The
-interactor:
+Each level is rendered by a thin child view holding a `ScopedViewModel` chained with Spec B's
+key-path `scope` from the case scope; the inner sub-phase is case-scoped via this spec's
+`ScopedViewModel.scope(state:action:)` case overload
+(`model.scope(state: \.subphase, action: \.subphase).scope(state: \.active, action: \.active)`),
+demonstrating case scoping below the root. The action enums nest the same way
+(`ActiveAction ⊂ SubphaseAction ⊂ TelemetryAction ⊂ SessionAction ⊂ SuccessAction ⊂
+PhaseEvent`, with `SummaryAction` as the sibling branch).
+
+Domain state is flat (`isLoaded`/`isActive`/`title`/`count`/`sessionName`/`status`/`tick`/
+`note`, plus an `isTicking` guard flag so the tick stream is started at most once — the
+`TimerLeakExamplePackage` convention). The interactor:
 
 - `.loadTapped` fakes an async load: `return .perform { try? await clock.sleep(for: .seconds(1));
   return .loaded }` (the `.perform` convention used by `SearchExamplePackage`'s interactors);
   `.loaded` sets `isLoaded = true` and `.resetTapped` clears it.
 - A once-per-second tick stream via `.observe` (the `TimerLeakExamplePackage` convention),
   started from a view event on appear, bumps `state.tick` — the unrelated-reduce driver for the
-  `_$inert` behavior below.
-- `.success(...)` actions are guarded on `isLoaded` and dropped otherwise (the late-send
-  discipline from "Late sends").
+  `_$inert` behavior below, and the deep-leaf driver while the `.active` sub-phase is showing.
+- `.success(.session(.telemetry(.startTapped/.stopTapped)))` toggles `isActive`, driving the
+  inner sub-phase case.
+- `.success(...)` actions are guarded on `isLoaded` (and the leaf's `.noteChanged` additionally
+  on `isActive`) and dropped otherwise (the late-send discipline from "Late sends").
 
-The reducer keeps this spec's two-regimes discipline exactly as `PhaseReducer` does: `.loading`
-when not loaded; when loaded, **in place** via `v.modify(\.success) { ... }` if already in the
-case (title, count, and tick), wholesale `v = .success(SuccessViewState(...))` only on the
-`.loading → .success` transition.
+The reducer keeps this spec's two-regimes discipline at **both** enum levels: `.loading` when
+not loaded; wholesale `v = .success(SuccessViewState(...))` only on the `.loading → .success`
+transition; otherwise **in place** via `v.modify(\.success) { ... }` (title, count, name,
+status), and inside that, `.idle` / wholesale `.active(ActiveViewState(...))` only on sub-phase
+transitions with `subphase.modify(\.active) { ... }` (tick, note) while staying in the case.
+Payloadless cases (`.loading`, `.idle`) are reassigned on every reduce; their `_$inert`-stable
+ids make those assignments identity-equal no-ops.
 
 The root view is a plain exhaustive `switch` over `viewModel.viewState`, with load/reset
-buttons outside the switch and a `ponytail:`-marked render counter (the same instrumentation as
-Spec B's demo views) counting evaluations of the switch-owning body:
+buttons outside the switch and a render counter (the same instrumentation as
+Spec B's demo views) on **every** view in the chain. The view tree mirrors the state tree:
 
-```swift
-struct PhaseExampleView: View {
-    let viewModel: PhaseExampleViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+- `PhaseExampleView` — owns the outer `switch`; `.success` renders
+  `SuccessView(model: viewModel.scope(state: \.success, action: \.success))`; starts the tick
+  stream from `.task`.
+- `SuccessView` — title `TextField` via `binding(\.title, sending: \.titleChanged)`;
+  `SummaryView(model: model.scope(state: \.summary, action: \.summary))` (sibling branch) and
+  `SessionView(model: model.scope(state: \.session, action: \.session))`.
+- `SummaryView` — count + Increment button.
+- `SessionView` — reads `name`, scopes deeper to `TelemetryView`.
+- `TelemetryView` — reads `status`; owns the **inner** `switch` over `model.subphase` (the
+  sub-phase container read registers its identity, so this view re-renders on inner case
+  changes only); `.active` renders `ActiveView` via the chained case scope shown above;
+  Start/Stop buttons drive the sub-phase.
+- `ActiveView` — the deep leaf: `Tick:` text and a note `TextField` via
+  `binding(\.note, sending: \.noteChanged)`.
 
-    var body: some View {
-        renders.count += 1
-        return VStack(alignment: .leading) {
-            switch viewModel.viewState {      // coarse read: re-renders on case change only
-            case .loading:
-                ProgressView("Loading…")
-            case .success:
-                SuccessView(model: viewModel.scope(state: \.success, action: \.success))
-            }
-            Button("Load") { viewModel.sendViewEvent(.loadTapped) }
-            Button("Reset") { viewModel.sendViewEvent(.resetTapped) }
-            Text("PhaseExampleView renders: \(renders.count)")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .task { await viewModel.sendViewEvent(.startTicking).finish() }
-    }
-}
+Expected, demonstrable behavior (all visible in the render counters):
 
-struct SuccessView: View {
-    let model: ScopedViewModel<SuccessViewState, SuccessAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
-
-    var body: some View {
-        renders.count += 1
-        return VStack(alignment: .leading) {
-            TextField("Title", text: model.binding(\.title, sending: \.titleChanged))
-            Button("Increment") { model.sendViewEvent(.incremented) }
-            Text("Count: \(model.count)   Tick: \(model.tick)")
-            Text("SuccessView renders: \(renders.count)")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-```
-
-Expected, demonstrable behavior:
-
-- Typing in the **Title** field or tapping **Increment** (in-place payload mutations through
-  `v.modify(\.success)`): only `SuccessView renders:` advances. The switch root registered only
-  the coarse `\.viewState`, whose root `_$id` is untouched by in-place mutation, so
-  `PhaseExampleView renders:` stays put.
-- Tapping **Load** or **Reset** (case change): `PhaseExampleView renders:` advances — the root
-  `_$id` changed, the coarse fire re-renders the switch, and the success subtree is built or
-  torn down. This is the intended coarse channel, not a regression.
+- Ticks while `.active` is showing, or typing in the **Note** field (in-place mutations of the
+  deep leaf through both `modify` levels): only `ActiveView renders:` advances. Every
+  intermediate counter (`TelemetryView`, `SessionView`, `SuccessView`) and the sibling
+  (`SummaryView`) stay put, as does the root switch.
+- Tapping **Increment** (sibling branch): only `SummaryView renders:` advances.
+- Tapping **Start**/**Stop** (inner case change): `TelemetryView renders:` advances — the
+  sub-phase identity changed, so the inner switch re-renders and builds/tears down the
+  `ActiveView` subtree. `SessionView` and everything above stay put.
+- Tapping **Load**/**Reset** (outer case change): `PhaseExampleView renders:` advances — the
+  root `_$id` changed, the coarse fire re-renders the outer switch, and the success subtree is
+  built or torn down. This is the intended coarse channel, not a regression.
 - While sitting in `.loading`, the tick stream keeps reducing unrelated domain state once per
-  second, and `PhaseExampleView renders:` does **not** advance. This is the `_$inert` fix made
-  visible: before it, `.loading._$id` minted a fresh UUID per access, the `_modify` gate saw a
-  changed root `_$id` on every reduce, and the switch would re-render once per second while
-  showing an unchanged spinner. (While in `.success`, the same ticks are in-place payload
-  mutations: `Tick:` and `SuccessView renders:` advance each second, the switch still does not.)
+  second, and **no** counter advances. This is the `_$inert` fix made visible: before it,
+  `.loading._$id` minted a fresh UUID per access, the `_modify` gate saw a changed root `_$id`
+  on every reduce, and the switch would re-render once per second while showing an unchanged
+  spinner. (The same holds one level down: ticks while the sub-phase sits in `.idle` advance
+  nothing, because `.idle`'s id is `_$inert`-stable too.)
+- Typing in the **Title** field re-renders `SuccessView` — and, because scopes are recreated
+  by the render that owns them, its scoped children re-render with it (Spec B's documented
+  trade-off, already visible in the Spec B demo).
 
 This is the manual counterpart to `payloadlessCaseIsStable_*`, `inPlacePayloadMutationIsFineGrained`,
 and `caseChangeStillFiresCoarse`.

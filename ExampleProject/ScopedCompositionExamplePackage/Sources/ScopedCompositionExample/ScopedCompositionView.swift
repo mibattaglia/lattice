@@ -11,7 +11,6 @@ typealias ScopedCompositionViewModel = ViewModel<
 /// shape: its render counter (and `DashboardView`'s) should never advance past 1.
 struct ScopedCompositionView: View {
     let viewModel: ScopedCompositionViewModel
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -63,7 +62,6 @@ struct ScopedCompositionView: View {
 /// Its counter should never advance past 1, even when the header re-renders.
 struct DashboardView: View {
     let model: ScopedViewModel<DashboardState, DashboardAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -86,7 +84,6 @@ struct DashboardView: View {
 /// can never be proven unchanged — the documented trade-off, visible in the counters.
 struct HeaderView: View {
     let model: ScopedViewModel<HeaderState, HeaderAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -107,7 +104,6 @@ struct HeaderView: View {
 /// The leaf: a two-way binding into the slice plus a counter button.
 struct BadgeView: View {
     let model: ScopedViewModel<BadgeState, BadgeAction>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -133,7 +129,6 @@ struct BadgeView: View {
 /// projection is observation-live even though it can send nothing.
 struct FooterView: View {
     let model: ScopedViewModel<FooterState, Never>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
 

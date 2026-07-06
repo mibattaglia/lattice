@@ -44,6 +44,11 @@ public struct ObservableStateID: Equatable, Hashable, Sendable {
         self.init(storage: Storage(id: .location(UUID())))
     }
 
+    /// A shared identity for values that carry no observable content of their own, such as
+    /// payloadless enum cases. Tagging `_$inert` with a case index yields an id that is stable
+    /// across accesses and distinct across cases.
+    public static let _$inert = Self()
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.storage === rhs.storage || lhs.storage.id == rhs.storage.id
     }

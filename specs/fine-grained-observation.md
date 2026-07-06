@@ -375,12 +375,11 @@ Shape:
   `setTitle(String)` / `bumpCount`, each mutating only its own slice **in place** in the reducer.
 - A root view that composes two sibling subviews, `HeaderView` and `FooterView`, each given the
   same `ViewModel<FineGrainedFeature>`.
-- Each subview holds a `ponytail:`-marked render counter so taps prove which subview re-rendered:
+- Each subview holds a render counter so taps prove which subview re-rendered:
 
 ```swift
 struct HeaderView: View {
     let viewModel: ViewModel<FineGrainedFeature>
-    // ponytail: render counter is demo-only instrumentation, not a real pattern
     private final class Renders { var count = 0 }
     private let renders = Renders()
     var body: some View {

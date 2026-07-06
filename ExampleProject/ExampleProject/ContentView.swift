@@ -39,6 +39,7 @@ private enum Example: String, CaseIterable, Identifiable {
     case timerLeak
     case fineGrained
     case scopedComposition
+    case enumCaseScoping
 
     var id: String { rawValue }
 
@@ -54,6 +55,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Fine-Grained Observation Example"
         case .scopedComposition:
             "Scoped Composition Example"
+        case .enumCaseScoping:
+            "Enum Case Scoping Example"
         }
     }
 
@@ -69,6 +72,8 @@ private enum Example: String, CaseIterable, Identifiable {
             "Fine-Grained"
         case .scopedComposition:
             "Scoped Composition"
+        case .enumCaseScoping:
+            "Enum Case Scoping"
         }
     }
 
@@ -85,6 +90,8 @@ private enum Example: String, CaseIterable, Identifiable {
             FineGrainedExampleAppView()
         case .scopedComposition:
             ScopedCompositionExampleAppView()
+        case .enumCaseScoping:
+            PhaseExampleAppView()
         }
     }
 }
