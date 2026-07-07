@@ -181,7 +181,7 @@ That is the entire change.
 > accessor it lives on held a formal write access on `_viewState` open across the entire reduce —
 > a synchronous observer that re-read `viewState` mid-reduce (e.g. SwiftUI body re-evaluation
 > triggered by an `@ObservableState` `willSet`) would trap with a Swift exclusivity fatal error.
-> See `ViewModelReentrancyReproTests` for the regression. The `_modify` accessor was removed
+> See `ViewModelReentrancyTests` for the regression. The `_modify` accessor was removed
 > entirely; the same `_$id`-gated coarse-fire logic now lives at the end of
 > `commitProductionTransition`, which reduces into a local working copy and commits with a single
 > plain store before checking the gate. The observable behavior described in this section
