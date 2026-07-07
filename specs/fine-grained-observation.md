@@ -100,8 +100,12 @@ this case-switch re-render, which is why the gate (not removal) is required.
 ## Why this works (the invariant it stands on)
 
 1. **The top-level `_viewState` registrar instance is stable for the view model's lifetime.**
-   Reduce mutates `_viewState` in place through `_modify` (`:277`); it never reassigns
-   `_viewState` to a fresh-identity value. So the registrar tree rooted at `_viewState` persists.
+   Reduce mutates a same-identity working copy of `_viewState` (`@ObservableState` registrars are
+   reference types, so the copy shares the same registrar tree as the stored value); commit is a
+   single plain store, never a reassignment to a fresh-identity value. So the registrar tree
+   rooted at `_viewState` persists. (Previously this was phrased as "reduce mutates `_viewState`
+   in place through `_modify`" — see the "Source changes" note below for why that accessor is
+   gone.)
 2. **Wholesale nested rebuilds preserve nested registrar instances.** Guaranteed by the
    identity-preserving merge: `viewState.section = rebuilt` routes through the
    `Value: ObservableState` `mutate` overload → `section._$merge(with:)`, keeping `section`'s
@@ -172,6 +176,17 @@ That is the entire change.
 - No new API, no new file. `viewModel.<member>` and every `_ViewModelBinding` getter
   (`ViewModelBinding.swift`) become fine-grained automatically because they already read through
   the nested computed getters.
+
+> **Update (exclusivity fix):** the diff above is what originally shipped, but the `_modify`
+> accessor it lives on held a formal write access on `_viewState` open across the entire reduce —
+> a synchronous observer that re-read `viewState` mid-reduce (e.g. SwiftUI body re-evaluation
+> triggered by an `@ObservableState` `willSet`) would trap with a Swift exclusivity fatal error.
+> See `ViewModelReentrancyReproTests` for the regression. The `_modify` accessor was removed
+> entirely; the same `_$id`-gated coarse-fire logic now lives at the end of
+> `commitProductionTransition`, which reduces into a local working copy and commits with a single
+> plain store before checking the gate. The observable behavior described in this section
+> (gate condition, fine-grained precision, enum-root case-change re-render) is unchanged — only
+> the accessor that implemented it moved.
 
 No macro changes, no action-loop changes.
 

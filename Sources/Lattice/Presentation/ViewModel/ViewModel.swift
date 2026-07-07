@@ -183,13 +183,6 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
                 }
             }
         }
-        _modify {
-            let oldID = _viewState._$id
-            yield &_viewState
-            if _viewState._$id != oldID {
-                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
-            }
-        }
     }
 
     public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
@@ -275,7 +268,23 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
             || !areStatesEqual(transition.previousState, transition.currentState)
 
         guard shouldReduceViewState else { return }
-        viewStateReducer.reduce(transition.currentState, into: &viewState)
+
+        // The reducer must never run while a formal access on `_viewState` is open: an
+        // `@ObservableState` field mutation fires `willSet` to synchronous observers (e.g. SwiftUI
+        // body re-evaluation) mid-reduce, and if one re-reads `viewState` the getter opens a
+        // conflicting read against an open write — a Swift exclusivity trap
+        // (see `ViewModelReentrancyReproTests`). Reducing into a local working copy avoids the
+        // trap: `@ObservableState` registrars are reference types, so the copy shares the same
+        // registrar tree and per-field notifications/identity are unaffected. The coarse
+        // `\.viewState` fire stays gated on a root `_$id` change and moves after the single commit
+        // store, preserving today's ordering.
+        var workingViewState = _viewState
+        viewStateReducer.reduce(transition.currentState, into: &workingViewState)
+        let oldID = _viewState._$id
+        _viewState = workingViewState
+        if _viewState._$id != oldID {
+            _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
+        }
     }
 
     private func spawnEffects(

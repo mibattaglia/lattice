@@ -62,7 +62,8 @@ return ObservableStateID()._$tag(0)
 
 `ObservableStateID()` mints a **fresh UUID on every access**, so two evaluations of
 `PhaseViewState.loading._$id` are never equal. Consequence: while a payloadless case is active
-at the root, the `ViewModel._modify` gate (Spec A) computes `oldID != newID` on **every reduce
+at the root, the `ViewModel` coarse-fire gate (Spec A; now at the end of
+`commitProductionTransition` after the `_modify` accessor's removal) computes `oldID != newID` on **every reduce
 that runs**, firing the coarse `\.viewState` even when nothing changed. Spec A's fine-grained
 gating silently degrades to the pre-Spec-A behavior until the state leaves that case — and this
 spec's `switch`-driven design leans directly on "the switch only re-renders on real case
@@ -630,7 +631,7 @@ Expected, demonstrable behavior (all visible in the render counters):
   built or torn down. This is the intended coarse channel, not a regression.
 - While sitting in `.loading`, the tick stream keeps reducing unrelated domain state once per
   second, and **no** counter advances. This is the `_$inert` fix made visible: before it,
-  `.loading._$id` minted a fresh UUID per access, the `_modify` gate saw a changed root `_$id`
+  `.loading._$id` minted a fresh UUID per access, the coarse-fire gate saw a changed root `_$id`
   on every reduce, and the switch would re-render once per second while showing an unchanged
   spinner. (The same holds one level down: ticks while the sub-phase sits in `.idle` advance
   nothing, because `.idle`'s id is `_$inert`-stable too.)
