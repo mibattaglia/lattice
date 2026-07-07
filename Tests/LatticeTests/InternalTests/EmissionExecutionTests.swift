@@ -265,6 +265,10 @@ struct EmissionExecutionTests {
 
         #expect(probe.startedEffectIDs.count == 2)
 
+        // The surviving debounce task must reach `clock.sleep` and register its suspension
+        // before the clock advances, otherwise it suspends past the advanced deadline forever.
+        await waitForSuspension(on: clock)
+
         await clock.advance(by: .milliseconds(300))
         await wait(for: firstTasks)
         await wait(for: secondTasks)
@@ -332,5 +336,30 @@ struct EmissionExecutionTests {
             }
             await Task.yield()
         }
+    }
+
+    /// Waits until at least one sleep is suspended on the clock, failing after a real-time
+    /// deadline instead of hanging the test run.
+    ///
+    /// `TestClock.advance` only yields a bounded number of times before moving time forward.
+    /// Under a loaded parallel test run, a `@MainActor` effect task may not reach `clock.sleep`
+    /// until after `advance` has already returned, leaving it suspended forever.
+    private func waitForSuspension(
+        on clock: TestClock<Duration>,
+        deadline: Duration = .seconds(10)
+    ) async {
+        let realClock = ContinuousClock()
+        let end = realClock.now.advanced(by: deadline)
+
+        while realClock.now < end {
+            do {
+                try await clock.checkSuspension()
+            } catch {
+                return
+            }
+            await Task.yield()
+        }
+
+        Issue.record("Timed out waiting for a suspension to register on the test clock.")
     }
 }

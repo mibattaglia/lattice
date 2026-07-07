@@ -10,11 +10,15 @@ permissions:
 jobs:
   test:
     name: Swift tests (macOS)
-    runs-on: macos-15
+    runs-on: macos-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode 26.4.1 (Swift 6.3.1)
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app
 
       - name: Show Xcode / Swift versions
         run: |
@@ -22,5 +26,9 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Build
+        run: swift build --build-tests
+
       - name: Run tests
-        run: swift test --verbose
+        timeout-minutes: 3
+        run: swift test --skip-build

@@ -91,7 +91,10 @@ struct TestViewModelWaitingTests {
     func receiveReportsTimeoutWhileActionRemainsInFlight() async {
         let model = makeModel()
 
-        let task = await model.send(.startDelayedLoad(.milliseconds(200)))
+        // Wide margin over the 10ms receive timeout below so a loaded parallel test run cannot
+        // deliver the action before the timeout fires. The effect is cancelled at the end,
+        // so the test never actually waits this long.
+        let task = await model.send(.startDelayedLoad(.seconds(5)))
 
         let matchesReceiveTimeout: @Sendable (Issue) -> Bool = { issue in
             issue.description.contains("Expected to receive the following action, but didn't after 0.01 seconds")
