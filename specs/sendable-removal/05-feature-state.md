@@ -73,7 +73,9 @@ executes then.
 | `@FeatureState` | structs and enums | Generates the projection namespace, the key-path map, the derived-member set, and `_commit`; adds `FeatureStateProtocol` conformance. |
 | `@Domain` | stored **and** computed members | Marker: excluded from projection and diff. A computed `@Domain` member is an interactor-side helper. No code is generated for it. |
 
-Declarations (in `Sources/Lattice/FeatureState/Macros.swift`):
+Declarations (in `Sources/Lattice/FeatureState/FeatureStateMacros.swift` — SwiftPM cannot
+build two same-named files in one target, so the file cannot be named `Macros.swift`
+alongside the existing top-level `Sources/Lattice/Macros.swift`):
 
 ```swift
 @attached(member, names: named(_ViewMembers), named(_viewKeyPaths), named(_derivedMembers), named(_commit), arbitrary)
@@ -742,13 +744,13 @@ struct SearchState {
         "\(rawResults.count) results"
     }
 
-    // Key-path namespace over the view-visible members. Never instantiated; the private
-    // unavailable initializer makes that a compiler-enforced fact.
     struct _ViewMembers {
         let query: String
         let isLoading: Bool
         let subtitle: String
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
     @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
@@ -757,28 +759,28 @@ struct SearchState {
         \_ViewMembers.subtitle: \SearchState.subtitle,
     ]
 
-    // Computed members: served from the registrar's derivation cache on reads.
     @MainActor static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
-        \_ViewMembers.subtitle
+        \_ViewMembers.subtitle,
     ]
 
     @MainActor static func _commit(
         old: SearchState, new: SearchState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Stored members: compared by value.
-        Lattice._diff(old.query, new.query,
+        Lattice._diff(
+            old.query, new.query,
             registrar: registrar, key: key.appending(\_ViewMembers.query))
-        Lattice._diff(old.isLoading, new.isLoading,
+        Lattice._diff(
+            old.isLoading, new.isLoading,
             registrar: registrar, key: key.appending(\_ViewMembers.isLoading))
-        // Computed members: evaluated at most once — and only when some reader holds a
-        // signal for the key — then compared against, and stored into, the cached output.
-        registrar.commitDerived(key.appending(\_ViewMembers.subtitle)) { new.subtitle }
-        // `rawResults` is @Domain: not in the namespace, not diffed, unreachable from views.
+        registrar.commitDerived(key.appending(\_ViewMembers.subtitle)) {
+            new.subtitle
+        }
     }
 }
 
-extension SearchState: Lattice.FeatureStateProtocol {}
+extension SearchState: Lattice.FeatureStateProtocol {
+}
 ```
 
 Points worth pinning:
@@ -831,14 +833,17 @@ enum RouteState {
         }
     }
 
-    // Case accessors: optional views over each case's payload.
     var detail: DetailState? {
-        guard case .detail(let value) = self else { return nil }
+        guard case .detail(let value) = self else {
+            return nil
+        }
         return value
     }
 
     var banner: String? {
-        guard case .banner(let value) = self else { return nil }
+        guard case .banner(let value) = self else {
+            return nil
+        }
         return value
     }
 
@@ -846,7 +851,9 @@ enum RouteState {
         let detail: DetailState?
         let banner: String?
         let accessibilityLabel: String
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
     @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
@@ -855,43 +862,37 @@ enum RouteState {
         \_ViewMembers.accessibilityLabel: \RouteState.accessibilityLabel,
     ]
 
-    // Case accessors are deliberately absent: extracting a payload is one enum match, so
-    // they read through committed state, and their payloads diff granularly in the case
-    // switch below rather than as cached leaf outputs.
     @MainActor static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
-        \_ViewMembers.accessibilityLabel
+        \_ViewMembers.accessibilityLabel,
     ]
 
     @MainActor static func _commit(
         old: RouteState, new: RouteState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Case identity first. A case flip is a whole-view change by definition: fire one
-        // coarse notification over everything under this slot and stop. Never compare two
-        // different cases' payloads, and never fall back to whole-value == across cases.
         switch (old, new) {
         case (.list, .list):
             break
         case (.detail(let oldValue), .detail(let newValue)):
-            // Same case: recurse into the payload under the case-accessor key.
-            Lattice._diff(oldValue, newValue,
+            Lattice._diff(
+                oldValue, newValue,
                 registrar: registrar, key: key.appending(\_ViewMembers.detail))
         case (.banner(let oldValue), .banner(let newValue)):
-            Lattice._diff(oldValue, newValue,
+            Lattice._diff(
+                oldValue, newValue,
                 registrar: registrar, key: key.appending(\_ViewMembers.banner))
         default:
             registrar.invalidate(prefix: key)
             return
         }
-        // Same case: computed members diff exactly as on structs — once, against the cache,
-        // observed keys only.
         registrar.commitDerived(key.appending(\_ViewMembers.accessibilityLabel)) {
             new.accessibilityLabel
         }
     }
 }
 
-extension RouteState: Lattice.FeatureStateProtocol {}
+extension RouteState: Lattice.FeatureStateProtocol {
+}
 ```
 
 Semantics locked here:
@@ -950,11 +951,14 @@ expands to:
 struct TransactionsState {
     // ... original members unchanged ...
 
+
     struct _ViewMembers {
         let transactions: IdentifiedArrayOf<Transaction>
         let visibleOrder: [Transaction.ID]
         let emptyMessage: String?
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
     @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
@@ -972,17 +976,25 @@ struct TransactionsState {
         old: TransactionsState, new: TransactionsState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Overload ranking routes this to the identity-keyed collection diff.
-        Lattice._diff(old.transactions, new.transactions,
+        Lattice._diff(
+            old.transactions, new.transactions,
             registrar: registrar, key: key.appending(\_ViewMembers.transactions))
-        // Derived members: at most one evaluation each, observed keys only.
-        registrar.commitDerived(key.appending(\_ViewMembers.visibleOrder)) { new.visibleOrder }
-        registrar.commitDerived(key.appending(\_ViewMembers.emptyMessage)) { new.emptyMessage }
+        registrar.commitDerived(key.appending(\_ViewMembers.visibleOrder)) {
+            new.visibleOrder
+        }
+        registrar.commitDerived(key.appending(\_ViewMembers.emptyMessage)) {
+            new.emptyMessage
+        }
     }
 }
 
-extension TransactionsState: Lattice.FeatureStateProtocol {}
+extension TransactionsState: Lattice.FeatureStateProtocol {
+}
 ```
+
+`visibleOrder` draws the §8 collection-return warning by design — the message names the
+`[ID]` idiom as the accepted shape; there is no suppression mechanism beyond it being a
+warning.
 
 Note what the macro did *not* have to know: that `Transaction` is a feature state, that
 `IdentifiedArrayOf` is a collection, or what `visibleOrder` costs. Stored members are all the
@@ -1223,7 +1235,7 @@ diff line.
 | Condition | Severity | Message shape |
 |---|---|---|
 | visible computed property whose return type is syntactically `[...]`, `Array<...>`, `Set<...>`, `Dictionary<...>`, `IdentifiedArrayOf<...>` | warning | "returns a collection: derived collections are rebuilt and compared as one leaf value whenever observed at commit — model elements as `@FeatureState` values in an `IdentifiedArrayOf` stored member, return `[ID]`/section keys for structure, or accept the O(n) compare". No suppression mechanism beyond it being a warning; the `[ID]` idiom is named in the message as the accepted shape. |
-| visible computed property whose return type is syntactically a `@FeatureState`-annotated type (resolvable in the same file; best-effort) | warning | "computed members diff as leaf values through the derivation cache: the whole output gets one coarse fire when it changes, with no granular recursion into its members — store it as a stored member (granular via overload ranking) or accept the coarse fire" |
+| ~~visible computed property whose return type is syntactically a `@FeatureState`-annotated type~~ | — | **Not implementable with the attached-macro API; deferred.** Attached macros see only the attached declaration and its lexical context, never file siblings, so "resolvable in the same file" cannot be checked. The semantic consequence (computed members diff as leaf values through the cache, one coarse fire, no granular recursion) is documented in §7 instead. |
 | visible computed property referencing another visible computed property, where the reference graph has a cycle (A reads B, B reads A) | warning | "cyclic derived properties will recurse at evaluation; break the cycle or mark one `@Domain`" — non-cyclic cross-reads are allowed and common |
 | visible computed property with a setter | error | "view-visible computed properties are get-only; add `@Domain` for interactor-side settable helpers" |
 | `@Domain` on a `private` member | warning | redundant; `private` already excludes it |
@@ -1231,6 +1243,7 @@ diff line.
 | enum case with two or more associated values | error | "wrap the payload in a single struct (annotate it `@FeatureState` for granular observation)" |
 | enum case name colliding with an existing member (blocks the case accessor) | error | rename the case or the member |
 | zero visible members | warning | every member is `@Domain`/private; the type has no view surface — likely a missing removal of `@FeatureState` |
+| visible stored member without an explicit type annotation | error | the macro cannot see inferred types, and `_ViewMembers` needs the member's type — "add one, mark the member '@Domain', or make it 'private'" |
 
 Syntactic scanning of computed bodies (cycle detection, collection returns) is heuristic:
 type aliases and helper-function indirection can evade it. Documented as best-effort; the
