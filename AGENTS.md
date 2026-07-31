@@ -8,7 +8,7 @@
 ## Layout
 - `Sources/Lattice`: core runtime types (Interactor, ViewModel, emissions, testing helpers).
 - `Sources/LatticeMacros`: macro definitions; build product used by library.
-- `Macros/`: checked-in macro tool binary used by Xcode/tooling.
+- `Macros/`: gitignored, consumer-side build artifact (CocoaPods `pod install` generates the macro binary here; never checked in).
 - `ExampleProject/`: sample Xcode project/workspace for manual validation.
 
 ## Main library concepts
@@ -29,10 +29,10 @@
 - Run library tests only: `swift test --filter LatticeTests`
 - Run focused debounce tests: `swift test --filter EmissionDebounceTests` and `swift test --filter DebounceInteractorTests`
 
-## Macro binary refresh
-- If macro sources change, rebuild the tool and update `Macros/LatticeMacros`:
-- `scripts/rebuild-macro.sh`
-- Set `SKIP_LATTICE_MACRO_BUILD=1` or `SKIP_LATTICE_MACRO_BUILD=true` to skip when needed.
+## Macro binary
+- Never checked in and never rebuilt by maintainers. SwiftPM/Xcode consumers build the `LatticeMacros` target from source; the build system handles linking.
+- CocoaPods consumers generate `Macros/LatticeMacros` at `pod install` via the podspec `prepare_command` (`scripts/rebuild-macro.sh`).
+- `SKIP_LATTICE_MACRO_BUILD=1` or `SKIP_LATTICE_MACRO_BUILD=true` skips the script when needed.
 
 ## Skill sync
 - Sync `skills/` and `.claude/skills/`: `scripts/sync-skills.sh`
