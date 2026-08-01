@@ -133,10 +133,12 @@ public final class ViewModel<State: FeatureStateProtocol, Action> {
 Plan 05 §11.1 owns the normative sketch (the full `dynamicMember` overload set, projection
 semantics, registrar); this plan owns the file. Notes:
 
-- `DequeModule` / `OrderedCollections` imports drop out of this file, and so does
-  `Observation`: the ViewModel no longer touches the observation framework directly — the
-  registrar's signal objects do, in `Sources/Lattice/FeatureState/`. Whether the collections
-  package dependency itself becomes removable is a workstream 9 pruning question (the core may
+- `DequeModule` / `OrderedCollections` imports drop out of this file. `Observation` stays as
+  a single-line dependency (compiler-forced, recorded at the flip): `ViewModel` must conform
+  to the empty `Observable` marker protocol for SwiftUI's `@Bindable` to accept it — but it
+  still touches no observation machinery directly; signals live in the registrar's objects in
+  `Sources/Lattice/FeatureState/`. Whether the collections package dependency itself becomes
+  removable is a workstream 9 pruning question (the core may
   still use ordered collections internally).
 - The `_ViewModel` shim protocol (`ViewState: ObservableState`) and the `viewState` accessor
   are deleted; views read members through the projection, and `ViewModelBinding` retargets its
@@ -259,6 +261,13 @@ read key path retargets from `KeyPath<ViewState, Value>` to
 like any read), writes still send the event through the interactor. `_ViewModelBinding`,
 `_ViewModelCaseBinding`, `_ViewModelCaseMemberBinding`, and the `Bindable`/`Binding`
 subscripts keep their shape and call sites against the stable `sendViewEvent` signature.
+As-landed notes (compiler-forced/shape details recorded at the flip): the three wrapper
+structs became `@MainActor` (their read closures capture non-Sendable key paths into a
+main-actor read); the first binding hop carries `Member: Equatable` (the projection's leaf
+read), with nested hops chaining through the first hop's registered read; and the
+case-binding getters read state through an internal `ViewModel._observedState` that registers
+the registrar's root (whole-state) slot — coarse-but-correct, since a case flip is a
+whole-view change.
 
 ### 5. `Sources/Lattice/Presentation/Feature/Feature.swift` — narrowed to interactor + state type
 
