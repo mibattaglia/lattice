@@ -1,7 +1,6 @@
 import CasePaths
 
 @CasePathable
-enum TimerLeakEvent: Equatable, Sendable {
+enum TimerLeakEvent: Equatable {
     case start
-    case tick
 }
