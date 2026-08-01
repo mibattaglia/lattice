@@ -19,28 +19,76 @@ struct TestFailure: Error, CustomStringConvertible, Sendable {
 }
 
 extension TestFailure {
-    static func mustHandleReceivedActionsBeforeSending<Action>(
-        _ actions: some Sequence<Action>
+    static func mustAssertCommitsBeforeSending<DomainState, Action>(
+        _ commits: some Sequence<PendingCommit<DomainState, Action>>
     ) -> Self {
-        let actions = Array(actions)
+        let commits = Array(commits)
         return Self(
             """
-            Must handle \(actions.count) received action\(actions.count == 1 ? "" : "s") before \
+            Must assert \(commits.count) pending commit\(commits.count == 1 ? "" : "s") before \
             sending another action.
 
-            Unhandled actions: \(describeActions(actions))
+            Pending commits:
+            \(describeCommits(commits))
+            """
+        )
+    }
+
+    static func sendAfterDismount<Action>(_ action: Action) -> Self {
+        Self(
+            """
+            Can't send an action to a dismounted TestViewModel.
+
+            Action: \(describe(action))
+            """
+        )
+    }
+
+    static func expectedCommit(timeout: Duration?) -> Self {
+        let timing = timeout.map { " after \($0)" } ?? ""
+        return Self(
+            """
+            Expected an effect to commit a state mutation, but none arrived\(timing).
+
+            If the effect depends on time, make sure the clock has advanced far enough for it \
+            to reach its 'modify'.
+            """
+        )
+    }
+
+    static func expectedMutationButReceivedAction<Action>(_ action: Action) -> Self {
+        Self(
+            """
+            Expected the next commit to be a state mutation (effectState.modify), but received \
+            an action re-entry (effectState.send):
+
+            \(describe(action).indent(by: 2))
+
+            Assert it with 'receive' instead.
+            """
+        )
+    }
+
+    static func expectedActionButReceivedMutation(
+        expected expectedActionDescription: String
+    ) -> Self {
+        Self(
+            """
+            Expected to receive \(expectedActionDescription), but the next commit was a state \
+            mutation (effectState.modify).
+
+            Assert it with 'expect' instead.
             """
         )
     }
 
     static func unexpectedReceivedAction<Action>(
         _ action: Action,
-        expected expectedActionDescription: String,
-        receivedActionLater: Bool
+        expected expectedActionDescription: String
     ) -> Self {
         Self(
             """
-            Received unexpected action\(receivedActionLater ? " before this one" : ""):
+            Received unexpected action:
 
             Expected: \(expectedActionDescription)
             Received: \(describe(action))
@@ -50,13 +98,11 @@ extension TestFailure {
 
     static func unexpectedReceivedAction<Action>(
         _ action: Action,
-        expected expectedAction: Action,
-        receivedActionLater: Bool
+        expected expectedAction: Action
     ) -> Self {
-        let qualifier = receivedActionLater ? " before this one" : ""
-        return Self(
+        Self(
             """
-            Received unexpected action\(qualifier):
+            Received unexpected action:
 
             \(diffMessage(
                 expected: expectedAction,
@@ -69,79 +115,23 @@ extension TestFailure {
 
     static func expectedToReceiveAction(
         _ expectedActionDescription: String,
-        timeout: Duration?,
-        hasInFlightEffects: Bool
+        timeout: Duration?
     ) -> Self {
         let timing = timeout.map { " after \($0)" } ?? ""
-        let suggestion: String
-
-        if hasInFlightEffects {
-            suggestion =
-                """
-                There are emissions in flight. If this action depends on time, make sure the clock \
-                has advanced far enough for the emission to complete.
-                """
-        } else {
-            suggestion =
-                """
-                There are no in-flight emissions that could deliver this action. The expected \
-                emission may have already completed or been cancelled.
-                """
-        }
-
         return Self(
             """
             Expected to receive \(expectedActionDescription), but none arrived\(timing).
 
-            \(suggestion)
+            If the re-entry depends on time, make sure the clock has advanced far enough for \
+            the effect to reach its 'send'.
             """
         )
     }
 
-    static func expectedToReceiveAction<Action>(
-        _ expectedAction: Action,
-        timeout: Duration?,
-        hasInFlightEffects: Bool
-    ) -> Self {
+    static func effectsDidNotFinish(timeout: Duration?) -> Self {
         let timing = timeout.map { " after \($0)" } ?? ""
-        let suggestion: String
-
-        if hasInFlightEffects {
-            suggestion =
-                """
-                There are emissions in flight. If this action depends on time, make sure the clock \
-                has advanced far enough for the emission to complete.
-                """
-        } else {
-            suggestion =
-                """
-                There are no in-flight emissions that could deliver this action. The expected \
-                emission may have already completed or been cancelled.
-                """
-        }
-
         return Self(
-            """
-            Expected to receive the following action, but didn't\(timing):
-
-            \(describe(expectedAction).indent(by: 2))
-
-            \(suggestion)
-            """
-        )
-    }
-
-    static func expectedEffectsToFinish(
-        count: Int,
-        timeout: Duration?
-    ) -> Self {
-        let timing = timeout.map { " after \($0)" } ?? ""
-
-        return Self(
-            """
-            Expected emissions to finish, but \(count) emission\(count == 1 ? "" : "s") \
-            remained in flight\(timing).
-            """
+            "Expected effects to finish, but in-flight effects remained\(timing)."
         )
     }
 
@@ -167,23 +157,6 @@ extension TestFailure {
         )
     }
 
-    static func assertionClosureMadeNoChanges<State>(
-        operation: String,
-        state: State
-    ) -> Self {
-        Self(
-            """
-            Expected state to change, but no change occurred.
-
-            The trailing closure made no observable modifications to state. If no change to state \
-            is expected, omit the trailing closure.
-
-            Actual state after \(operation):
-            \(describe(state).indent(by: 2))
-            """
-        )
-    }
-
     static func assertionThrew(
         operation: String,
         error: any Error
@@ -191,26 +164,40 @@ extension TestFailure {
         Self("State assertion for \(operation) threw error: \(error)")
     }
 
-    static func unhandledReceivedActions<Action>(
-        _ actions: some Sequence<Action>
+    static func unassertedCommits<DomainState, Action>(
+        _ commits: some Sequence<PendingCommit<DomainState, Action>>
     ) -> Self {
-        let actions = Array(actions)
+        let commits = Array(commits)
         return Self(
             """
-            Received \(actions.count) unexpected action\(actions.count == 1 ? "" : "s") left \
-            unhandled.
+            \(commits.count) pending commit\(commits.count == 1 ? "" : "s") left unasserted.
 
-            Unhandled actions: \(describeActions(actions))
+            Pending commits:
+            \(describeCommits(commits))
             """
         )
     }
 
-    static func noReceivedActionsToSkip() -> Self {
-        Self("There were no received actions to skip.")
+    static func unassertedCommitsAtDeinit<DomainState, Action>(
+        _ commits: some Sequence<PendingCommit<DomainState, Action>>
+    ) -> Self {
+        let commits = Array(commits)
+        return Self(
+            """
+            TestViewModel deinitialized with \(commits.count) pending \
+            commit\(commits.count == 1 ? "" : "s") left unasserted.
+
+            Pending commits:
+            \(describeCommits(commits))
+
+            Assert each commit with 'expect'/'receive', consume them with \
+            'skipPendingCommits()', or set 'exhaustivity = .off'.
+            """
+        )
     }
 
-    static func noInFlightEffectsToSkip() -> Self {
-        Self("There were no in-flight emissions to skip.")
+    static func noPendingCommitsToSkip() -> Self {
+        Self("There were no pending commits to skip.")
     }
 }
 
@@ -222,8 +209,19 @@ private func describe<T>(_ value: T) -> String {
     #endif
 }
 
-private func describeActions<Action>(_ actions: [Action]) -> String {
-    describe(actions)
+private func describeCommits<DomainState, Action>(
+    _ commits: [PendingCommit<DomainState, Action>]
+) -> String {
+    commits
+        .map { commit in
+            switch commit {
+            case .mutation:
+                return "  - state mutation (effectState.modify)"
+            case .action(let action, _):
+                return "  - action re-entry (effectState.send): \(describe(action))"
+            }
+        }
+        .joined(separator: "\n")
 }
 
 private func diffMessage<T>(
@@ -246,8 +244,8 @@ private func diffMessage<T>(
         """
 }
 
-private extension String {
-    func indent(by indent: Int) -> String {
+extension String {
+    fileprivate func indent(by indent: Int) -> String {
         let indentation = String(repeating: " ", count: indent)
         return indentation + self.replacingOccurrences(of: "\n", with: "\n\(indentation)")
     }

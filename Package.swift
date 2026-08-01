@@ -58,6 +58,7 @@ let package = Package(
                 .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "Clocks", package: "swift-clocks"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "IdentifiedCollections", package: "swift-identified-collections"),
                 .product(name: "OrderedCollections", package: "swift-collections"),
