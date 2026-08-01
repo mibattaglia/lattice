@@ -88,6 +88,10 @@ public struct Effects<DomainState, Action> {
     /// Binds an `EffectID`'s storage to the root core and this node's task key on first use.
     let _bindEffectID: (EffectID) -> Void
 
+    /// The erased rescoping capability backing the combinators' `appending`/`scoped` SPI
+    /// (`_ScopeLens` composition; see `_EffectsHandleFactory`).
+    let _factory: any _EffectsHandleFactory<DomainState, Action>
+
     /// Launches an asynchronous effect from the update phase.
     ///
     /// Legal **only** while `interact` is executing synchronously (`noasync`). The operation is

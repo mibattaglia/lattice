@@ -1101,9 +1101,14 @@ members of plan 02's §4 table (anything more goes back to plan 02 first):
 
 Consumption notes:
 
-- **Handle construction happens at mount.** Plan 04's tree walk calls `_makeEffectsHandles`
-  once per node (the root with `_ScopeLens.identity`) and retains the pair in node storage
-  keyed by `GraphPath` — the tree is static, so this runs exactly once per node.
+- **Handle construction happens at mount for the root, per-derivation below it.** *(Amended by
+  plan 04's SPI reconciliation.)* The host builds the root handle once with
+  `_makeEffectsHandles(core:lens:.identity, path: GraphPath())`; the combinators derive child
+  handles during `interact` through plan 04's pinned `Effects.appending(_:)`/`scoped(...)`
+  SPI, implemented as an erased factory (`_EffectsHandleFactory` over `_ScopeLens`) carried by
+  every handle. The enum-state pullback registers its presence watcher lazily on first
+  derivation; `registerPresenceWatcher` is idempotent per path. Paths are identical to the
+  retained-node-storage formulation because the tree is static.
 - **Dismount behavior is plan 02's, unmodified**: post-dismount `modify`/`send` throw
   `CancellationError`; there is no dismount hook. `state` keeps reading through the core while
   it is alive (dismount cancels work but does not destroy state) and falls back to the
