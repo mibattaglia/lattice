@@ -47,8 +47,6 @@ struct InteractEffectsOverloadTests {
 
     @Test
     func ignoringTheEffectsHandleWithAWildcardResolves() {
-        // Pure-mutation leaves ignore the handle with `_`; the dedicated two-argument `Void`
-        // convenience arrives with plan 06's deletion of the legacy Emission handler.
         let interact = Interact {
             (state: inout OverloadState, action: OverloadAction, _: Effects<OverloadState, OverloadAction>) in
             if case .bump = action {
@@ -63,14 +61,25 @@ struct InteractEffectsOverloadTests {
             effects: _detachedEffectsHandle(path: GraphPath())
         )
         #expect(state.n == 1)
+    }
 
-        // Legacy pathway: same mutation, `.none` emission.
-        let emission = interact.interact(state: &state, action: .bump)
-        #expect(state.n == 2)
-        guard case .none = emission.kind else {
-            Issue.record("Expected .none emission from the effects-handler bridge")
-            return
+    @Test
+    func twoArgVoidConvenienceResolvesAndNeverObservesAHandle() {
+        // The two-argument `Void` convenience (unambiguous now that the legacy Emission
+        // handler is deleted): pure-mutation leaves drop the handle entirely.
+        let interact = Interact { (state: inout OverloadState, action: OverloadAction) in
+            if case .bump = action {
+                state.n += 1
+            }
         }
+
+        var state = OverloadState()
+        interact.interact(
+            state: &state,
+            action: .bump,
+            effects: _detachedEffectsHandle(path: GraphPath())
+        )
+        #expect(state.n == 1)
     }
 
     @Test
@@ -93,29 +102,6 @@ struct InteractEffectsOverloadTests {
         try core.send(.fetch)
 
         #expect(core.currentState.n == 42)
-    }
-
-    @Test
-    func legacyEmissionHandlerStillResolvesAndBridgesMutationOnly() {
-        // Existing Emission-returning closures keep resolving to the legacy initializer.
-        let interact = Interact { (state: inout OverloadState, action: OverloadAction) in
-            if case .bump = action {
-                state.n += 1
-            }
-            return Emission<OverloadAction>.none
-        }
-
-        var state = OverloadState()
-        _ = interact.interact(state: &state, action: .bump)
-        #expect(state.n == 1)
-
-        // New pathway: mutation applies, the emission is discarded (mutation-only bridge).
-        interact.interact(
-            state: &state,
-            action: .bump,
-            effects: _detachedEffectsHandle(path: GraphPath())
-        )
-        #expect(state.n == 2)
     }
 }
 

@@ -37,33 +37,32 @@ import Foundation
         ///
         /// ## How It Works
         ///
-        /// 1. Actions matching `toChildAction` are extracted and forwarded to the child
-        /// 2. Child processes these actions and mutates its portion of state
-        /// 3. For casePath state, child state is embedded back into parent state
-        /// 4. Child emissions are mapped to parent action space
-        /// 5. Non-matching actions pass through with `.none` emission
-        public struct When<ParentState: Sendable, ParentAction: Sendable, Child: Interactor & Sendable>:
-            Interactor, Sendable
-        where Child.DomainState: Sendable, Child.Action: Sendable {
+        /// 1. Actions matching `toChildAction` are extracted and forwarded to the child.
+        /// 2. The child receives an ``Effects`` handle pulled back through the state and
+        ///    action lenses, with this node's state path appended as a `GraphPath` component.
+        ///    Child effects mutate parent state through the lens via `modify`.
+        /// 3. For case-path state, child state is embedded back into parent state after the
+        ///    child's synchronous update.
+        /// 4. Non-matching actions pass through untouched.
+        ///
+        /// ## Dismissal semantics
+        ///
+        /// If the parent's enum has left the child's case (or the scoped optional is `nil`)
+        /// by the time a child effect calls `modify`, the mutation is **dropped silently**
+        /// and the child subtree's in-flight tasks are cancelled, so effects that outlive
+        /// a dismissed child never write stale state back into the parent.
+        public struct When<ParentState, ParentAction, Child: Interactor>: Interactor {
             public typealias DomainState = ParentState
             public typealias Action = ParentAction
 
-            enum StatePath: @unchecked Sendable {
+            enum StatePath {
                 case keyPath(WritableKeyPath<ParentState, Child.DomainState>)
                 case casePath(AnyCasePath<ParentState, Child.DomainState>)
             }
 
-            /// Transitional box mirroring `StatePath`'s `@unchecked Sendable`: `When` keeps
-            /// its legacy `Sendable` conformance until plan 06's flip, and key-path-backed
-            /// components are immutable. Deleted with the conformance.
-            private struct PathComponentBox: @unchecked Sendable {
-                let component: GraphPath.Component
-            }
-
             private let toChildState: StatePath
             private let toChildAction: AnyCasePath<ParentAction, Child.Action>
-            private let pathComponentBox: PathComponentBox
-            private var pathComponent: GraphPath.Component { pathComponentBox.component }
+            private let pathComponent: GraphPath.Component
             private let child: Child
 
             init(
@@ -74,7 +73,7 @@ import Foundation
             ) {
                 self.toChildState = toChildState
                 self.toChildAction = toChildAction
-                self.pathComponentBox = PathComponentBox(component: pathComponent)
+                self.pathComponent = pathComponent
                 self.child = child
             }
 
@@ -118,26 +117,6 @@ import Foundation
             }
 
             public var body: some Interactor<ParentState, ParentAction> { self }
-
-            public func interact(state: inout ParentState, action: ParentAction) -> Emission<ParentAction> {
-                guard let childAction = toChildAction.extract(from: action) else {
-                    return .none
-                }
-
-                switch toChildState {
-                case .keyPath(let keyPath):
-                    let childEmission = child.interact(state: &state[keyPath: keyPath], action: childAction)
-                    return childEmission.map { [toChildAction] in toChildAction.embed($0) }
-
-                case .casePath(let casePath):
-                    guard var childState = casePath.extract(from: state) else {
-                        return .none
-                    }
-                    defer { state = casePath.embed(childState) }
-                    let childEmission = child.interact(state: &childState, action: childAction)
-                    return childEmission.map { [toChildAction] in toChildAction.embed($0) }
-                }
-            }
 
             /// The imperative-effect pathway: the child receives an ``Effects`` handle pulled
             /// back through the state and action lenses, with this node's state path appended
@@ -193,13 +172,12 @@ import Foundation
 
 #if canImport(CasePaths)
     /// Convenience alias for `Interactors.When`.
-    public typealias WhenInteractor<ParentState: Sendable, ParentAction: Sendable, Child: Interactor & Sendable> =
+    public typealias WhenInteractor<ParentState, ParentAction, Child: Interactor> =
         Interactors.When<ParentState, ParentAction, Child>
-    where Child.DomainState: Sendable, Child.Action: Sendable
 
     // MARK: - Interactor Modifier
 
-    extension Interactor where Self: Sendable {
+    extension Interactor {
         /// Scopes a child interactor to a subset of state and actions.
         ///
         /// Use `when` to embed a child interactor that operates on a portion of the parent's
@@ -221,7 +199,7 @@ import Foundation
         ///   - toChildAction: A case key path from parent action to child actions.
         ///   - child: A closure that returns the child interactor.
         /// - Returns: A combined interactor that handles both parent and child domains.
-        public func when<ChildState, ChildAction, Child: Interactor & Sendable>(
+        public func when<ChildState, ChildAction, Child: Interactor>(
             state toChildState: WritableKeyPath<DomainState, ChildState>,
             action toChildAction: CaseKeyPath<Action, ChildAction>,
             @InteractorBuilder<ChildState, ChildAction> child: () -> Child
@@ -255,7 +233,7 @@ import Foundation
         ///   - toChildAction: A case key path from parent action to child actions.
         ///   - child: A closure that returns the child interactor.
         /// - Returns: A combined interactor that handles both parent and child domains.
-        public func when<ChildState, ChildAction, Child: Interactor & Sendable>(
+        public func when<ChildState, ChildAction, Child: Interactor>(
             state toChildState: CaseKeyPath<DomainState, ChildState>,
             action toChildAction: CaseKeyPath<Action, ChildAction>,
             @InteractorBuilder<ChildState, ChildAction> child: () -> Child

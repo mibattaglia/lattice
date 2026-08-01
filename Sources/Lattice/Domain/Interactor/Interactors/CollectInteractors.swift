@@ -4,8 +4,8 @@ extension Interactors {
     /// An interactor that wraps an interactor builder result.
     ///
     /// `CollectInteractors` enables creating interactors inline using the builder syntax.
-    public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor,
-        @unchecked Sendable
+    /// It is structurally transparent: it forwards the effects handle unmodified.
+    public struct CollectInteractors<State, Action, Interactors: Interactor>: Interactor
     where State == Interactors.DomainState, Action == Interactors.Action {
         private let interactors: Interactors
 
@@ -14,10 +14,6 @@ extension Interactors {
         }
 
         public var body: some Interactor<State, Action> { self }
-
-        public func interact(state: inout State, action: Action) -> Emission<Action> {
-            interactors.interact(state: &state, action: action)
-        }
 
         /// Structurally transparent: forwards the effects handle unmodified; the builder
         /// result it wraps appends its own positional components.

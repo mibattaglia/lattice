@@ -1,35 +1,34 @@
+// Rewritten for the flipped host (plan 06 §5): `Feature` narrows to interactor + state type.
+
 import Foundation
 import Testing
 
 @testable import Lattice
 
-@ObservableState
-struct FeatureState: Equatable {
-    var count = 0
-    var name = "Dracula"
-    var age = 900
+@FeatureState
+struct CounterFeatureState {
+    var count: Int = 0
+    var name: String = "Dracula"
+    var age: Int = 900
 }
 
-enum FeatureAction: Equatable {
+enum CounterFeatureAction: Equatable {
     case incrementCount
     case decrementCount
     case increaseAge
 }
 
-@Interactor<FeatureState, FeatureAction>
-struct FeatureInteractor {
+@Interactor<CounterFeatureState, CounterFeatureAction>
+struct CounterFeatureInteractor {
     var body: some InteractorOf<Self> {
         Interact { state, event in
             switch event {
             case .incrementCount:
                 state.count += 1
-                return .none
             case .decrementCount:
                 state.count -= 1
-                return .none
             case .increaseAge:
                 state.age += 1
-                return .none
             }
         }
     }
@@ -38,31 +37,33 @@ struct FeatureInteractor {
 @MainActor
 @Suite
 struct FeatureViewModelTests {
-    let interactor = FeatureInteractor()
-    let viewModel: ViewModel<Feature<FeatureAction, FeatureState, FeatureState>>
+    let viewModel: ViewModel<CounterFeatureState, CounterFeatureAction>
 
     init() {
-        let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())
+        let feature = Feature<CounterFeatureState, CounterFeatureAction>(
+            interactor: CounterFeatureInteractor()
+        )
         self.viewModel = ViewModel(
-            initialDomainState: .init(),
+            initialState: .init(),
             feature: feature
         )
     }
 
     @Test
     func featureViewModel() {
-        #expect(viewModel.viewState == FeatureState())
+        #expect(viewModel.count == 0)
+        #expect(viewModel.name == "Dracula")
 
         viewModel.sendViewEvent(.incrementCount)
-        #expect(viewModel.viewState == FeatureState(count: 1))
+        #expect(viewModel.count == 1)
 
         viewModel.sendViewEvent(.incrementCount)
-        #expect(viewModel.viewState == FeatureState(count: 2))
+        #expect(viewModel.count == 2)
 
         viewModel.sendViewEvent(.decrementCount)
-        #expect(viewModel.viewState == FeatureState(count: 1))
+        #expect(viewModel.count == 1)
 
         viewModel.sendViewEvent(.increaseAge)
-        #expect(viewModel.viewState == FeatureState(count: 1, age: 901))
+        #expect(viewModel.age == 901)
     }
 }

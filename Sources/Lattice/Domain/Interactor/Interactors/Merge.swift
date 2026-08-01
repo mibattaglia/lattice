@@ -11,12 +11,12 @@ extension Interactors {
     /// }
     /// ```
     ///
-    /// Each action is processed by both interactors sequentially, with their
-    /// emissions merged together.
+    /// Each action is processed by both interactors sequentially. Each child receives an
+    /// effects handle with a positional `GraphPath` component appended (`.id(0)` / `.id(1)`),
+    /// so effects launched by the two children never collide in the core's task storage.
     ///
     /// - Note: For merging more than two interactors, see ``MergeMany``.
-    public struct Merge<I0: Interactor, I1: Interactor<I0.DomainState, I0.Action>>: Interactor, @unchecked Sendable
-    where I0.DomainState: Sendable, I0.Action: Sendable {
+    public struct Merge<I0: Interactor, I1: Interactor<I0.DomainState, I0.Action>>: Interactor {
         private let i0: I0
         private let i1: I1
 
@@ -32,15 +32,6 @@ extension Interactors {
 
         public var body: some Interactor<I0.DomainState, I0.Action> { self }
 
-        public func interact(state: inout I0.DomainState, action: I0.Action) -> Emission<I0.Action> {
-            let emission0 = i0.interact(state: &state, action: action)
-            let emission1 = i1.interact(state: &state, action: action)
-            return .merge([emission0, emission1])
-        }
-
-        /// Each child receives an effects handle with a positional `GraphPath` component
-        /// appended (`.id(0)` / `.id(1)`), so effects launched by the two children never
-        /// collide in the core's task storage.
         public func interact(
             state: inout I0.DomainState,
             action: I0.Action,

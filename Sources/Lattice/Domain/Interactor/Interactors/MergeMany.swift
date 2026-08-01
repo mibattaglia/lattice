@@ -16,12 +16,15 @@ extension Interactors {
     /// }
     /// ```
     ///
-    /// Each action is processed by all interactors sequentially, with their
-    /// emissions merged together.
+    /// Each action is processed by all interactors sequentially. Each child receives an
+    /// effects handle with its positional index appended as a `GraphPath` component (`.id(i)`).
+    ///
+    /// - Important: Path identity is positional. `for`-loops that build interactors from
+    ///   dynamic collections must produce a stable order; reordering the collection at
+    ///   runtime is unsupported (the composition tree is static).
     ///
     /// - Note: For merging exactly two interactors, see ``Merge``.
-    public struct MergeMany<Element: Interactor>: Interactor, @unchecked Sendable
-    where Element.DomainState: Sendable, Element.Action: Sendable {
+    public struct MergeMany<Element: Interactor>: Interactor {
         private let interactors: [Element]
 
         /// Creates a merged interactor from an array of child interactors.
@@ -33,17 +36,6 @@ extension Interactors {
 
         public var body: some Interactor<Element.DomainState, Element.Action> { self }
 
-        public func interact(state: inout Element.DomainState, action: Element.Action) -> Emission<Element.Action> {
-            let emissions = interactors.map { interactor in
-                interactor.interact(state: &state, action: action)
-            }
-            return .merge(emissions)
-        }
-
-        /// Each child receives an effects handle with its positional index appended as a
-        /// `GraphPath` component (`.id(i)`). Path identity is positional: `for`-loops that
-        /// build interactors from dynamic collections must produce a stable order (the
-        /// composition tree is static).
         public func interact(
             state: inout Element.DomainState,
             action: Element.Action,

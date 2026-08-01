@@ -1,68 +1,86 @@
+// Rewritten for the flipped host (plan 06 §4): binding read key paths retarget onto the
+// state's `_ViewMembers` projection namespace; writes still send events.
+
 import CasePaths
 import SwiftUI
 import Testing
 
 @testable import Lattice
 
-@MainActor
-@Suite
-struct ViewModelBindingTests {
-    @Test
-    func testBindingFromStateViewModel() {
-        var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState, BindingTestState>> = .init(
-            initialDomainState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
-        )
-
-        let binding = Binding(
-            get: { viewModel },
-            set: { viewModel = $0 }
-        )
-
-        let nameBinding = binding.name.sending(\.nameChanged)
-        nameBinding.wrappedValue = "Blob Jr."
-
-        #expect(viewModel.viewState.name == "Blob Jr.")
-    }
-
-    @Test
-    func testBindingFromFeatureViewModelAlias() {
-        var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState, BindingTestState>> = .init(
-            initialDomainState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
-        )
-
-        let binding = Binding(
-            get: { viewModel },
-            set: { viewModel = $0 }
-        )
-
-        let nameBinding = binding.name.sending(\.nameChanged)
-        nameBinding.wrappedValue = "Blob III"
-
-        #expect(viewModel.viewState.name == "Blob III")
-    }
+@FeatureState
+private struct BindingTestState {
+    var name: String = "Blob"
+    var profile: BindingProfileState = BindingProfileState()
 }
 
-@ObservableState
-private struct BindingTestState: Equatable, Sendable {
-    var name: String
+@FeatureState
+private struct BindingProfileState: Equatable {
+    var bio: String = "bio"
 }
 
 @CasePathable
-private enum BindingTestAction: Sendable {
+private enum BindingTestAction {
     case nameChanged(String)
+    case bioChanged(String)
 }
 
-@Interactor<BindingTestState, BindingTestAction>
 private struct BindingTestInteractor: Interactor {
-    var body: some InteractorOf<Self> {
+    var body: some Interactor<BindingTestState, BindingTestAction> {
         Interact { state, action in
             switch action {
             case .nameChanged(let name):
                 state.name = name
-                return .none
+            case .bioChanged(let bio):
+                state.profile.bio = bio
             }
         }
+    }
+}
+
+@MainActor
+@Suite
+struct ViewModelBindingTests {
+    private func makeViewModel() -> ViewModel<BindingTestState, BindingTestAction> {
+        ViewModel(initialState: BindingTestState(), interactor: BindingTestInteractor())
+    }
+
+    @Test
+    func bindingFromBindingOfViewModelReadsAndSends() {
+        var viewModel = makeViewModel()
+
+        let binding = Binding(
+            get: { viewModel },
+            set: { viewModel = $0 }
+        )
+
+        let nameBinding = binding.name.sending(\.nameChanged)
+        #expect(nameBinding.wrappedValue == "Blob")
+
+        nameBinding.wrappedValue = "Blob Jr."
+        #expect(viewModel.name == "Blob Jr.")
+    }
+
+    @Test
+    func bindingFromBindableReadsAndSends() {
+        let viewModel = makeViewModel()
+
+        @Bindable var bindable = viewModel
+        let nameBinding = $bindable.name.sending(\.nameChanged)
+
+        #expect(nameBinding.wrappedValue == "Blob")
+        nameBinding.wrappedValue = "Blob III"
+        #expect(viewModel.name == "Blob III")
+    }
+
+    @Test
+    func nestedMemberBindingChainsThroughTheFirstHop() {
+        let viewModel = makeViewModel()
+
+        @Bindable var bindable = viewModel
+        let bioBinding = $bindable.profile.bio.sending(\.bioChanged)
+
+        #expect(bioBinding.wrappedValue == "bio")
+        bioBinding.wrappedValue = "updated"
+        #expect(viewModel.profile.bio == "updated")
     }
 }

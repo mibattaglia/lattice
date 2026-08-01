@@ -15,29 +15,24 @@ struct MergeTests {
             DoubleInteractor()
         )
 
+        let effects: Effects<Int, Int> = _detachedEffectsHandle(path: GraphPath())
+
         var state = 0
 
         // TripleInteractor processes first: state = 3 * 3 = 9
-        _ = TripleInteractor().interact(state: &state, action: 3)
+        TripleInteractor().interact(state: &state, action: 3, effects: effects)
         results.append(state)
 
         state = 0
         // DoubleInteractor processes: state = 3 * 2 = 6
-        _ = DoubleInteractor().interact(state: &state, action: 3)
+        DoubleInteractor().interact(state: &state, action: 3, effects: effects)
         results.append(state)
 
         #expect(results == [9, 6])
 
-        // Also verify merge calls both
+        // Also verify merge calls both, in order: final state is from the last interactor.
         state = 0
-        let emission = merge.interact(state: &state, action: 3)
-        // Final state is from last interactor (DoubleInteractor)
+        merge.interact(state: &state, action: 3, effects: effects)
         #expect(state == 6)
-        // Emission should be merged
-        if case .merge(let emissions) = emission.kind {
-            #expect(emissions.count == 2)
-        } else {
-            Issue.record("Expected merged emissions")
-        }
     }
 }

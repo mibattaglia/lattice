@@ -1,182 +1,162 @@
+// Rewritten for the flipped host (plan 06 test plan): case scoping rides the generated
+// enum case accessors (`@FeatureState` emits `success: SuccessState?` into `_ViewMembers`).
+
 import CasePaths
 import Foundation
-import Observation
 import Testing
 
 @testable import Lattice
 
-private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+// MARK: - Fixtures
+
+@FeatureState
+private struct SuccessState: Equatable {
+    var title: String = "t"
+    var count: Int = 0
 }
 
-@ObservableState private struct SuccessViewState: Equatable, Sendable {
-    var title: String
-    var count: Int
-}
-
+@FeatureState
 @CasePathable
-@ObservableState private enum PhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self.loading
+private enum PhaseState {
     case loading
-    case success(SuccessViewState)
+    case success(SuccessState)
 }
 
-private struct PhaseDomain: Equatable, Sendable {
-    var isLoaded = false
-    var title = "t"
-    var count = 0
-    var tick = 0
-}
-
-@CasePathable private enum SuccessAction: Sendable {
+@CasePathable private enum SuccessAction {
     case titleChanged(String)
     case incremented
 }
 
-@CasePathable private enum PhaseAction: Sendable {
+@CasePathable private enum PhaseAction {
     case load
     case reset
-    case tick
     case success(SuccessAction)
 }
 
-private struct PhaseInteractor: Interactor, Sendable {
-    typealias DomainState = PhaseDomain
-    typealias Action = PhaseAction
-    var body: some InteractorOf<Self> {
+private struct SuccessInteractor: Interactor {
+    var body: some Interactor<SuccessState, SuccessAction> {
         Interact { state, action in
             switch action {
-            case .load: state.isLoaded = true
-            case .reset: state.isLoaded = false
-            case .tick: state.tick += 1
-            case .success(let action):
-                // Late sends after the case deactivated are dropped here, by design.
-                guard state.isLoaded else { return .none }
-                switch action {
-                case .titleChanged(let t): state.title = t
-                case .incremented: state.count += 1
-                }
+            case .titleChanged(let t): state.title = t
+            case .incremented: state.count += 1
             }
-            return .none
         }
     }
 }
 
-/// Fine-grained regime: transitions rebuild the case; steady-state updates mutate the payload
-/// in place through the case.
-private struct PhaseReducer: ViewStateReducer, Sendable {
-    typealias DomainState = PhaseDomain
-    typealias ViewState = PhaseViewState
-    // PhaseViewState: DefaultValueProvider supplies the initial view state.
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState<PhaseDomain, PhaseViewState> { s, v in
-            guard s.isLoaded else {
-                v = .loading
-                return
-            }
-            if v.is(\.success) {
-                v.modify(\.success) {  // in-place: payload registrar fires leaves only
-                    $0.title = s.title
-                    $0.count = s.count
-                }
-            } else {
-                v = .success(SuccessViewState(title: s.title, count: s.count))  // case transition
+private struct PhaseInteractor: Interactor {
+    var body: some Interactor<PhaseState, PhaseAction> {
+        Interactors.When(state: \.success, action: \.success) {
+            SuccessInteractor()
+        }
+        Interact { state, action in
+            switch action {
+            case .load: state = .success(SuccessState())
+            case .reset: state = .loading
+            case .success: break
             }
         }
     }
 }
+
+// MARK: - Tests
 
 @MainActor
 @Suite struct EnumCaseScopingTests {
-    private func makeViewModel() -> ViewModel<Feature<PhaseAction, PhaseDomain, PhaseViewState>> {
+    private func makeViewModel(loaded: Bool = true) -> ViewModel<PhaseState, PhaseAction> {
         ViewModel(
-            initialDomainState: PhaseDomain(),
-            feature: Feature(interactor: PhaseInteractor(), reducer: PhaseReducer())
+            initialState: loaded ? .success(SuccessState()) : .loading,
+            interactor: PhaseInteractor()
         )
     }
 
-    // MARK: Prerequisite fix (_$inert)
-
-    @Test func payloadlessCaseIsStable_unrelatedReduceDoesNotFireCoarse() {
-        let vm = makeViewModel()  // .loading
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
-
-        vm.sendViewEvent(.tick)  // domain changes; view state stays .loading
-        #expect(!probe.didChange)  // fails before the _$inert fix
-    }
-
-    @Test func caseChangeStillFiresCoarse() {
-        let vm = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
-
-        vm.sendViewEvent(.load)  // .loading -> .success
-        #expect(probe.didChange)
-    }
-
-    // MARK: Case scoping
-
-    @Test func trappingScopeReadsLivePayload() {
-        let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-        #expect(success.title == "t")
-
-        success.sendViewEvent(.titleChanged("new"))  // in-place reduce
-        #expect(success.title == "new")  // live re-extraction, not a snapshot
-    }
-
-    @Test func scopeIfActiveReturnsNilForInactiveCase() {
-        let vm = makeViewModel()  // .loading
+    @Test func scopeIfActiveReturnsNilWhenCaseIsInactive() {
+        let vm = makeViewModel(loaded: false)
         #expect(vm.scopeIfActive(state: \.success, action: \.success) == nil)
     }
 
-    @Test func inPlacePayloadMutationIsFineGrained() {
+    @Test func scopeIfActiveReadsThePayloadWhileActive() {
         let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
+        let scoped = vm.scopeIfActive(state: \.success, action: \.success)
 
-        let titleProbe = ChangeProbe()
-        withObservationTracking { _ = success.title } onChange: { titleProbe.mark() }
-        let coarseProbe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { coarseProbe.mark() }
-
-        success.sendViewEvent(.incremented)  // in-place: only count changes
-        #expect(!titleProbe.didChange)  // sibling leaf not invalidated
-        #expect(!coarseProbe.didChange)  // switch not re-rendered
+        #expect(scoped?.title == "t")
+        #expect(scoped?.count == 0)
     }
 
-    @Test func caseFlipServesCreationSnapshotWithoutCrashing() {
+    @Test func scopedReadsAreLive() {
         let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
+        let scoped = vm.scopeIfActive(state: \.success, action: \.success)
 
-        vm.sendViewEvent(.reset)  // .success -> .loading; scope is now stale
-        #expect(success.title == "t")  // creation snapshot, no trap/crash
+        vm.sendViewEvent(.success(.incremented))
+        #expect(scoped?.count == 1)
     }
 
-    @Test func lateSendAfterCaseFlipIsDroppedByInteractor() {
+    @Test func scopedSendsEmbedIntoTheParentAction() {
         let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
+        let scoped = vm.scope(state: \.success, action: \.success)
+
+        scoped.sendViewEvent(.titleChanged("new"))
+        #expect(scoped.title == "new")
+        #expect(vm.success?.title == "new")
+    }
+
+    @Test func scopeHeldAcrossDeactivationServesTheCreationSnapshot() {
+        let vm = makeViewModel()
+        let scoped = vm.scope(state: \.success, action: \.success)
+
+        vm.sendViewEvent(.success(.titleChanged("before")))
+        #expect(scoped.title == "before")
+
+        // Snapshot fallback covers at most one transitional render after the case departs.
         vm.sendViewEvent(.reset)
-
-        success.sendViewEvent(.incremented)  // arrives while .loading
-        vm.sendViewEvent(.load)
-        #expect(vm.viewState[case: \.success]?.count == 0)  // guard dropped it
+        #expect(scoped.title == "t")  // creation-time payload, not "before"
     }
 
-    @Test func bindingThroughCaseScope() {
+    @Test func sendsAfterDeactivationAreDroppedByWhen() {
         let vm = makeViewModel()
+        let scoped = vm.scope(state: \.success, action: \.success)
+
+        vm.sendViewEvent(.reset)
+        scoped.sendViewEvent(.incremented)  // `When` drops it: the case is inactive.
+
         vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-        let binding = success.binding(\.title, sending: \.titleChanged)
-        #expect(binding.wrappedValue == "t")
-        binding.wrappedValue = "typed"
-        #expect(binding.wrappedValue == "typed")
+        #expect(vm.success?.count == 0)
+    }
+
+    @Test func nestedCaseScopeOnScopedViewModel() {
+        // Parent struct holding the enum; scope into the struct member, then into the case.
+        let vm = ViewModel(
+            initialState: ShellState(),
+            interactor: ShellInteractor()
+        )
+
+        let phase: ScopedViewModel<PhaseState, PhaseAction> = vm.scope(
+            state: \.phase,
+            action: \.phase
+        )
+        let success = phase.scopeIfActive(state: \.success, action: \.success)
+
+        #expect(success != nil)
+        success?.sendViewEvent(.incremented)
+        #expect(success?.count == 1)
+    }
+}
+
+// MARK: - Nested-shell fixture
+
+@FeatureState
+private struct ShellState {
+    var phase: PhaseState = PhaseState.success(SuccessState())
+}
+
+@CasePathable private enum ShellAction {
+    case phase(PhaseAction)
+}
+
+private struct ShellInteractor: Interactor {
+    var body: some Interactor<ShellState, ShellAction> {
+        Interactors.When(state: \.phase, action: \.phase) {
+            PhaseInteractor()
+        }
     }
 }
