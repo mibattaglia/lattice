@@ -1,27 +1,35 @@
 import Foundation
+import IdentifiedCollections
 import Lattice
 
-@Interactor<TodosDomainState, TodosEvent>
-struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
-    private let autoSortDebouncer: Debouncer<C, TodosEvent?>
+@Interactor<TodosState, TodosEvent>
+struct TodosInteractor {
+    private let clock: any Clock<Duration>
+    private let debounceDuration: Duration
+    private let makeUUID: () -> UUID
 
-    init(clock: C, debounceDuration: C.Duration) {
-        self.autoSortDebouncer = Debouncer(for: debounceDuration, clock: clock)
+    init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        debounceDuration: Duration = .milliseconds(300),
+        makeUUID: @escaping () -> UUID = { UUID() }
+    ) {
+        self.clock = clock
+        self.debounceDuration = debounceDuration
+        self.makeUUID = makeUUID
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { [clock, debounceDuration, makeUUID] state, event, effects in
             switch event {
             case .newTodoTextChanged(let text):
                 state.newTodoText = text
-                return .none
 
             case .addTodo:
                 let trimmed = state.newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return .none }
+                guard !trimmed.isEmpty else { return }
 
-                let newTodo = TodosDomainState.TodoItem(
-                    id: UUID(),
+                let newTodo = TodosState.TodoItem(
+                    id: makeUUID(),
                     title: trimmed,
                     isComplete: false,
                     order: state.nextOrder
@@ -29,116 +37,114 @@ struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
                 state.todos.append(newTodo)
                 state.nextOrder += 1
                 state.newTodoText = ""
-                return .none
 
             case .setTodoCompletion(let id, let isComplete):
-                guard let index = state.todos.firstIndex(where: { $0.id == id }) else {
-                    return .none
+                guard let current = state.todos[id: id]?.isComplete, current != isComplete
+                else { return }
+                state.todos[id: id]?.isComplete = isComplete
+                // Debounced auto-sort by replacement: each completion toggle replaces the
+                // previous in-flight task at this call site, restarting the quiet period.
+                // The effect re-enters by mutating state directly — no `.applyAutoSort`
+                // follow-up action exists anymore.
+                effects.perform { effectState in
+                    try await clock.sleep(for: debounceDuration)
+                    try effectState.modify { state in
+                        applyAutoSort(&state)
+                    }
                 }
-                guard state.todos[index].isComplete != isComplete else { return .none }
-                state.todos[index].isComplete = isComplete
-                return scheduleAutoSort()
 
             case .deleteTodos(let ids):
-                guard !ids.isEmpty else { return .none }
-                let idSet = Set(ids)
-                state.todos.removeAll { idSet.contains($0.id) }
+                guard !ids.isEmpty else { return }
+                for id in ids {
+                    state.todos.remove(id: id)
+                }
                 normalizeOrder(&state)
-                return .none
 
             case .moveTodos(let ids, let destination):
                 moveTodos(in: &state, ids: ids, destination: destination)
-                return .none
 
             case .setFilter(let filter):
                 state.filter = filter
-                return .none
-
-            case .applyAutoSort:
-                state.todos.sort(by: sortedTodos)
-                normalizeOrder(&state)
-                return .none
             }
         }
     }
+}
 
-    private func scheduleAutoSort() -> Emission<TodosEvent> {
-        .perform { .applyAutoSort }
-            .debounce(using: autoSortDebouncer)
+/// Sorts incomplete todos above completed ones, preserving relative order.
+func applyAutoSort(_ state: inout TodosState) {
+    var items = state.todos.elements
+    items.sort(by: sortedTodos)
+    state.todos = IdentifiedArray(uniqueElements: items)
+    normalizeOrder(&state)
+}
+
+private func sortedTodos(_ lhs: TodosState.TodoItem, _ rhs: TodosState.TodoItem) -> Bool {
+    if lhs.isComplete != rhs.isComplete {
+        return lhs.isComplete == false
     }
+    return lhs.order < rhs.order
+}
 
-    private func sortedTodos(_ lhs: TodosDomainState.TodoItem, _ rhs: TodosDomainState.TodoItem) -> Bool {
-        if lhs.isComplete != rhs.isComplete {
-            return lhs.isComplete == false
-        }
-        return lhs.order < rhs.order
+func normalizeOrder(_ state: inout TodosState) {
+    for (index, id) in state.todos.ids.enumerated() {
+        state.todos[id: id]?.order = index
     }
+    state.nextOrder = state.todos.count
+}
 
-    private func normalizeOrder(_ state: inout TodosDomainState) {
-        for index in state.todos.indices {
-            state.todos[index].order = index
-        }
-        state.nextOrder = state.todos.count
+private func moveTodos(in state: inout TodosState, ids: [UUID], destination: Int) {
+    guard !ids.isEmpty else { return }
+
+    var items = state.todos.elements
+    let visibleIndices = filteredIndices(in: items, filter: state.filter)
+    guard !visibleIndices.isEmpty else { return }
+
+    var visibleTodos = visibleIndices.map { items[$0] }
+    let idSet = Set(ids)
+    let offsets = IndexSet(
+        visibleTodos.enumerated().compactMap { idSet.contains($0.element.id) ? $0.offset : nil }
+    )
+    guard !offsets.isEmpty else { return }
+
+    move(&visibleTodos, fromOffsets: offsets, toOffset: destination)
+
+    for (index, originalIndex) in visibleIndices.enumerated() {
+        items[originalIndex] = visibleTodos[index]
     }
+    state.todos = IdentifiedArray(uniqueElements: items)
+    normalizeOrder(&state)
+}
 
-    private func moveTodos(in state: inout TodosDomainState, ids: [UUID], destination: Int) {
-        guard !ids.isEmpty else { return }
-
-        let filteredIndices = filteredIndices(in: state.todos, filter: state.filter)
-        guard !filteredIndices.isEmpty else { return }
-
-        var filteredTodos = filteredIndices.map { state.todos[$0] }
-        let idSet = Set(ids)
-        let offsets = IndexSet(
-            filteredTodos.enumerated().compactMap { idSet.contains($0.element.id) ? $0.offset : nil }
-        )
-        guard !offsets.isEmpty else { return }
-
-        move(&filteredTodos, fromOffsets: offsets, toOffset: destination)
-
-        for (index, originalIndex) in filteredIndices.enumerated() {
-            state.todos[originalIndex] = filteredTodos[index]
-        }
-        normalizeOrder(&state)
-    }
-
-    private func filteredIndices(
-        in todos: [TodosDomainState.TodoItem],
-        filter: TodosDomainState.Filter
-    ) -> [Int] {
-        switch filter {
-        case .all:
-            return Array(todos.indices)
-        case .active:
-            return todos.indices.filter { !todos[$0].isComplete }
-        case .completed:
-            return todos.indices.filter { todos[$0].isComplete }
-        }
-    }
-
-    private func move<T>(
-        _ items: inout [T],
-        fromOffsets offsets: IndexSet,
-        toOffset destination: Int
-    ) {
-        guard !offsets.isEmpty else { return }
-
-        let removed = remove(&items, at: offsets)
-        let targetIndex = min(destination, items.count)
-        items.insert(contentsOf: removed, at: targetIndex)
-    }
-
-    private func remove<T>(_ items: inout [T], at offsets: IndexSet) -> [T] {
-        var removed: [T] = []
-        for offset in offsets.sorted(by: >) {
-            removed.insert(items.remove(at: offset), at: 0)
-        }
-        return removed
+private func filteredIndices(
+    in todos: [TodosState.TodoItem],
+    filter: TodosState.Filter
+) -> [Int] {
+    switch filter {
+    case .all:
+        return Array(todos.indices)
+    case .active:
+        return todos.indices.filter { !todos[$0].isComplete }
+    case .completed:
+        return todos.indices.filter { todos[$0].isComplete }
     }
 }
 
-extension TodosInteractor where C == ContinuousClock {
-    init() {
-        self.init(clock: ContinuousClock(), debounceDuration: .milliseconds(300))
+private func move<T>(
+    _ items: inout [T],
+    fromOffsets offsets: IndexSet,
+    toOffset destination: Int
+) {
+    guard !offsets.isEmpty else { return }
+
+    let removed = remove(&items, at: offsets)
+    let targetIndex = min(destination, items.count)
+    items.insert(contentsOf: removed, at: targetIndex)
+}
+
+private func remove<T>(_ items: inout [T], at offsets: IndexSet) -> [T] {
+    var removed: [T] = []
+    for offset in offsets.sorted(by: >) {
+        removed.insert(items.remove(at: offset), at: 0)
     }
+    return removed
 }
