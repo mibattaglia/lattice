@@ -82,7 +82,12 @@ New Core Features bullets:
 
 Demonstrates the pinned surfaces — `interact`, `effects.perform`, `effectState.modify`, and one
 `@FeatureState` state type with `@Domain` members and derived view output — plus a
-non-Sendable dependency, error handling, and debounce-by-replacement. This is the example the
+non-Sendable dependency, error handling, and debounce-by-replacement. (Amended during 09:
+visible stored members carry explicit type annotations — the landed macro requires them for
+the generated projection — and construction/type spellings follow the landed plan 06/07
+surfaces: `ViewModel<State, Action>`, `ViewModel(initialState:interactor:)`,
+`TestViewModel(initialDomainState:interactor:)` with `DomainState: Equatable`, non-throwing
+`await`-based test assertions.) This is the example the
 migration guide and both major skills reuse, so it is written once here, in full:
 
 ````markdown
@@ -123,7 +128,7 @@ struct WeatherSearchState {
     @Domain var isSearching = false
     @Domain var errorMessage: String?
 
-    var query = ""
+    var query: String = ""
     var results: IdentifiedArrayOf<WeatherResult> = []
 
     var statusText: String {
@@ -289,7 +294,7 @@ import Lattice
 
 @FeatureState
 struct CounterState {
-    var count = 0
+    var count: Int = 0
     var countText: String { "\(count)" }
 }
 

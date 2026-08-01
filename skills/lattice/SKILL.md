@@ -35,7 +35,7 @@ import Lattice
 
 @FeatureState
 struct CounterState {
-    var count = 0
+    var count: Int = 0
     var countText: String { "\(count)" }
 }
 
@@ -64,6 +64,8 @@ struct CounterInteractor {
   everything else — stored or computed — is what views read (`viewModel.count`,
   `viewModel.countText`). There is no separate ViewState type and no reducer: visible
   computed properties *are* the derived view output, diffed by output at commit.
+- Visible stored members need an explicit type annotation (`var count: Int = 0`) — the macro
+  builds the projection from the declared types.
 - No `Sendable` conformances anywhere: state, actions, interactors, and dependencies are plain
   types living in the feature's isolation domain.
 - Pure state mutation uses the two-argument `Interact { state, action in }` overload; take the

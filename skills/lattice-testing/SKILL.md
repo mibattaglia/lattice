@@ -17,7 +17,8 @@ model: every state change — synchronous mutations from `send` and asynchronous
 ## Core tools
 
 - `TestViewModel<DomainState, Action>` — hosts the feature with a test core; fails the test
-  for any unasserted state change or unasserted received action.
+  for any unasserted state change or unasserted received action. Requires
+  `DomainState: Equatable` (snapshot diffs compare with `==`).
 - `send(_:changes:)` — dispatch an action, assert the synchronous update-phase mutation.
 - `expect(timeout:changes:)` — assert the next state change committed by an effect's
   `effectState.modify`.

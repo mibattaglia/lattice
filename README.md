@@ -50,7 +50,7 @@ import Lattice
 
 @FeatureState
 struct CounterState {
-    var count = 0
+    var count: Int = 0
 }
 
 enum CounterAction {
@@ -137,7 +137,7 @@ struct WeatherSearchState {
     @Domain var isSearching = false
     @Domain var errorMessage: String?
 
-    var query = ""
+    var query: String = ""
     var results: IdentifiedArrayOf<WeatherResult> = []
 
     var statusText: String {
@@ -312,7 +312,7 @@ enum FormAction {
 
 @FeatureState
 struct FormState {
-    var name = ""
+    var name: String = ""
 }
 
 @Bindable var viewModel: ViewModel<FormState, FormAction>
