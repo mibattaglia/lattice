@@ -432,26 +432,20 @@ observe fine-grained; sends embed into the parent action and return the parent's
 ### Enum-case scoping
 
 When state is a `@FeatureState` `@CasePathable` enum, scope onto the active case's payload via
-the generated case accessors:
-
-```swift
-switch viewModel.route {
-case .loading:
-    LoadingView()
-case .success:
-    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
-}
-```
-
-`scope(state:action:)` traps with `fatalError` if the case is not active; inside a matched
-`switch` case this cannot happen because body evaluation is synchronous. Use
-`scopeIfActive(state:action:)` when the case may legitimately be inactive:
+the generated case accessors. `scopeIfActive(state:action:)` returns `nil` when the case is
+not active, which doubles as the branch condition:
 
 ```swift
 if let success = viewModel.scopeIfActive(state: \.success, action: \.success) {
     SuccessView(model: success)
+} else {
+    LoadingView()
 }
 ```
+
+The trapping `scope(state:action:)` variant is sugar for contexts that have already
+established the case is active (it `fatalError`s otherwise). Case-accessor projection reads
+(`if let detail = viewModel.detail { … }`) cover read-only branching.
 
 If the case departs while a child effect is in flight, the runtime cancels the child's tasks
 and drops straggling writes — no hand-rolled staleness guards needed.

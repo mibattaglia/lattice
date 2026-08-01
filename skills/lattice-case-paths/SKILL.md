@@ -104,19 +104,18 @@ let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default
 
 ## Enum-case scoping
 
-Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when state itself is a `@FeatureState` `@CasePathable` enum, `scope` projects onto the active case's payload via the generated case accessors:
+Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when state itself is a `@FeatureState` `@CasePathable` enum, `scopeIfActive` projects onto the active case's payload via the generated case accessors:
 
 ```swift
-switch viewModel.screen {
-case .list:
-    ListView(model: viewModel.scope(state: \.list, action: \.list))
-case .detail:
-    DetailView(model: viewModel.scope(state: \.detail, action: \.detail))
+if let list = viewModel.scopeIfActive(state: \.list, action: \.list) {
+    ListView(model: list)
+} else if let detail = viewModel.scopeIfActive(state: \.detail, action: \.detail) {
+    DetailView(model: detail)
 }
 ```
 
-- The trapping `scope` is for use inside a matched `switch` case; it `fatalError`s if the case is inactive.
-- `scopeIfActive(state:action:)` returns `nil` instead, for conditional contexts: `if let detail = viewModel.scopeIfActive(state: \.detail, action: \.detail) { … }`.
+- `scopeIfActive(state:action:)` returns `nil` when the case is inactive — the branch condition and the scope in one call.
+- The trapping `scope(state:action:)` variant is sugar for contexts that already established the case is active; it `fatalError`s otherwise.
 - Same-case granularity comes from making the payload itself `@FeatureState`: a payload change recurses into the payload's own commit diff, so only the members that changed re-render.
 
 ## Asserting sent-back actions in tests

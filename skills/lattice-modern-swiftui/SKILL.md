@@ -130,18 +130,19 @@ Rules:
 
 ### Enum state
 
-Switch over the projected enum and scope onto the matched case's payload via the generated case accessors:
+Branch on the active case with `scopeIfActive`, which returns `nil` when the case is inactive:
 
 ```swift
-switch viewModel.route {
-case .loading:
+if let success = viewModel.scopeIfActive(state: \.success, action: \.success) {
+    SuccessView(model: success)
+} else {
     ProgressView()
-case .success:
-    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
 }
 ```
 
-The trapping `scope(state:action:)` is safe inside a matched `switch` case (body evaluation is synchronous). Outside a matched case, use `scopeIfActive(state:action:)`, which returns `nil` when the case is inactive.
+The trapping `scope(state:action:)` variant is for contexts that already established the case
+is active (it `fatalError`s otherwise). For read-only branching, read the case accessor
+directly: `if let detail = viewModel.detail { … }`.
 
 ## Presentation
 

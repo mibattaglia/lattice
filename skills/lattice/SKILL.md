@@ -221,7 +221,7 @@ struct HeaderView: View {
 
 - Do read members through the scope (`model.title`) for fine-grained observation.
 - Do create scopes inline in `body`; don't store them (`@State` etc.) — a scope retains its parent view model.
-- For enum state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive.
+- For enum state, use `if let success = viewModel.scopeIfActive(state: \.success, action: \.success)` to branch on the active case; the trapping `scope(state:action:)` variant is for contexts that already established the case is active.
 - Details and more overloads (closure embedding, read-only, nested scopes, bindings) in `resources/advanced-composition.md`.
 
 ## References

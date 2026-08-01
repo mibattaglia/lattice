@@ -35,19 +35,18 @@ Overloads on `ViewModel`:
 
 ## Enum-case scoping
 
-When state (or a child slice) is a `@FeatureState` `@CasePathable` enum, scope onto the active case's payload via the generated case accessors:
+When state (or a child slice) is a `@FeatureState` `@CasePathable` enum, scope onto the active case's payload via the generated case accessors. `scopeIfActive(state:action:)` returns `nil` when the case is not active, which doubles as the branch condition:
 
 ```swift
-switch viewModel.route {
-case .loading:
+if let success = viewModel.scopeIfActive(state: \.success, action: \.success) {
+    SuccessView(model: success)
+} else {
     LoadingView()
-case .success:
-    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
 }
 ```
 
-- `scope(state:action:)` traps with `fatalError` when the case is not active. Inside a matched `switch` case this cannot happen (body evaluation is synchronous on the main actor).
-- `scopeIfActive(state:action:)` returns `nil` instead of trapping; use it when the case may legitimately be inactive.
+- The trapping `scope(state:action:)` variant is sugar for contexts that have already established the case is active; it `fatalError`s otherwise.
+- Case-accessor projection reads (`if let detail = viewModel.detail { … }`) cover read-only branching without a scope.
 - Reads are live: the scope re-extracts the payload from current state on every access, so in-place payload mutations are observed fine-grained. If the case flips while the scope is still held, reads serve the payload captured at creation for at most one transitional render.
 - A send can arrive after a case flip; `When` drops it when the case is inactive, and interactors should still drop actions that no longer apply to the current state.
 - Granularity inside a case comes from making the payload itself `@FeatureState`: a same-case payload change recurses into the payload's own commit diff.
