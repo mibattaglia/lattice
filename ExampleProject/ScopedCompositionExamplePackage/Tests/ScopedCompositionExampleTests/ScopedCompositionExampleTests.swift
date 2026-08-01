@@ -5,6 +5,8 @@ import Testing
 @testable import ScopedCompositionExample
 import Lattice
 
+// Sendable here is an Observation-API requirement (withObservationTracking's onChange
+// closure is @Sendable), not a Lattice one — Lattice itself imposes no Sendable constraints.
 private final class ChangeProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var hasChanged = false

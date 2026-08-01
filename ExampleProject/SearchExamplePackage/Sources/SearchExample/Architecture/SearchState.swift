@@ -3,8 +3,8 @@ import Foundation
 import IdentifiedCollections
 import Lattice
 
-/// One state type replaces the old `SearchDomainState` + `SearchViewState` +
-/// `SearchViewStateReducer` trio: `@Domain` members are the interactor-only model, and the
+/// One state type replaces the old domain-state/view-state/reducer trio: `@Domain`
+/// members are the interactor-only model, and the
 /// visible computed properties are the rendering instructions, diffed per member at commit.
 ///
 /// The old `forecastRequestNonce` is gone: per-location task replacement makes a newer tap

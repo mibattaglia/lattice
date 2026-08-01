@@ -2,8 +2,8 @@ import Foundation
 import IdentifiedCollections
 import Lattice
 
-/// One state type replaces the old `TodosDomainState` + `TodosViewState` +
-/// `TodosViewStateReducer` trio: stored members are the model, and the visible computed
+/// One state type replaces the old domain-state/view-state/reducer trio: stored members
+/// are the model, and the visible computed
 /// members (`visibleTodoIDs`) are the collection-level structure the view renders from.
 @FeatureState
 struct TodosState: Equatable {
