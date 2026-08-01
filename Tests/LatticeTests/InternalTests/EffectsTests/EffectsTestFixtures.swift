@@ -37,7 +37,7 @@ func makeHandleCore(
         interact: { state, action in
             action.run(&state, effects)
         },
-        onCommit: onCommit
+        onCommit: onCommit.map { hook in { old, new, _ in hook(old, new) } }
     )
     return (core, effects)
 }
@@ -126,7 +126,7 @@ func makeScopedCore(
                 onChildAction?(childAction)
             }
         },
-        onCommit: onCommit
+        onCommit: onCommit.map { hook in { old, new, _ in hook(old, new) } }
     )
     core.registerPresenceWatcher(path: scopedChildPath) {
         scopedChildLens.extract($0) != nil

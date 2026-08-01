@@ -292,11 +292,16 @@ final class LatticeCore<DomainState, Action> {
     /// Post-mutation host hook — installed at mount by the host to diff the view projection and
     /// notify observers in production, the snapshot recorder in tests. Runs on **every** commit,
     /// after transition detection. Receives value copies; `state` is never `inout`-open while it
-    /// runs.
+    /// runs. The third parameter is the commit's `CommitOrigin` — `.send(action)` for the
+    /// update-phase commit, `.modify` for effect-phase commits (plan 07's renegotiated ask;
+    /// production ignores it, the test recorder keys off it). Presence-flip cancellation never
+    /// produces a commit of its own — it runs inside the funnel of the mutation that flipped
+    /// the presence — so there is no third origin case.
     ///
     /// Remount seam: if dynamic-body re-evaluation ever needs more hooks, this becomes an
     /// array; `runCommitFunnel` is the only call site.
-    private var onCommit: ((_ oldState: DomainState, _ newState: DomainState) -> Void)?
+    private var onCommit:
+        ((_ oldState: DomainState, _ newState: DomainState, _ origin: CommitOrigin<Action>) -> Void)?
 
     /// Host hook observing each launched effect task at its storage key. The standard host does
     /// not install it; the test host (a peer host) uses it for deterministic effect-start
@@ -344,12 +349,12 @@ final class LatticeCore<DomainState, Action> {
     /// - Parameters:
     ///   - interact: routes one action through the tree.
     ///   - onCommit: post-mutation host hook; runs on every commit after transition detection,
-    ///     receiving value copies. `nil` for hosts that observe nothing.
+    ///     receiving value copies plus the commit's origin. `nil` for hosts that observe nothing.
     ///   - onEffectLaunched: observes each launched effect task at its storage key. The standard
     ///     host does not install it; the test host (a peer host) does.
     func mount(
         interact: @escaping (inout DomainState, Action) -> Void,
-        onCommit: ((_ oldState: DomainState, _ newState: DomainState) -> Void)? = nil,
+        onCommit: ((_ oldState: DomainState, _ newState: DomainState, _ origin: CommitOrigin<Action>) -> Void)? = nil,
         onEffectLaunched: ((TaskKey, Task<Void, Never>) -> Void)? = nil
     ) {
         precondition(self.interact == nil, "Feature tree is already mounted.")
@@ -535,12 +540,16 @@ final class LatticeCore<DomainState, Action> {
 
     /// The single funnel every mutation flows through:
     /// mutate → transition detection → projection diff (host hook).
-    private func runCommitFunnel(oldState: DomainState, newState: DomainState) {
+    private func runCommitFunnel(
+        oldState: DomainState,
+        newState: DomainState,
+        origin: CommitOrigin<Action>
+    ) {
         for watcher in presenceWatchers
         where watcher.isPresent(oldState) && !watcher.isPresent(newState) {
             cancelTasks(withPrefix: watcher.path)
         }
-        onCommit?(oldState, newState)
+        onCommit?(oldState, newState, origin)
     }
 
     // MARK: - Cancellation
@@ -767,7 +776,7 @@ core.mount(
     interact: { [unowned core] state, action in
         root.route(state: &state, action: action, core: core, path: GraphPath())
     },
-    onCommit: { [registrar] oldState, newState in
+    onCommit: { [registrar] oldState, newState, _ in
         // the generated projection diff fires the host-owned registrar for changed members;
         // the registrar batch pokes each signal once per commit (plan 05)
         registrar.commit {
@@ -856,6 +865,9 @@ compiles and runs without any `Sendable` requirement.
 - `onCommit` fires on **every** commit, including a send whose interact does not mutate
   (diff-on-every-commit contract).
 - `modify` runs the funnel: state visible via `currentState`, `onCommit` fired, no update phase.
+- commit origin (plan 07's recorder contract): the update-phase commit fires synchronously
+  inside `send` with `.send(action)` origin, **before** any effect's synchronous-prefix
+  `modify` commit (which carries `.modify`) can interleave.
 - presence flip: register watcher for `\.child != nil`; launch an effect under the child path;
   a `send` that nils `child` cancels the child bucket (effect observes `Task.isCancelled`);
   sibling buckets untouched.

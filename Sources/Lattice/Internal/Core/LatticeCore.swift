@@ -4,6 +4,16 @@ import Foundation
     import IssueReporting
 #endif
 
+/// Classifies which entry point produced one commit, for hosts whose `onCommit` hook needs
+/// to tell them apart (the test host's pending-commit recorder). Production hosts ignore it.
+enum CommitOrigin<Action> {
+    /// The update-phase commit of a `send` (the action that ran `interact`).
+    case send(Action)
+
+    /// An effect-phase `modify` commit.
+    case modify
+}
+
 /// The runtime engine behind one mounted feature tree.
 ///
 /// One `LatticeCore` exists per `ViewModel` and per `TestViewModel`. It owns:
@@ -47,11 +57,13 @@ final class LatticeCore<DomainState, Action> {
     /// Post-mutation host hook — installed at mount by the host to diff the view projection and
     /// notify observers in production, the snapshot recorder in tests. Runs on **every** commit,
     /// after transition detection. Receives value copies; `state` is never `inout`-open while it
-    /// runs.
+    /// runs. The third parameter classifies the commit's origin (`.send` update phase vs
+    /// `.modify` effect phase); production ignores it, the test recorder keys off it.
     ///
     /// Remount seam: if dynamic-body re-evaluation ever needs more hooks, this becomes an
     /// array; `runCommitFunnel` is the only call site.
-    private var onCommit: ((_ oldState: DomainState, _ newState: DomainState) -> Void)?
+    private var onCommit:
+        ((_ oldState: DomainState, _ newState: DomainState, _ origin: CommitOrigin<Action>) -> Void)?
 
     /// Host hook observing each launched effect task at its storage key. The standard host does
     /// not install it; the test host (a peer host) uses it for deterministic effect-start
@@ -99,12 +111,15 @@ final class LatticeCore<DomainState, Action> {
     /// - Parameters:
     ///   - interact: routes one action through the tree.
     ///   - onCommit: post-mutation host hook; runs on every commit after transition detection,
-    ///     receiving value copies. `nil` for hosts that observe nothing.
+    ///     receiving value copies plus the commit's origin. `nil` for hosts that observe nothing.
     ///   - onEffectLaunched: observes each launched effect task at its storage key. The standard
     ///     host does not install it; the test host (a peer host) does.
     func mount(
         interact: @escaping (inout DomainState, Action) -> Void,
-        onCommit: ((_ oldState: DomainState, _ newState: DomainState) -> Void)? = nil,
+        onCommit: (
+            (_ oldState: DomainState, _ newState: DomainState, _ origin: CommitOrigin<Action>) ->
+                Void
+        )? = nil,
         onEffectLaunched: ((TaskKey, Task<Void, Never>) -> Void)? = nil
     ) {
         precondition(self.interact == nil, "Feature tree is already mounted.")
@@ -166,7 +181,7 @@ final class LatticeCore<DomainState, Action> {
         }
         phase = .idle
 
-        runCommitFunnel(oldState: oldState, newState: state)
+        runCommitFunnel(oldState: oldState, newState: state, origin: .send(action))
         return launch(pending)
     }
 
@@ -194,7 +209,7 @@ final class LatticeCore<DomainState, Action> {
         phase = .modifying
         mutate(&state)
         phase = .idle
-        runCommitFunnel(oldState: oldState, newState: state)
+        runCommitFunnel(oldState: oldState, newState: state, origin: .modify)
     }
 
     /// Effect-phase state read (`EffectState.state`). Illegal while `state` is `inout`-open —
@@ -295,12 +310,16 @@ final class LatticeCore<DomainState, Action> {
 
     /// The single funnel every mutation flows through:
     /// mutate → transition detection → projection diff (host hook).
-    private func runCommitFunnel(oldState: DomainState, newState: DomainState) {
+    private func runCommitFunnel(
+        oldState: DomainState,
+        newState: DomainState,
+        origin: CommitOrigin<Action>
+    ) {
         for watcher in presenceWatchers
         where watcher.isPresent(oldState) && !watcher.isPresent(newState) {
             cancelTasks(withPrefix: watcher.path)
         }
-        onCommit?(oldState, newState)
+        onCommit?(oldState, newState, origin)
     }
 
     // MARK: - Cancellation
