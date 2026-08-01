@@ -10,9 +10,12 @@ Use `when(state:action:child:)` or `Interactors.When` to scope child state/actio
 
 `InteractorBuilder` supports composition with `if`, `switch`, `for`, optionals, and arrays. Under the hood this yields `Merge`, `MergeMany`, or conditional wrappers.
 
+Child effects write through the state lens automatically: a child's `effectState.modify`
+pulls back through the `when` key path or case path.
+
 ## Scoped view composition
 
-`ViewModel.scope(state:action:)` projects a parent view model onto a child slice of view state and a child action space, returning a `ScopedViewModel<ChildState, ChildAction>`. Child views take the scope instead of the parent's `ViewModel` type.
+`ViewModel.scope(state:action:)` projects a parent view model onto a child slice of the view projection and a child action space, returning a `ScopedViewModel<ChildState, ChildAction>`. Child views take the scope instead of the parent's `ViewModel` type.
 
 Overloads on `ViewModel`:
 
@@ -23,20 +26,19 @@ Overloads on `ViewModel`:
 `ScopedViewModel` semantics:
 
 - Stateless value type. It owns no state, effects, or lifecycle; recreate it on every render.
-- Reads are live and fine-grained: `model.title` (or deeper, `model.badge.count`) walks the parent's `@ObservableState` getter chain, so the child re-renders only when the members it reads change.
-- Reading the whole `model.viewState` value is coarse: it registers only the slice's identity (`_$id`) and re-renders only on wholesale slice replacement, not in-place leaf mutations.
+- Reads are fine-grained: `model.title` (or deeper, `model.badge.count`) goes through the child's projection, so the child re-renders only when the members it reads change.
 - `sendViewEvent(_:)` embeds the child action into the parent action and returns the parent's `EventTask`.
-- `binding(_:sending:)` derives a two-way binding: fine-grained getter, setter sends an embedded child action.
+- `binding(_:sending:)` derives a two-way binding: projection-read getter, setter sends an embedded child action.
 - Scopes compose: `ScopedViewModel.scope(state:action:)` projects a grandchild slice through the parent.
 - Do not store scopes in `@State` or long-lived properties; a scope strongly retains its parent `ViewModel`.
 - To hand off to a callback-based child view, wrap the send: `ChildView(action: { model.sendViewEvent($0) })`.
 
 ## Enum-case scoping
 
-When view state (or a child slice) is a `CasePathable` enum, scope onto the active case's payload:
+When state (or a child slice) is a `@FeatureState` `@CasePathable` enum, scope onto the active case's payload via the generated case accessors:
 
 ```swift
-switch viewModel.viewState {
+switch viewModel.route {
 case .loading:
     LoadingView()
 case .success:
@@ -44,33 +46,79 @@ case .success:
 }
 ```
 
-- `scope(state: CaseKeyPath, action: CaseKeyPath)` traps with `fatalError` when the case is not active. Inside a matched `switch` case this cannot happen (body evaluation is synchronous on the main actor).
+- `scope(state:action:)` traps with `fatalError` when the case is not active. Inside a matched `switch` case this cannot happen (body evaluation is synchronous on the main actor).
 - `scopeIfActive(state:action:)` returns `nil` instead of trapping; use it when the case may legitimately be inactive.
-- Reads are live: the scope re-extracts the payload from current view state on every access, so in-place payload mutations are observed fine-grained. If the case flips while the scope is still held, reads serve the payload captured at creation for at most one transitional render.
-- A send can arrive after a case flip; interactors should drop actions that no longer apply to the current state.
-- Reducers should mutate the active case's payload in place (`state.modify(\.success) { ... }`) for fine-grained updates; rebuilding the whole case value is a wholesale replacement and re-renders coarse observers.
+- Reads are live: the scope re-extracts the payload from current state on every access, so in-place payload mutations are observed fine-grained. If the case flips while the scope is still held, reads serve the payload captured at creation for at most one transitional render.
+- A send can arrive after a case flip; `When` drops it when the case is inactive, and interactors should still drop actions that no longer apply to the current state.
+- Granularity inside a case comes from making the payload itself `@FeatureState`: a same-case payload change recurses into the payload's own commit diff.
 
 ## Sequential effects
 
-Use `.append`, `appending(with:)`, or `.then(...)` when effect work must run in order.
+Sequential work is sequential `await`s inside **one** `perform` closure:
 
-- `.merge` runs child emissions concurrently.
-- `.append` runs child emissions sequentially.
-- Nested `.append` children are flattened and `.none` children are dropped, so higher-order composition stays predictable.
+```swift
+effects.perform { [api] effectState in
+    let profile = try await api.profile()
+    try effectState.modify { $0.profile = profile }
+    let feed = try await api.feed(profile.id)
+    try effectState.modify { $0.feed = feed }
+}
+```
+
+Concurrent work is multiple `perform` calls. For cross-effect ordering, await a named effect:
+`try await someEffectID()` inside another effect waits for every task attached to that
+`@EffectID` to finish.
 
 ## Navigation-driven state
 
-Keep navigation decisions in domain state and map to view state with a reducer. Prefer enums with associated values for destination state, and derive presentation data in view state.
+Keep navigation decisions in domain state. Prefer enums with associated values for destination
+state, and make each payload `@FeatureState` so views project it directly.
+
+The drop contract: a child effect's `modify`/`send` after its `When` case departs is dropped
+silently, and the child's tasks are cancelled at the departing commit. Design child effects so
+this is safe — it is, by default, because re-entry is just a state write. Delete hand-rolled
+nonce/generation guards; the runtime does what they approximated.
 
 ## Async streams
 
-Use `.observe` emissions when you need to consume a stream and map elements into actions. Keep stream setup inside the interactor to retain testability.
-Use `.perform` for one-shot async work; it returns `Action?`, so `nil` is the supported no-op result for cancellation or intentionally silent work.
+Streams are `for await` loops inside `perform`; there is no separate observe primitive:
+
+```swift
+case .task:
+    effects.perform { [monitor] effectState in
+        for await status in monitor.statusUpdates {
+            try effectState.modify { $0.isOnline = status.isConnected }
+        }
+    }
+```
+
+- Re-dispatching the same action replaces the previous subscription (same `perform` call site).
+- Leaving the enclosing `when` scope, or tearing down the `ViewModel`, cancels the loop.
 
 ## Debounced effects
 
-Apply `Emission.debounce(using:)` to debounce one-shot `.perform` emissions, or wrap a child interactor with `Interactors.Debounce(for:clock:child:)` when the feature should always debounce top-level perform work.
+There is no debounce API. The first `perform` at a call site during an update replaces that
+call site's in-flight task, so a leading `clock.sleep` is the debounce window:
 
-- `Interactors.Debounce` preserves immediate synchronous state updates.
-- It only supports top-level `.perform`, `.none`, and `.action` child emissions.
-- It is not a generic emission debouncer: top-level `.observe`, `.merge`, and `.append` trap.
+```swift
+case .queryChanged(let query):
+    state.query = query          // synchronous mutation, visible immediately
+    effects.perform { [searchClient, clock] effectState in
+        try await clock.sleep(for: .milliseconds(300))   // cancelled by the next keystroke
+        let results = await searchClient.search(query)
+        try effectState.modify { $0.results = results }
+    }
+```
+
+Inject `any Clock<Duration>` and pass `TestClock` in tests. To coalesce across several call
+sites, share one `@EffectID` between the `perform(id:)` calls — an id'd launch replaces the
+previous task attached to the same id.
+
+## Fine-grained observation notes
+
+- Observation is per projected member, gated by the commit diff: a member's observers are
+  poked only when its value (stored) or output (computed) actually changed at commit.
+- Collections of `@FeatureState` elements (`IdentifiedArrayOf`) diff identity-keyed: only
+  changed elements run their own commit, so one row's change fires only that row's members.
+- Derived (computed) members evaluate at most once per commit, only while observed, and reads
+  are served from a host-side cache.

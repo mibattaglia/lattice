@@ -1,26 +1,33 @@
 # Async and Time
 
-## Root send scopes
+## Effect tasks and quiescence
 
-- `let task = await model.send(...)` returns a `TestEventTask` for that send scope only.
-- `await task.finish(timeout:)` waits for in-flight work in that scope to settle.
-- Buffered receives remain queued until you `receive(...)` or `skipReceivedActions()`.
+- `let task = await model.send(...)` returns a `TestEventTask` over the effects that send
+  launched directly.
+- `await task.finish()` waits for those effects to settle; `task.cancel()` cancels them.
+- `await model.finish()` waits for every in-flight effect task, then (under exhaustivity)
+  fails on unasserted commits.
+- `await model.dismount()` cancels every task bucket and fails on unasserted commits — the
+  right call at the end of a test with long-lived effects.
 
 ## Time control
 
-Use `TestClock` to drive debounced or delayed behavior deterministically. Advance time explicitly and assert on emitted values or final state.
+Use `TestClock` to drive debounced or delayed behavior deterministically. Advance time
+explicitly and assert the resulting commits:
 
-For emission-level debouncing:
-- assert state changes immediately after `send`
-- advance the clock to trigger debounced `.perform` work
-- `receive(...)` the emitted action
-- `finish()` the send scope after the expected receives have been handled
+- assert the synchronous mutation in the `send` block
+- `await clock.advance(by: …)` past the debounce/delay window
+- `await model.expect { … }` the effect's `modify` re-entry
 
-`Interactors.Debounce` only wraps top-level `.perform` work. It passes through `.none` and `.action`, and it traps on top-level `.observe`, `.merge`, and `.append`.
+Debounce is task replacement: re-sending the same action replaces the in-flight task at that
+`perform` call site, so only the last dispatch's work survives the window.
 
-## Buffered async output
+## Asserting effect output
 
-- Use `receive(...)` for the next emitted action.
-- If `Action` is `CasePathable`, `receive(\.loaded)` keeps tests concise.
-- `skipReceivedActions()` is the escape hatch for non-exhaustive tests that want to advance past already buffered output.
-- `skipInFlightEffects()` cancels and settles long-lived work when a test must move on without waiting for natural completion.
+- Use `expect(timeout:changes:)` for each `effectState.modify` commit, in commit order.
+- Use `receive(_:timeout:changes:)` / `receive(\.case, timeout:changes:)` only for
+  `effectState.send` re-entries.
+- Commits made by an effect before its first suspension are already pending when `send`
+  returns; `expect` consumes them without waiting.
+- `skipPendingCommits()` is the escape hatch for non-exhaustive tests that want to advance
+  past pending commits; it moves `domainState` to the latest committed state.
