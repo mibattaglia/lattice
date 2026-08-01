@@ -1,62 +1,55 @@
+import IdentifiedCollections
 import Lattice
 
-@Interactor<SearchDomainState.ResultState, SearchQueryEvent>
-struct SearchQueryInteractor<C: Clock>: Sendable where C.Duration: Sendable {
-    private let weatherService: WeatherService
-    private let debouncer: Debouncer<C, SearchQueryEvent?>
+@Interactor<SearchState.ResultState, SearchQueryEvent>
+struct SearchQueryInteractor {
+    let weatherService: WeatherService
+    let clock: any Clock<Duration>
+    let debounceDuration: Duration
 
     init(
         weatherService: WeatherService,
-        clock: C,
-        debounceDuration: C.Duration
+        clock: any Clock<Duration> = ContinuousClock(),
+        debounceDuration: Duration = .milliseconds(300)
     ) {
         self.weatherService = weatherService
-        self.debouncer = Debouncer(for: debounceDuration, clock: clock)
+        self.clock = clock
+        self.debounceDuration = debounceDuration
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .query(let query):
                 guard !query.isEmpty else {
                     state = .none
-                    return .none
+                    return
                 }
                 state.query = query
-                return .perform { [weatherService] in
+
+                // Every `.query` dispatch replaces the previous in-flight task at this
+                // `perform` call site: cancelled sleep = restarted debounce window.
+                effects.perform { [weatherService, clock, debounceDuration] effectState in
+                    try await clock.sleep(for: debounceDuration)
                     do {
                         let weatherModels = try await weatherService.searchWeather(query: query)
-                        let weatherResults = weatherModels.results.map { weatherModel in
-                            SearchDomainState.ResultState.ResultItem(
-                                weatherModel: weatherModel,
-                                forecast: nil
+                        try effectState.modify { state in
+                            state.results = IdentifiedArray(
+                                uniqueElements: weatherModels.results.map { weatherModel in
+                                    SearchState.ResultState.ResultItem(
+                                        weatherModel: weatherModel,
+                                        forecast: nil
+                                    )
+                                }
                             )
                         }
-                        return .searchCompleted(query: query, results: weatherResults)
                     } catch {
-                        return .searchFailed
+                        try effectState.modify { state in
+                            state.results = []
+                        }
                     }
                 }
-                .debounce(using: debouncer)
-
-            case .searchCompleted(let query, let results):
-                state.results = results
-                return .none
-
-            case .searchFailed:
-                state.results = []
-                return .none
             }
         }
-    }
-}
-
-extension SearchQueryInteractor where C == ContinuousClock {
-    init(weatherService: WeatherService) {
-        self.init(
-            weatherService: weatherService,
-            clock: ContinuousClock(),
-            debounceDuration: .milliseconds(300)
-        )
     }
 }

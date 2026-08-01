@@ -1,86 +1,60 @@
 import Lattice
 
-@Interactor<SearchDomainState, SearchEvent>
-struct SearchInteractor: Sendable {
+@Interactor<SearchState, SearchEvent>
+struct SearchInteractor {
     private let weatherService: WeatherService
-    private let queryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
+    private let queryInteractor: SearchQueryInteractor
 
-    init(weatherService: WeatherService) {
-        self.init(
-            weatherService: weatherService,
-            clock: ContinuousClock(),
-            debounceDuration: .milliseconds(300)
-        )
-    }
-
-    init<C: Clock>(
+    init(
         weatherService: WeatherService,
-        clock: C,
-        debounceDuration: C.Duration
-    ) where C.Duration: Sendable {
+        clock: any Clock<Duration> = ContinuousClock(),
+        debounceDuration: Duration = .milliseconds(300)
+    ) {
         self.weatherService = weatherService
-        self.queryInteractor = SearchQueryInteractor<C>(
+        self.queryInteractor = SearchQueryInteractor(
             weatherService: weatherService,
             clock: clock,
             debounceDuration: debounceDuration
         )
-        .eraseToAnyInteractor()
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .search:
-                return .none
+                break
 
             case .locationTapped(let id):
-                guard case .results(var resultState) = state else {
-                    return .none
-                }
-
-                guard
-                    let tappedRowIndex = resultState.results.firstIndex(where: {
-                        "\($0.weatherModel.id)" == id
-                    })
-                else {
-                    return .none
-                }
-
-                resultState.forecastRequestNonce += 1
-                let requestNonce = resultState.forecastRequestNonce
-
-                for index in resultState.results.indices {
-                    resultState.results[index].isLoading = false
-                }
-                resultState.results[tappedRowIndex].isLoading = true
-                state = .results(resultState)
-
-                let tappedRow = resultState.results[tappedRowIndex]
-
-                return .perform { [weatherService] in
-                    let weather = try? await weatherService.forecast(
-                        latitude: tappedRow.weatherModel.latitude,
-                        longitude: tappedRow.weatherModel.longitude
-                    )
-                    guard let weather else { return nil }
-                    return .forecastReceived(
-                        index: tappedRowIndex,
-                        forecast: weather,
-                        requestNonce: requestNonce
-                    )
-                }
-
-            case .forecastReceived(let index, let forecast, let requestNonce):
                 guard case .results(var resultState) = state,
-                    index < resultState.results.count,
-                    requestNonce == resultState.forecastRequestNonce
+                    let tappedModel = resultState.results[id: id]?.weatherModel
                 else {
-                    return .none
+                    return
                 }
-                resultState.results[index].isLoading = false
-                resultState.results[index].forecast = forecast
+
+                for itemID in resultState.results.ids {
+                    resultState.results[id: itemID]?.isLoading = false
+                }
+                resultState.results[id: id]?.isLoading = true
                 state = .results(resultState)
-                return .none
+
+                // A newer tap replaces this task (same `perform` call site), so a stale forecast
+                // can never overwrite a newer request.
+                effects.perform { [weatherService] effectState in
+                    guard
+                        let forecast = try? await weatherService.forecast(
+                            latitude: tappedModel.latitude,
+                            longitude: tappedModel.longitude
+                        )
+                    else { return }
+                    try effectState.modify { state in
+                        guard case .results(var resultState) = state,
+                            resultState.results[id: id] != nil
+                        else { return }
+                        resultState.results[id: id]?.isLoading = false
+                        resultState.results[id: id]?.forecast = forecast
+                        state = .results(resultState)
+                    }
+                }
             }
         }
         .when(state: \.results, action: \.search) {
