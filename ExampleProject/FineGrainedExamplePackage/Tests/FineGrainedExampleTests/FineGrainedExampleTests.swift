@@ -17,44 +17,41 @@ private final class ChangeProbe: @unchecked Sendable {
 struct FineGrainedExampleTests {
     private func makeViewModel() -> FineGrainedViewModel {
         ViewModel(
-            initialDomainState: FineGrainedDomainState(),
-            feature: Feature(
-                interactor: FineGrainedInteractor(),
-                reducer: FineGrainedViewStateReducer()
-            )
+            initialState: FineGrainedState(),
+            interactor: FineGrainedInteractor()
         )
     }
 
     @Test
-    func bumpingCountDoesNotInvalidateHeader() {
+    func bumpingCountDoesNotInvalidateTitle() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.header.title } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.title } onChange: { probe.mark() }
 
         viewModel.sendViewEvent(.bumpCount)
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.footer.count == 1)
+        #expect(viewModel.count == 1)
     }
 
     @Test
-    func changingTitleDoesNotInvalidateFooter() {
+    func changingTitleDoesNotInvalidateCount() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.footer.count } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.count } onChange: { probe.mark() }
 
         viewModel.sendViewEvent(.setTitle("Updated"))
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.header.title == "Updated")
+        #expect(viewModel.title == "Updated")
     }
 
     @Test
     func togglingPhaseInvalidatesPhaseObserver() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.phase } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.phaseLabel } onChange: { probe.mark() }
 
         viewModel.sendViewEvent(.togglePhase)
         #expect(probe.didChange)
-        #expect(viewModel.viewState.phase == .active("Active!"))
+        #expect(viewModel.phaseLabel == "Active!")
     }
 }

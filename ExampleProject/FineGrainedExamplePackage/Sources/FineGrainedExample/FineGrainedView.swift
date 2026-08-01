@@ -2,9 +2,7 @@ import Foundation
 import Lattice
 import SwiftUI
 
-typealias FineGrainedViewModel = ViewModel<
-    Feature<FineGrainedEvent, FineGrainedDomainState, FineGrainedViewState>
->
+typealias FineGrainedViewModel = ViewModel<FineGrainedState, FineGrainedEvent>
 
 struct FineGrainedView: View {
     let viewModel: FineGrainedViewModel
@@ -13,9 +11,9 @@ struct FineGrainedView: View {
         VStack(alignment: .leading, spacing: 24) {
             Text(
                 """
-                Each subview shows its own render counter. With fine-grained
-                observation, a button only re-renders the subview that reads the
-                slice it changed — the other counters stay put.
+                Each subview shows its own render counter. With per-member diff-at-commit
+                observation, a button only re-renders the subview that reads the member it
+                changed — the other counters stay put.
                 """
             )
             .font(.callout)
@@ -53,7 +51,7 @@ struct HeaderView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            Text(viewModel.header.title)  // reads only header.title
+            Text(viewModel.title)  // reads only `title`
                 .font(.title2)
             Text("HeaderView renders: \(renders.count)")
                 .font(.caption)
@@ -73,7 +71,7 @@ struct FooterView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            Text("Count: \(viewModel.footer.count)")  // reads only footer.count
+            Text("Count: \(viewModel.count)")  // reads only `count`
                 .font(.title2)
             Text("FooterView renders: \(renders.count)")
                 .font(.caption)
@@ -93,14 +91,13 @@ struct PhaseView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            // Switching over the enum slice registers `\.phase`; only a case change
-            // (idle <-> active) re-renders this switch.
-            switch viewModel.phase {
-            case .idle:
-                Text("Phase: idle")
-                    .font(.title2)
-            case .active(let label):
+            // `phaseLabel` is derived view output over a @Domain member: this view
+            // re-renders only when the derived string actually changes.
+            if let label = viewModel.phaseLabel {
                 Text("Phase: \(label)")
+                    .font(.title2)
+            } else {
+                Text("Phase: idle")
                     .font(.title2)
             }
             Text("PhaseView renders: \(renders.count)")
