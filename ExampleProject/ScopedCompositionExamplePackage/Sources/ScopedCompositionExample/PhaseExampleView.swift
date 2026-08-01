@@ -2,27 +2,24 @@ import Foundation
 import Lattice
 import SwiftUI
 
-typealias PhaseExampleViewModel = ViewModel<
-    Feature<PhaseEvent, PhaseDomainState, PhaseViewState>
->
+typealias PhaseExampleViewModel = ViewModel<PhaseState, PhaseEvent>
 
-/// Root of the enum-case-scoping demo: a plain exhaustive `switch` over the coarse
-/// `viewModel.viewState` read selects the outer case; `scope(state: \.success,
-/// action: \.success)` projects the matched payload into a live `ScopedViewModel`, and the
-/// children chain `scope` four levels deep (`Success > Session > Telemetry > Subphase >
-/// Active`), including an inner sub-phase enum case-scoped below the root.
+/// Root of the enum-case-scoping demo: the root branches on the active case via
+/// `scopeIfActive(state: \.success, action: \.success)`, which projects the matched payload
+/// into a live `ScopedViewModel`, and the children chain `scope` four levels deep
+/// (`Success > Session > Telemetry > Subphase > Active`), including an inner sub-phase enum
+/// case-scoped below the root.
 ///
 /// The render counters make the observation boundaries visible:
-/// - Ticks or typing in the deep leaf (in-place payload mutation): only `ActiveView renders:`
+/// - Ticks or typing in the deep leaf (payload member change): only `ActiveView renders:`
 ///   advances; every intermediate and sibling counter stays put.
 /// - Increment (sibling branch): only `SummaryView renders:` advances.
-/// - Start/Stop (inner case change): only `TelemetryView renders:` (the inner switch) and its
-///   rebuilt subtree advance; the root switch stays put.
+/// - Start/Stop (inner case change): only `TelemetryView renders:` (the inner branch) and its
+///   rebuilt subtree advance; the root stays put.
 /// - Load/Reset (outer case change): `PhaseExampleView renders:` advances — the intended
 ///   coarse channel.
-/// - Ticks while `.loading` (or `.idle`): nothing advances. This is the `_$inert` fix made
-///   visible; before it, a payloadless case minted a fresh id per access and the switch
-///   re-rendered once per second while showing an unchanged spinner.
+/// - Ticks while `.loading` (or `.idle`): nothing advances — a tick that mutates nothing is
+///   a no-change commit, and the diff fires no observers.
 struct PhaseExampleView: View {
     let viewModel: PhaseExampleViewModel
     private final class Renders { var count = 0 }
@@ -35,21 +32,21 @@ struct PhaseExampleView: View {
                 Text(
                     """
                     Each level holds a ScopedViewModel chained from the case scope and shows \
-                    its own render counter. Ticks and typing mutate the deep leaf in place — \
-                    only ActiveView re-renders. Start/Stop flips the inner sub-phase — only \
-                    the inner switch re-renders. Load/Reset flips the outer case — only then \
+                    its own render counter. Ticks and typing mutate the deep leaf — only \
+                    ActiveView re-renders. Start/Stop flips the inner sub-phase — only the \
+                    inner branch re-renders. Load/Reset flips the outer case — only then \
                     does the root re-render. Ticks while loading re-render nothing.
                     """
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-                switch viewModel.viewState {  // coarse read: re-renders on outer case change only
-                case .loading:
+                // Case projection: re-renders on outer case change only.
+                if let success = viewModel.scopeIfActive(state: \.success, action: \.success) {
+                    SuccessView(model: success)
+                } else {
                     ProgressView("Loading…")
                         .frame(maxWidth: .infinity)
-                case .success:
-                    SuccessView(model: viewModel.scope(state: \.success, action: \.success))
                 }
 
                 VStack(spacing: 12) {
@@ -72,7 +69,7 @@ struct PhaseExampleView: View {
 /// Level 1 below the outer case: reads only `title`, then hands each branch its own scope.
 /// `SummaryView` is the sibling branch that must stay put while the deep leaf ticks.
 struct SuccessView: View {
-    let model: ScopedViewModel<SuccessViewState, SuccessAction>
+    let model: ScopedViewModel<SuccessState, SuccessAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -96,7 +93,7 @@ struct SuccessView: View {
 /// Sibling branch: its counter advances on Increment and stays put on leaf ticks, typing,
 /// and inner case changes.
 struct SummaryView: View {
-    let model: ScopedViewModel<SummaryViewState, SummaryAction>
+    let model: ScopedViewModel<SummaryState, SummaryAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -118,7 +115,7 @@ struct SummaryView: View {
 
 /// Level 2: reads only `name`; a thin pass-through that scopes deeper.
 struct SessionView: View {
-    let model: ScopedViewModel<SessionViewState, SessionAction>
+    let model: ScopedViewModel<SessionState, SessionAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -138,28 +135,25 @@ struct SessionView: View {
     }
 }
 
-/// Level 3: owns the inner sub-phase switch. Reading `model.subphase` registers the sub-phase
-/// container's identity, so this view re-renders on inner case changes only — in-place leaf
-/// mutations inside `.active` do not advance its counter.
+/// Level 3: owns the inner sub-phase branch. `scopeIfActive` through the sub-phase enum's
+/// case accessor re-renders this view on inner case changes only — leaf member mutations
+/// inside `.active` do not advance its counter.
 struct TelemetryView: View {
-    let model: ScopedViewModel<TelemetryViewState, TelemetryAction>
+    let model: ScopedViewModel<TelemetryState, TelemetryAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
     var body: some View {
         renders.count += 1
+        let subphase = model.scope(state: \.subphase, action: \.subphase)
         return VStack(alignment: .leading, spacing: 8) {
             Text(model.status)
 
-            switch model.subphase {  // inner switch: re-renders on sub-phase case change only
-            case .idle:
+            if let active = subphase.scopeIfActive(state: \.active, action: \.active) {
+                ActiveView(model: active)
+            } else {
                 Text("Idle")
                     .foregroundStyle(.secondary)
-            case .active:
-                ActiveView(
-                    model: model.scope(state: \.subphase, action: \.subphase)
-                        .scope(state: \.active, action: \.active)
-                )
             }
 
             HStack {
@@ -178,10 +172,10 @@ struct TelemetryView: View {
     }
 }
 
-/// Level 4, the deep leaf: the tick stream mutates `tick` in place once per second and the
-/// note field round-trips through a binding — only this counter advances on either.
+/// Level 4, the deep leaf: the tick stream mutates `tick` once per second and the note field
+/// round-trips through a binding — only this counter advances on either.
 struct ActiveView: View {
-    let model: ScopedViewModel<ActiveViewState, ActiveAction>
+    let model: ScopedViewModel<ActiveState, ActiveAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
