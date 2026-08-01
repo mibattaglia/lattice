@@ -182,8 +182,8 @@ import DequeModule
 /// contract is step-wise and exhaustive:
 ///
 /// - ``send(_:changes:fileID:file:line:column:)`` asserts the update-phase mutation.
-/// - ``expect(changes:timeout:fileID:file:line:column:)`` asserts the next `effectState.modify` commit.
-/// - ``receive(_:changes:timeout:fileID:file:line:column:)`` asserts the next `effectState.send`
+/// - ``expect(timeout:changes:fileID:file:line:column:)`` asserts the next `effectState.modify` commit.
+/// - ``receive(_:timeout:changes:fileID:file:line:column:)`` asserts the next `effectState.send`
 ///   re-entry and its update-phase mutation.
 /// - Under ``Exhaustivity/on``, unasserted commits fail at deinit.
 ///
@@ -282,10 +282,13 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     // MARK: Expect (effectState.modify commits)
 
     /// Asserts the next effect-phase commit (an `effectState.modify`) via snapshot diff,
-    /// waiting up to `timeout` for one to arrive.
+    /// waiting up to `timeout` for one to arrive. (`timeout` precedes `changes` —
+    /// compiler-forced: a trailing `changes` closure cannot precede an explicitly passed
+    /// `timeout:` argument; the plan-09 call spellings `expect(changes:)`/`receive(_:changes:)`
+    /// are unaffected.)
     public func expect(
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -309,8 +312,8 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     /// asserts its update-phase mutation.
     public func receive(
         _ expectedAction: Action,
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -318,12 +321,12 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     ) async where Action: Equatable { /* matcher wrapper over receive(matching:) */ }
 
     #if canImport(CasePaths)
-    /// Case-path variant of ``receive(_:changes:timeout:fileID:file:line:column:)``: matches
+    /// Case-path variant of ``receive(_:timeout:changes:fileID:file:line:column:)``: matches
     /// the next `effectState.send` re-entry against the given case of `Action`.
     public func receive<Value>(
         _ actionKeyPath: KeyPath<Action.AllCasePaths, AnyCasePath<Action, Value>>,
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -557,7 +560,10 @@ Old → new mapping table (consumer-facing; feeds plan 09's migration guide):
 - `InternalTests/EmissionExecutionTests.swift` — deleted; replaced by plan 02 §8's core suite.
 - New: `TestingInfrastructureTests/TestViewModelExpectTests.swift` covering: expect happy path,
   expect timeout failure, mutation-vs-action mismatch failure, exhaustivity-at-deinit failure
-  (via `withKnownIssue`), presence-cancellation visibility, `changes: nil` no-change assertion.
+  (via `withKnownIssue`), scoped-drop silence (a departed-scope `modify` records no pending
+  commit — replaces the sketched presence-cancellation visibility item, dropped with
+  `PendingCommit.presenceCancellation`, §4), `changes: nil` no-change assertion, and
+  projection reads over committed state (§5).
 
 ## Acceptance gates
 

@@ -13,9 +13,9 @@ import Foundation
 /// contract is step-wise and exhaustive:
 ///
 /// - ``send(_:changes:fileID:file:line:column:)`` asserts the update-phase mutation.
-/// - ``expect(changes:timeout:fileID:file:line:column:)`` asserts the next
+/// - ``expect(timeout:changes:fileID:file:line:column:)`` asserts the next
 ///   `effectState.modify` commit.
-/// - ``receive(_:changes:timeout:fileID:file:line:column:)`` asserts the next
+/// - ``receive(_:timeout:changes:fileID:file:line:column:)`` asserts the next
 ///   `effectState.send` re-entry and its update-phase mutation.
 /// - Under ``Exhaustivity/on``, unasserted commits fail at deinit — prefer an explicit
 ///   ``dismount(timeout:fileID:file:line:column:)`` so the failure lands at a source location.
@@ -156,8 +156,8 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     /// Under ``Exhaustivity/off(showSkippedAssertions:)``, earlier action re-entries are
     /// skipped silently.
     public func expect(
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -196,8 +196,8 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     /// skipped silently.
     public func receive(
         _ expectedAction: Action,
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -216,12 +216,12 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     }
 
     #if canImport(CasePaths)
-        /// Case-path variant of ``receive(_:changes:timeout:fileID:file:line:column:)``:
+        /// Case-path variant of ``receive(_:timeout:changes:fileID:file:line:column:)``:
         /// matches the next `effectState.send` re-entry against the given case of `Action`.
         public func receive<Value>(
             _ actionKeyPath: KeyPath<Action.AllCasePaths, AnyCasePath<Action, Value>>,
-            changes: ((inout DomainState) throws -> Void)? = nil,
             timeout duration: Duration? = nil,
+            changes: ((inout DomainState) throws -> Void)? = nil,
             fileID: StaticString = #fileID,
             file filePath: StaticString = #filePath,
             line: UInt = #line,
