@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # Identity-Preserving Assignment for `@ObservableState`
 
 Status: ✅ Implemented (minimal, source- and behavior-compatible)

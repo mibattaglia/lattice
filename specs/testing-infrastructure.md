@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # Testing Infrastructure
 
 Lattice's testing model is built around `TestViewModel`, which mirrors production execution but makes emitted actions explicit and step-wise. The goal is deterministic feature testing without having to drive SwiftUI directly.

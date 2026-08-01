@@ -5,22 +5,23 @@ Lattice uses macros to turn small declarations into the boilerplate required by 
 Key source files:
 
 - [Macros.swift](../Sources/Lattice/Macros.swift)
+- [FeatureStateMacros.swift](../Sources/Lattice/FeatureState/FeatureStateMacros.swift)
 - [Plugin.swift](../Sources/LatticeMacros/Plugins/Plugin.swift)
 - [InteractorMacro.swift](../Sources/LatticeMacros/Plugins/InteractorMacro.swift)
-- [ViewStateReducerMacro.swift](../Sources/LatticeMacros/Plugins/ViewStateReducerMacro.swift)
-- [ObservableStateMacro.swift](../Sources/LatticeMacros/Plugins/Derived/ObservableStateMacro.swift)
+- [FeatureStateMacro.swift](../Sources/LatticeMacros/Plugins/FeatureStateMacro.swift)
+- [DomainMacro.swift](../Sources/LatticeMacros/Plugins/DomainMacro.swift)
 
 ## Public Macros
 
-The plugin registers five macros:
+The plugin registers three macros:
 
 - `@Interactor<DomainState, Action>`
-- `@ViewStateReducer<DomainState, ViewState>`
-- `@ObservableState`
-- `@ObservationStateTracked`
-- `@ObservationStateIgnored`
+- `@FeatureState` (see `specs/sendable-removal/05-feature-state.md`)
+- `@Domain` (marker; see `specs/sendable-removal/05-feature-state.md`)
 
-Only the first three are the ordinary user-facing API surface. The tracked and ignored macros are helper pieces used by `@ObservableState`.
+Deleted in 1.0 (replaced by `@FeatureState`/`@Domain`): `@ViewStateReducer`,
+`@ObservableState`, `@ObservationStateTracked`, `@ObservationStateIgnored`. Their sections
+below are retained as history.
 
 ## `@Interactor`
 
@@ -47,7 +48,7 @@ Current diagnostics include:
 
 See [InteractorMacroTests.swift](../Tests/LatticeMacrosTests/InteractorMacroTests.swift).
 
-## `@ViewStateReducer`
+## `@ViewStateReducer` (deleted in 1.0)
 
 `@ViewStateReducer<DomainState, ViewState>` is the reducer-side parallel to `@Interactor`.
 
@@ -91,7 +92,7 @@ Additional caveats from the current implementation:
 
 See [ViewStateReducerMacroTests.swift](../Tests/LatticeMacrosTests/ViewStateReducerMacroTests.swift).
 
-## `@ObservableState`
+## `@ObservableState` (deleted in 1.0)
 
 `@ObservableState` adds observation behavior to value types used as view state.
 
@@ -135,7 +136,7 @@ It also diagnoses older observation attribute names and suggests the current Lat
 
 See [ObservableStateMacroTests.swift](../Tests/LatticeMacrosTests/ObservableStateMacroTests.swift).
 
-## Helper Macros
+## Helper Macros (deleted in 1.0)
 
 `@ObservationStateTracked` is the property-level helper behind `@ObservableState`.
 
@@ -154,16 +155,15 @@ It synthesizes:
 The macros do not replace the runtime protocols. They automate the conformance boilerplate around them.
 
 - `@Interactor` targets `Interactor`
-- `@ViewStateReducer` targets `ViewStateReducer`
-- `@ObservableState` targets `ObservableState` and `Observation.Observable`
+- `@FeatureState`/`@Domain` target `FeatureStateProtocol` and the view projection (see `specs/sendable-removal/05-feature-state.md`)
+- `@ViewStateReducer` and `@ObservableState` (deleted in 1.0) targeted the removed `ViewStateReducer`/`ObservableState` layers
 
-The generated code still relies on the library's runtime types such as `InteractorBuilder`, `ViewStateReducerBuilder`, `ObservationStateRegistrar`, and `DefaultValueProvider`.
+The generated code still relies on the library's runtime types such as `InteractorBuilder` and the feature-state runtime (`FeatureStateRegistrar`, `FeatureProjection`).
 
 ## Practical Guidance
 
 - Prefer the macros for ordinary feature declarations.
 - Still understand the runtime protocols, because the macros only synthesize boilerplate around those contracts.
-- Be cautious with unusual generic syntax and extra declaration attributes around `@ViewStateReducer` until its implementation is widened.
 
 ## Related Specs
 

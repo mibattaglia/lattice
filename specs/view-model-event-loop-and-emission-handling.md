@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # ViewModel Event Loop And Emission Handling
 
 This document describes the production execution loop behind `ViewModel.sendViewEvent(_:)`: how actions are buffered, how the interactor is applied, how effects are scheduled, and what `EventTask` actually waits for.
