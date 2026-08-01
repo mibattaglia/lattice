@@ -6,6 +6,14 @@ hosting the **same `LatticeCore` as production** (plan 02) with a test commit st
 replaces the action-receive assertion contract with snapshot-diff assertions in the TCA26
 `TestCore`/`TestStore` style.
 
+> **State as of plan 06's flip:** plan 06's deletion commit already removed the legacy test
+> host's uncompilable sources (`TestViewModel.swift`, `PendingReceive.swift`,
+> `InFlightEffectRecord.swift`, `RootSendOrigin.swift`, `TestEventTask.swift`,
+> `Exhaustivity.swift`) and their driving suites (`Tests/LatticeTests/TestingInfrastructureTests/`,
+> the `CounterInteractors` fixtures), since they consumed the deleted Emission pipeline.
+> `TestFailure.swift` and `TestIssueReporting.swift` were kept (they compile standalone).
+> This plan therefore *recreates* the test host files rather than reworking them in place.
+
 Spelling note: this plan **adopts plan 09's spellings verbatim** — `send(_:changes:)`,
 `expect(changes:)`, `receive(_:changes:)`, `dismount(timeout:)` — so no mechanical sync of 08 is
 required. Divergences from 08's sketches are listed in §10.

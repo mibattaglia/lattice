@@ -1299,7 +1299,10 @@ is plan 8).
 1. `swift build` succeeds at the head of the 2+3+4 PR train (plans 2–4 merge together; this
    plan alone does not build).
 2. Grep gates over `Sources/Lattice/Domain/`:
-   - zero occurrences of `Sendable` (including `@unchecked Sendable`);
+   - zero `Sendable` conformances/constraints/annotations — verified by
+     `grep -rn "Sendable" Sources/Lattice/Domain/` with every remaining hit being a
+     comment/doc line (the normative doc comments deliberately say "intentionally not
+     `Sendable`" and stay);
    - zero occurrences of `Emission`, `Debounce`, `DynamicState`, `UncheckedSendable`;
    - the eight deleted files listed above are gone.
 3. `swift test --filter LatticeTests` green, including the new `InteractorGraphPathTests` and
