@@ -39,8 +39,8 @@ public final class TestViewModel<F: FeatureProtocol> {
     private var bufferedActions: Deque<BufferedAction<Action>> = []
     private var pendingReceives: Deque<PendingReceive<DomainState, Action>> = []
     private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
-    private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
-    private var inFlightEffects: OrderedDictionary<EffectID, InFlightEffectRecord<Action>> = [:]
+    private var effectTasks: OrderedDictionary<LegacyEffectID, Task<Void, Never>> = [:]
+    private var inFlightEffects: OrderedDictionary<LegacyEffectID, InFlightEffectRecord<Action>> = [:]
     private var rootSendOrigins: OrderedDictionary<SendScopeID, RootSendOrigin<Action>> = [:]
     private var startedRootScopes: Set<SendScopeID> = []
     private var isSending = false
@@ -466,7 +466,7 @@ public final class TestViewModel<F: FeatureProtocol> {
             from: emission,
             rootScopeID: rootScopeID,
             cancellationRegistry: cancellationRegistry,
-            makeEffectID: { EffectID() },
+            makeEffectID: { LegacyEffectID() },
             effectDidStart: { [weak self] effectID in
                 self?.enrollEffect(effectID, rootScopeID: rootScopeID)
             },
@@ -490,7 +490,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     private func enrollEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         var rootScope = rootScopes[rootScopeID] ?? .init()
@@ -506,7 +506,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     private func completeEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         effectTasks[effectID] = nil
@@ -521,7 +521,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     private func cancelEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         completeEffect(effectID, rootScopeID: rootScopeID)

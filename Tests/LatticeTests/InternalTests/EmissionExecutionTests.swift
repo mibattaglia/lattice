@@ -14,20 +14,20 @@ struct EmissionExecutionTests {
     @MainActor
     final class Probe {
         let cancellationRegistry = EffectCancellationRegistry()
-        var startedEffectIDs: [EffectID] = []
-        var completedEffectIDs: [EffectID] = []
-        var cancelledEffectIDs: [EffectID] = []
+        var startedEffectIDs: [LegacyEffectID] = []
+        var completedEffectIDs: [LegacyEffectID] = []
+        var cancelledEffectIDs: [LegacyEffectID] = []
         var enqueuedActions: [Action] = []
 
         func spawn(
             _ emission: Emission<Action>,
             rootScopeID: SendScopeID = SendScopeID()
-        ) -> [EffectID: Task<Void, Never>] {
+        ) -> [LegacyEffectID: Task<Void, Never>] {
             EmissionExecution.spawnTasks(
                 from: emission,
                 rootScopeID: rootScopeID,
                 cancellationRegistry: cancellationRegistry,
-                makeEffectID: { EffectID() },
+                makeEffectID: { LegacyEffectID() },
                 effectDidStart: { [weak self] effectID in
                     self?.startedEffectIDs.append(effectID)
                 },
@@ -320,7 +320,7 @@ struct EmissionExecutionTests {
         #expect(probe.cancelledEffectIDs.count == 2)
     }
 
-    private func wait(for tasks: [EffectID: Task<Void, Never>]) async {
+    private func wait(for tasks: [LegacyEffectID: Task<Void, Never>]) async {
         for task in tasks.values {
             await task.value
         }

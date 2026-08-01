@@ -83,6 +83,12 @@ no `@Observable` `EffectID` storage (views observe the projection only; add if U
 `Emission.swift`, `Emission+Debounce.swift` are deleted per README (plan 04 executes the
 deletion together with the `interact` signature change).
 
+> Amendment (landed with plan 03): the old runtime's internal `EffectID` struct
+> (`Sources/Lattice/Internal/Execution/EffectID.swift`) collided with the new public `EffectID`
+> — same module, same name, a redeclaration compile error. It is renamed to `LegacyEffectID`
+> (file `Internal/Execution/LegacyEffectID.swift`) with all old-runtime references updated; the
+> type is deleted wholesale by the later plans that remove the Emission runtime.
+
 ## Production Swift
 
 ### `Sources/Lattice/Internal/LatticeIssueReporting.swift`
@@ -799,6 +805,10 @@ func _makeEffectsHandles<RootState, RootAction, State, Action>(
     lens: _ScopeLens<RootState, RootAction, State, Action>,
     path: GraphPath
 ) -> Effects<State, Action> {
+    // Amendment (landed with plan 03): the '_modify'/'_send' closure literals carry explicit
+    // 'throws(CancellationError)' annotations — the compiler does not infer the typed throws
+    // from the stored-property contextual type and rejects the bare literals with "invalid
+    // conversion of thrown error type 'any Error' to 'CancellationError'".
     // Last state successfully read through the lens. After the scope's case departs — or the
     // core is deallocated — a racing read returns this snapshot.
     var lastKnownState: State?
@@ -806,7 +816,7 @@ func _makeEffectsHandles<RootState, RootAction, State, Action>(
     let effectState = EffectState<State, Action>(
         path: path,
         _updateContext: { [weak core] in core?.updateContext },
-        _modify: { [weak core] mutate, fileID, line in
+        _modify: { [weak core] (mutate, fileID, line) throws(CancellationError) in
             guard let core, !core.isDismounted else {
                 if !Task.isCancelled {
                     latticeReportIssue(
@@ -834,7 +844,7 @@ func _makeEffectsHandles<RootState, RootAction, State, Action>(
                 lens.write(&root, mutate)
             }
         },
-        _send: { [weak core] action, fileID, line in
+        _send: { [weak core] (action, fileID, line) throws(CancellationError) -> Task<Void, Never>? in
             guard let core, !core.isDismounted else {
                 if !Task.isCancelled {
                     latticeReportIssue(

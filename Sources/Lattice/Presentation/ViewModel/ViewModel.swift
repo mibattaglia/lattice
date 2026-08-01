@@ -85,7 +85,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     private var domainState: DomainState
     private var bufferedActions: Deque<BufferedAction<Action>> = []
     private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
-    private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
+    private var effectTasks: OrderedDictionary<LegacyEffectID, Task<Void, Never>> = [:]
     private var isSending = false
 
     private var _viewState: ViewState
@@ -295,7 +295,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
             from: emission,
             rootScopeID: rootScopeID,
             cancellationRegistry: cancellationRegistry,
-            makeEffectID: { EffectID() },
+            makeEffectID: { LegacyEffectID() },
             effectDidStart: { [weak self] effectID in
                 self?.enrollEffect(effectID, rootScopeID: rootScopeID)
             },
@@ -319,7 +319,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     }
 
     private func enrollEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         var rootScope = rootScopes[rootScopeID] ?? .init()
@@ -328,7 +328,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     }
 
     private func completeEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         effectTasks[effectID] = nil
@@ -342,7 +342,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     }
 
     private func cancelEffect(
-        _ effectID: EffectID,
+        _ effectID: LegacyEffectID,
         rootScopeID: SendScopeID
     ) {
         completeEffect(effectID, rootScopeID: rootScopeID)
