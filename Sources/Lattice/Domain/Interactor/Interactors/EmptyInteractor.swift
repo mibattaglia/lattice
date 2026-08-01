@@ -27,4 +27,6 @@ public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Se
     public func interact(state: inout State, action: Action) -> Emission<Action> {
         .none
     }
+
+    public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {}
 }

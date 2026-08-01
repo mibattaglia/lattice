@@ -77,6 +77,17 @@ extension Interactors {
                 )
             }
         }
+
+        /// Transitional: on the imperative-effect pathway, `Debounce` is structurally
+        /// transparent — debouncing is expressed as per-call-site auto-replacement plus
+        /// `clock.sleep` inside `perform` (the wrapper is deleted by plan 06).
+        public func interact(
+            state: inout DomainState,
+            action: Action,
+            effects: Effects<DomainState, Action>
+        ) {
+            child.interact(state: &state, action: action, effects: effects)
+        }
     }
 }
 

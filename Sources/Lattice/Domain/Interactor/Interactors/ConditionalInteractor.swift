@@ -1,5 +1,11 @@
 import Foundation
 
+/// Branch identity for `Interactors.Conditional` GraphPath components.
+enum ConditionalBranch: Hashable {
+    case first
+    case second
+}
+
 extension Interactors {
     /// An interactor that conditionally delegates to one of two child interactors.
     ///
@@ -28,6 +34,31 @@ extension Interactors {
                 return first.interact(state: &state, action: action)
             case .second(let second):
                 return second.interact(state: &state, action: action)
+            }
+        }
+
+        /// Each branch appends a branch-tag `GraphPath` component, so the two branches occupy
+        /// disjoint task-storage buckets. The composition tree is static: the branch taken is
+        /// fixed when `body` is first evaluated and must not change for the lifetime of the
+        /// host.
+        public func interact(
+            state: inout First.DomainState,
+            action: First.Action,
+            effects: Effects<First.DomainState, First.Action>
+        ) {
+            switch self {
+            case .first(let first):
+                first.interact(
+                    state: &state,
+                    action: action,
+                    effects: effects.appending(.id(ConditionalBranch.first))
+                )
+            case .second(let second):
+                second.interact(
+                    state: &state,
+                    action: action,
+                    effects: effects.appending(.id(ConditionalBranch.second))
+                )
             }
         }
     }

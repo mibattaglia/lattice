@@ -61,6 +61,22 @@ public protocol Interactor<DomainState, Action> {
     ///   - action: The action to process.
     /// - Returns: An ``Emission`` describing actions to emit.
     func interact(state: inout DomainState, action: Action) -> Emission<Action>
+
+    /// Processes an action by mutating state and, optionally, launching effects.
+    ///
+    /// The imperative-effect pathway: runs synchronously in the host's isolation domain during
+    /// the update phase. Only ``Effects/perform(id:_:fileID:filePath:line:column:)`` is legal
+    /// during this call; `modify`/`send` are effect-phase APIs on ``EffectState``.
+    ///
+    /// - Parameters:
+    ///   - state: The current state, passed as `inout` for mutation.
+    ///   - action: The action to process.
+    ///   - effects: The handle for launching async effects.
+    func interact(
+        state: inout DomainState,
+        action: Action,
+        effects: Effects<DomainState, Action>
+    )
 }
 
 extension Interactor where Body.DomainState == Never {
@@ -73,6 +89,30 @@ extension Interactor where Body: Interactor<DomainState, Action> {
     /// The default implementation forwards to the `body` interactor.
     public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
         body.interact(state: &state, action: action)
+    }
+
+    /// The default implementation forwards to the `body` interactor, threading the effects
+    /// handle unchanged (composition nodes, not `body` itself, append path components).
+    public func interact(
+        state: inout DomainState,
+        action: Action,
+        effects: Effects<DomainState, Action>
+    ) {
+        body.interact(state: &state, action: action, effects: effects)
+    }
+}
+
+extension Interactor {
+    /// Transitional mutation-only bridge for conformances that implement only the legacy
+    /// `interact(state:action:)` requirement (and have no matching `body`): mutations apply,
+    /// the returned ``Emission`` is discarded. Removed when plan 06 flips the protocol to the
+    /// effects-only shape.
+    public func interact(
+        state: inout DomainState,
+        action: Action,
+        effects: Effects<DomainState, Action>
+    ) {
+        _ = interact(state: &state, action: action)
     }
 }
 
@@ -98,15 +138,25 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Actio
 /// ```
 public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
     private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
+    private let interactEffectsFunc: @Sendable (inout State, Action, Effects<State, Action>) -> Void
 
     public init<I: Interactor & Sendable>(_ base: I) where I.DomainState == State, I.Action == Action {
         self.interactFunc = { state, action in base.interact(state: &state, action: action) }
+        self.interactEffectsFunc = { state, action, effects in
+            base.interact(state: &state, action: action, effects: effects)
+        }
     }
 
     public var body: some Interactor<State, Action> { self }
 
     public func interact(state: inout State, action: Action) -> Emission<Action> {
         interactFunc(&state, action)
+    }
+
+    /// Structurally transparent: forwards the handle unmodified, so erasure never perturbs
+    /// `GraphPath`s.
+    public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
+        interactEffectsFunc(&state, action, effects)
     }
 }
 
@@ -141,6 +191,15 @@ public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked
 
     public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.Action> {
         wrapped.interact(state: &state, action: action)
+    }
+
+    /// Structurally transparent: forwards the handle unmodified.
+    public func interact(
+        state: inout I.DomainState,
+        action: I.Action,
+        effects: Effects<I.DomainState, I.Action>
+    ) {
+        wrapped.interact(state: &state, action: action, effects: effects)
     }
 }
 

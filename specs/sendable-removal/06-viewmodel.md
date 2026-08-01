@@ -320,6 +320,30 @@ plans 02/04 if the old test pipeline is removed earlier in the PR series; either
 below only asserts the **Presentation** layer is clean). `SendScopeID` is deleted outright —
 nothing replaces it; `EventTask` wraps the composite task `core.send` returns (plan 02).
 
+> **Deferred from plans 02/03/04 (additive staging) — execute here.** Plans 02–04 landed
+> additively (old suite green, per `orchestration.md`), so this plan's deletion commit also
+> owns their deferred red lines:
+>
+> - **Plan 04's deletion table** (`specs/sendable-removal/04-interactor-combinators.md`
+>   §"Deletions & replacement idioms"): `Emission.swift`, `Emission+Debounce.swift`,
+>   `Interactors/Debounce.swift`, `DynamicState.swift`, `Internal/Send.swift`,
+>   `Internal/UncheckedSendable.swift`, `Internal/Debouncer.swift`,
+>   `Internal/DebounceResult.swift`.
+> - **Plan 04's in-place flip**: remove the legacy Emission-returning `interact(state:action:)`
+>   requirement, the mutation-only bridge, `Interact`'s legacy handler/detached-handle path
+>   (adding the 2-arg `Void` convenience once the overload conflict is gone), every `Sendable`
+>   constraint/conformance on the protocol, combinators, builder, and erasure
+>   (`UncheckedSendableInteractor`, `uncheckedSendable()`, `eraseToAnyInteractorUnchecked()`
+>   deleted; builder flips to `eraseToAnyInteractor()`), `When`'s `PathComponentBox`.
+> - **Plan 04's grep gates** (its gate 2) over `Sources/Lattice/Domain/`, and its deferred
+>   test work: suite 4 (non-Sendable erasure), old-test deletions, destructive
+>   `WhenInteractorTests`/`InteractorBuilderTests` rewrites.
+> - **Plan 02's execution-side deletions** (also staged additively): `EmissionExecution`,
+>   `ApplyAction`, `EffectTaskRegistry`, `EffectCancellationRegistry`, `BufferedAction`,
+>   `RootScopeState`/`RootScopeTasks`, `ActionSource`, `ActionTransition`, `SendScopeID`,
+>   `LegacyEffectID` — sequenced with plan 07 where `TestViewModel` still consumes them, per
+>   the note above.
+
 ## Deinit story
 
 **`ViewModel` has no `deinit`.** The teardown chain:
