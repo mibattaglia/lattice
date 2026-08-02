@@ -9,7 +9,7 @@ import Foundation
 ///
 /// `TestViewModel` hosts the same core engine as ``ViewModel`` — same commit funnel, same
 /// effect launch, same cancellation semantics — installing a recording commit strategy in
-/// place of the production projection diff (`_commit` into the registrar, plan 05). The
+/// place of the production projection diff (`_commit` into the registrar). The
 /// contract is step-wise and exhaustive:
 ///
 /// - ``send(_:changes:fileID:file:line:column:)`` asserts the update-phase mutation.

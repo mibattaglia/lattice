@@ -10,7 +10,7 @@ public struct DomainMacro: PeerMacro {
         providingPeersOf declaration: some DeclSyntaxProtocol,
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
-        // §8 diagnostic: @Domain on a private member is redundant.
+        // Diagnostic: @Domain on a private member is redundant.
         if let variable = declaration.as(VariableDeclSyntax.self),
             variable.modifiers.contains(where: { modifier in
                 modifier.detail == nil

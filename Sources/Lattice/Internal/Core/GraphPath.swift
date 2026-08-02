@@ -38,7 +38,7 @@ public struct GraphPath: Hashable {
     }
 
     /// Component-shaped spelling of the two `appending` variants, for callers that carry a
-    /// pre-built `Component` (the combinators' pinned plan-04 SPI).
+    /// pre-built `Component` (the combinators' internal SPI).
     func appending(_ component: Component) -> GraphPath {
         switch component {
         case .keyPath(let keyPath):

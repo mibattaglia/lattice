@@ -326,7 +326,7 @@ public struct EffectState<DomainState, Action> {
     /// fields must change together in one commit.
     ///
     /// The subscript cannot throw: unlike `modify`, a write dropped by scope departure or
-    /// dismount is silently discarded rather than surfaced, consistent with the pinned
+    /// dismount is silently discarded rather than surfaced, consistent with the
     /// departed-scope drop semantics above. Code that needs to observe cancellation (or a
     /// dismount `CancellationError`) should call `modify` directly.
     ///

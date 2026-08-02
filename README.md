@@ -450,8 +450,7 @@ established the case is active (it `fatalError`s otherwise). Case-accessor proje
 If the case departs while a child effect is in flight, the runtime cancels the child's tasks
 and drops straggling writes — no hand-rolled staleness guards needed.
 
-See `ExampleProject/ScopedCompositionExamplePackage` for a runnable demo of both styles, and
-`specs/scoped-view-composition.md` / `specs/enum-case-scoping.md` for design details.
+See `ExampleProject/ScopedCompositionExamplePackage` for a runnable demo of both styles.
 
 ## Testing with `TestViewModel`
 

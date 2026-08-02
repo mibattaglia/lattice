@@ -3,7 +3,7 @@ import Foundation
 /// A handle to the effects launched directly by a single
 /// ``TestViewModel/send(_:changes:fileID:file:line:column:)`` call.
 ///
-/// A thin wrapper over the composite task the core's `send` returns (plan 06's `EventTask`
+/// A thin wrapper over the composite task the core's `send` returns (`EventTask`
 /// semantics: the send's directly launched effects). Waiting is a plain race against a
 /// timeout — commits are recorded synchronously by the funnel and effects start in-domain
 /// before `send` returns, so there is nothing to yield for.

@@ -4,7 +4,7 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// `@FeatureState`: generates the view projection surface and the commit diff for a struct
-/// or enum state type (plan 05 of the sendable-removal rework).
+/// or enum state type.
 ///
 /// Generated members: the `_ViewMembers` key-path namespace over view-visible members, the
 /// `_viewKeyPaths` map, the `_derivedMembers` set, the `_commit(old:new:registrar:key:)`
@@ -65,7 +65,7 @@ public struct FeatureStateMacro {
         return ""
     }
 
-    /// Collects the view-visible variable members, emitting the §8 syntactic diagnostics
+    /// Collects the view-visible variable members, emitting the syntactic diagnostics
     /// that concern individual members. Returns nil after an error-severity diagnostic.
     private static func collectVariableMembers(
         of declaration: some DeclGroupSyntax,
