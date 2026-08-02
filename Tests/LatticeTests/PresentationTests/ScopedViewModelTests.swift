@@ -1,5 +1,4 @@
-// Rewritten for the flipped host (plan 06 test plan): scopes expose the child's
-// FeatureProjection; assertion targets are projected members.
+// Scopes expose the child's FeatureProjection; assertion targets are projected members.
 
 import CasePaths
 import Foundation

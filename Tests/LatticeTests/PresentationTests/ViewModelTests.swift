@@ -1,6 +1,6 @@
-// Rewritten for the flipped host (plan 06 test plan): fixtures on `@FeatureState` types and
-// the `interact(state:action:effects:)` shape. Which-keys-fired granularity assertions live
-// in plan 05's registrar/projection suites, not here.
+// Core `ViewModel` behavior: fixtures on `@FeatureState` types and the
+// `interact(state:action:effects:)` shape. Which-keys-fired granularity assertions live
+// in the registrar/projection suites, not here.
 
 import Foundation
 import Testing

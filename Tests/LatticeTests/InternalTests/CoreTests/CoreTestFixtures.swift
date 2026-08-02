@@ -1,4 +1,4 @@
-// Shared fixtures for the LatticeCore isolation tests (plan 02 §8). The state is
+// Shared fixtures for the LatticeCore isolation tests. The state is
 // deliberately **non-Sendable** (`NonSendableBox` is a plain class) to prove the runtime
 // compiles and runs without any `Sendable` requirement.
 

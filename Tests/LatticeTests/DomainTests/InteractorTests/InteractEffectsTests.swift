@@ -65,8 +65,7 @@ struct InteractEffectsOverloadTests {
 
     @Test
     func twoArgVoidConvenienceResolvesAndNeverObservesAHandle() {
-        // The two-argument `Void` convenience (unambiguous now that the legacy Emission
-        // handler is deleted): pure-mutation leaves drop the handle entirely.
+        // The two-argument `Void` convenience: pure-mutation leaves drop the handle entirely.
         let interact = Interact { (state: inout OverloadState, action: OverloadAction) in
             if case .bump = action {
                 state.n += 1
@@ -105,7 +104,7 @@ struct InteractEffectsOverloadTests {
     }
 }
 
-// MARK: - Debounce idiom (replacement for the Emission debounce stack)
+// MARK: - Debounce idiom (task replacement + leading sleep)
 
 @Suite
 @MainActor

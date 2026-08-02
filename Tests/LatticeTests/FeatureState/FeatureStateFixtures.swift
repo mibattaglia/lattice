@@ -1,6 +1,5 @@
-// Phase B fixtures for the @FeatureState runtime (plan 05 §12 phase B): the spec §4
-// examples annotated with the real `@FeatureState`/`@Domain` macros, replacing phase A's
-// hand expansions. `FeatureStateRuntimeTests.swift` is untouched by this swap.
+// Fixtures for the @FeatureState runtime tests: representative state shapes annotated
+// with the real `@FeatureState`/`@Domain` macros.
 
 import IdentifiedCollections
 
@@ -39,7 +38,7 @@ struct TransactionFilter: Equatable {
     }
 }
 
-// MARK: - SearchState (spec §4.1: representative struct)
+// MARK: - SearchState (representative struct)
 
 @FeatureState
 struct SearchState {
@@ -74,7 +73,7 @@ struct ProfileState {
     var modal: DetailState?
 }
 
-// MARK: - RouteState (spec §4.2: enum)
+// MARK: - RouteState (enum)
 
 @FeatureState
 enum RouteState {
@@ -91,7 +90,7 @@ enum RouteState {
     }
 }
 
-// MARK: - Transaction (spec §6.3: element-as-feature)
+// MARK: - Transaction (element-as-feature)
 
 @FeatureState
 struct Transaction: Identifiable, Equatable {
@@ -119,7 +118,7 @@ struct Transaction: Identifiable, Equatable {
     }
 }
 
-// MARK: - TransactionsState (spec §4.3: collection-bearing parent)
+// MARK: - TransactionsState (collection-bearing parent)
 
 @FeatureState
 struct TransactionsState {

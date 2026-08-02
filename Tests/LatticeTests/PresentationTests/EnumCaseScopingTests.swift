@@ -1,5 +1,5 @@
-// Rewritten for the flipped host (plan 06 test plan): case scoping rides the generated
-// enum case accessors (`@FeatureState` emits `success: SuccessState?` into `_ViewMembers`).
+// Case scoping rides the generated enum case accessors (`@FeatureState` emits
+// `success: SuccessState?` into `_ViewMembers`).
 
 import CasePaths
 import Foundation

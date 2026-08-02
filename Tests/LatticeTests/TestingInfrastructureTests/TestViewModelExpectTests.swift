@@ -1,4 +1,4 @@
-// Plan 07 §9: new suite for the `expect` contract — the assertion for `effectState.modify`
+// The `expect` contract — the assertion for `effectState.modify`
 // commits — plus the deinit exhaustivity backstop, scoped-drop silence, and the projection
 // read surface.
 
@@ -225,7 +225,7 @@ extension TestingInfrastructureTests {
 }
 }
 
-// MARK: - Projection reads (plan 07 §5 view-layer assertions)
+// MARK: - Projection reads (view-layer assertions)
 
 @FeatureState
 private struct ProjectionTestState: Equatable {

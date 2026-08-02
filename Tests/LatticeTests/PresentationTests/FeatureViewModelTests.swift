@@ -1,4 +1,4 @@
-// Rewritten for the flipped host (plan 06 §5): `Feature` narrows to interactor + state type.
+// `Feature` narrows to interactor + state type.
 
 import Foundation
 import Testing

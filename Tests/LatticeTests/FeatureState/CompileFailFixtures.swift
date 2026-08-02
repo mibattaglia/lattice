@@ -1,4 +1,4 @@
-// Deliberate compile-fail fixtures for the type-driven diagnostics (plan 05 §12 phase A).
+// Deliberate compile-fail fixtures for the type-driven diagnostics.
 // Kept commented: uncomment a block to verify the diagnostic manually. Each block fails to
 // compile with the annotated error.
 

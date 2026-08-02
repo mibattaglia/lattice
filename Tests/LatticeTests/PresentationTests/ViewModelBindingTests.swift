@@ -1,5 +1,5 @@
-// Rewritten for the flipped host (plan 06 §4): binding read key paths retarget onto the
-// state's `_ViewMembers` projection namespace; writes still send events.
+// Binding semantics: binding read key paths target the state's `_ViewMembers` projection
+// namespace; writes send events.
 
 import CasePaths
 import SwiftUI

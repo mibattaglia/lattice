@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-// The navigation-dismissed-mid-request contract (plan 03 §Scoping / exact drop semantics).
+// The navigation-dismissed-mid-request contract: exact drop semantics for scoped effects.
 // Serialized: `_EffectsDiagnostics.onDroppedReentry` is a single global hook, so the tests
 // that install a `DropHookRecorder` must not overlap.
 @Suite(.serialized)

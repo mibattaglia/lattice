@@ -1,5 +1,5 @@
-// Shared fixtures for the effects-handle tests (plan 03). Everything here is deliberately
-// **non-Sendable** — that absence is itself part of the assertion (plan 03 test plan).
+// Shared fixtures for the effects-handle tests. Everything here is deliberately
+// **non-Sendable** — that absence is itself part of the assertion.
 
 import CasePaths
 import Foundation
@@ -14,7 +14,7 @@ struct HandleState {
 }
 
 /// A closure-carrying action: each send routes to the closure, which receives the `inout`
-/// state and the node's update-phase `Effects` handle (as plan 04's `Interact` will).
+/// state and the node's update-phase `Effects` handle (mirroring `Interact`).
 struct HandleAction {
     let run: (inout HandleState, Effects<HandleState, HandleAction>) -> Void
 

@@ -1,6 +1,6 @@
-// Plan 05 §12 gate A: hand-expansion granularity + diff-tier tests against a stub host
-// (a bare `FeatureStateRegistrar` + closure-held state; no `LatticeCore`). Phase B swaps
-// the fixtures over to the real macro; this file must not change in that swap.
+// Granularity + diff-tier tests against a stub host
+// (a bare `FeatureStateRegistrar` + closure-held state; no `LatticeCore`). The fixtures use
+// the real macro; this file is written against the expanded surface only.
 
 import IdentifiedCollections
 import Testing
@@ -334,7 +334,7 @@ struct FeatureStateRuntimeTests {
         #expect(host.commit { $0 = .banner("b") }.isEmpty)
     }
 
-    // MARK: Collections (spec §6.1 table)
+    // MARK: Collections
 
     @Test
     func collectionStructuralChangePingsShapeKeyAndPrunesDepartedSignals() {
@@ -412,7 +412,7 @@ struct FeatureStateRuntimeTests {
         _ = row.isFlagged
         _ = host.projection.transactions[id: 2]?.icon
 
-        // §6.3 trace: flag element 1. `title`/`amountLabel` outputs are unchanged (no
+        // Flag element 1. `title`/`amountLabel` outputs are unchanged (no
         // fire); `icon`/`isFlagged` change (fire); element 2 is skipped.
         let pokes = host.commit { $0.transactions[id: 1]?.flagged = true }
         #expect(
@@ -434,7 +434,7 @@ struct FeatureStateRuntimeTests {
         #expect(host.projection.transactions.count == 0)
     }
 
-    // MARK: Key-path map round-trips (risk §13: `_viewKeyPaths` casts hold per member kind)
+    // MARK: Key-path map round-trips (`_viewKeyPaths` casts hold per member kind)
 
     @Test
     func keyPathRoundTripsForEveryMemberKind() {

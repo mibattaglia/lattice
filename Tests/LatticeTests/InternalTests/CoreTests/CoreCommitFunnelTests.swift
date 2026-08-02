@@ -55,7 +55,7 @@ extension CoreTests {
             #expect(core.updateContext == nil)
         }
 
-        /// Pins the commit-origin contract the test host's recorder depends on (plan 07 §2):
+        /// Pins the commit-origin contract the test host's recorder depends on:
         /// the update-phase commit fires synchronously inside `send` with `.send(action)`
         /// origin, **before** any effect's synchronous-prefix `modify` commit can interleave.
         @Test

@@ -1,5 +1,5 @@
-// Plan 07 §9: cancellation scenarios migrated from the Emission-era suite.
-// `skipInFlightEffects` is deleted — `dismount()` or `TestEventTask.cancel()` covers the
+// Cancellation scenarios for the test host.
+// There is no `skipInFlightEffects` — `dismount()` or `TestEventTask.cancel()` covers the
 // intent.
 
 import Foundation

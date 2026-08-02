@@ -1,4 +1,4 @@
-// Plan 07 §9: waiting/timeout scenarios migrated from the Emission-era suite. Timing-based
+// Waiting/timeout scenarios. Timing-based
 // fixtures keep real clocks deliberately: they exercise the host's deadline machinery itself.
 
 import Foundation

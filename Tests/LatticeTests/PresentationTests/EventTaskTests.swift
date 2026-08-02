@@ -1,5 +1,5 @@
-// Rewritten around the flipped EventTask semantics (plan 06 §2): the handle wraps the
-// composite task over the effects its send launched *directly*.
+// EventTask semantics: the handle wraps the composite task over the effects its send
+// launched *directly*.
 
 import CasePaths
 import Clocks

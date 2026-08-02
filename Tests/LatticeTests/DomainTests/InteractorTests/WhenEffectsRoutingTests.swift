@@ -1,6 +1,6 @@
-// Plan 04 test suite 2 (additive): `When` builds the scoped handle with the right lenses and
+// `When` builds the scoped handle with the right lenses and
 // component on the imperative-effect pathway. The full dismissed-mid-request drop/cancel
-// contract lives in the plan 03 suites; here we assert routing, embedding, and that a child
+// contract lives in the scoped-effects suites; here we assert routing, embedding, and that a child
 // effect's `modify` lands in the parent's scoped slice (plus watcher registration end-to-end).
 
 import CasePaths
@@ -22,8 +22,7 @@ private enum RouteChildAction: Sendable {
 }
 
 /// The child feature: synchronous mutation plus an effect that re-enters via `modify`.
-/// `@unchecked Sendable` is transitional: `When`'s `Child: Interactor & Sendable` gate is
-/// removed by plan 06; the gate is only ever touched on the MainActor.
+/// `@unchecked Sendable` is a formality: the gate is only ever touched on the MainActor.
 private struct RouteChildInteractor: Interactor, @unchecked Sendable {
     let gate: Gate?
 

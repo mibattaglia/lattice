@@ -276,8 +276,8 @@ struct EffectsHandleTests {
 private var anyCallSite: EffectLocation { .callSite(fileID: "none", line: 0, column: 0) }
 
 // Exit tests for the smuggled-handle runtime backstops: an `EffectState` captured out of its
-// effect and used during the update phase trips the named preconditions (plan 03 §Production
-// Swift). Swift Testing exit tests are macOS-only in this package.
+// effect and used during the update phase trips the named preconditions. Swift Testing
+// exit tests are macOS-only in this package.
 #if os(macOS)
     @Suite
     struct EffectsHandleBackstopExitTests {

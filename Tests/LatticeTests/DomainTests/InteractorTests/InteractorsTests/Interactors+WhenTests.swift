@@ -1,5 +1,4 @@
-// Destructive rewrite for the effects-only interactor shape (plan 04 test suite 2,
-// executed at plan 06's flip): `When` routing/embedding semantics on the new
+// `When` routing/embedding semantics on the
 // `interact(state:action:effects:)` signature. Scoped-handle effects routing (drop/cancel
 // on case departure, lens pullback) is covered by `WhenEffectsRoutingTests`.
 
