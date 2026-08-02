@@ -54,7 +54,7 @@ private struct CounterVMInteractor: Interactor {
     }
 }
 
-// MARK: - Non-Sendable fixture (the point of the rework)
+// MARK: - Non-Sendable fixture (the host imposes no Sendable requirements)
 
 private final class NonSendableCounterService {
     var calls = 0

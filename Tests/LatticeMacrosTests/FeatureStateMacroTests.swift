@@ -6,7 +6,7 @@
     /// Expansion baselines: one exact-match test per representative fixture shape, plus
     /// one test per implemented syntactic-diagnostic rule. (The `@FeatureState`-returning
     /// computed-member warning is not implementable with the attached-macro API and is
-    /// deferred.)
+    /// not emitted.)
     final class FeatureStateMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(

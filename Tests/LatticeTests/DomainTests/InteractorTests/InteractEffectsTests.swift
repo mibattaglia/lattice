@@ -1,5 +1,5 @@
-// Plan 04 test suites 5 & 6 (additive): `Interact` handler-overload resolution, and the
-// debounce-by-replacement idiom expressed through a real interactor tree.
+// `Interact` handler-overload resolution, and the debounce-by-replacement idiom
+// expressed through a real interactor tree.
 
 import Clocks
 import Foundation

@@ -96,8 +96,8 @@ public struct Effects<DomainState, Action> {
     ///
     /// Legal **only** while `interact` is executing synchronously (`noasync`). The operation is
     /// queued during the update and started in-domain immediately after the update's mutations
-    /// commit, using an immediate task (OS 26) or a main-actor synchronous start shim
-    /// (iOS 17–25), so it runs up to its first suspension point before control returns to the
+    /// commit, using an immediate task (OS 26 or newer) or a main-actor synchronous start shim
+    /// (OS 18 or older), so it runs up to its first suspension point before control returns to the
     /// caller of `send`. The operation receives an ``EffectState`` handle — the effect-phase
     /// capabilities (`modify`, `send`, `state`) live there, not on `Effects`.
     ///

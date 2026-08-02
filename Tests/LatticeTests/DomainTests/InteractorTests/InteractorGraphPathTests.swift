@@ -1,4 +1,4 @@
-// Plan 04 test suite 1: path derivation through the imperative-effect pathway.
+// Path derivation through the imperative-effect pathway.
 // A recording leaf captures the `Effects` handle path at every structural position.
 
 import CasePaths

@@ -50,6 +50,6 @@ func expectIssue(
     )
 }
 
-/// Namespace suite: groups every testing-infrastructure suite under one prefix so the plan's
-/// gate (`swift test --filter TestingInfrastructureTests`) selects exactly these.
+/// Namespace suite: groups every testing-infrastructure suite under one prefix so
+/// `swift test --filter TestingInfrastructureTests` selects exactly these.
 enum TestingInfrastructureTests {}

@@ -6,8 +6,8 @@ import Foundation
 
 @testable import Lattice
 
-/// Namespace suite: groups every core suite under one `CoreTests` prefix so the plan's gate
-/// (`swift test --filter CoreTests`) selects exactly these.
+/// Namespace suite: groups every core suite under one `CoreTests` prefix so
+/// `swift test --filter CoreTests` selects exactly these.
 enum CoreTests {}
 
 // MARK: - Non-Sendable domain state
@@ -60,8 +60,8 @@ func makeCore(
     return core
 }
 
-/// Deterministic effect-slot identity for tests that call `launchEffect` directly (plan 3's
-/// `perform` supplies real `#fileID`/`#line`/`#column` defaults).
+/// Deterministic effect-slot identity for tests that call `launchEffect` directly
+/// (`Effects.perform` supplies real `#fileID`/`#line`/`#column` defaults).
 func loc(_ line: UInt) -> EffectLocation {
     .callSite(fileID: "CoreTests/Fixture.swift", line: line, column: 1)
 }
