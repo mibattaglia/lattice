@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.license        = { type: 'MIT' }
   s.platforms      = { ios: '17.0', macos: '14.0', watchos: '10.0' }
   s.source         = { git: 'https://github.com/mibattaglia/lattice.git', tag: s.version.to_s }
-  s.swift_version  = '6.0'
+  s.swift_version  = '6.2'
 
   s.static_framework = true
 
@@ -26,7 +26,7 @@ Pod::Spec.new do |s|
   # Configure build flags to load the macro plugin
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable ${PODS_TARGET_SRCROOT}/Macros/LatticeMacros#LatticeMacros'
+    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable ${PODS_TARGET_SRCROOT}/Macros/LatticeMacros#LatticeMacros -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault'
   }
 
   # For the main app target (if it uses macros directly)

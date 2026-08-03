@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import CompilerPluginSupport
 import PackageDescription
@@ -26,8 +26,8 @@ let package = Package(
             .upToNextMajor(from: "1.7.0")
         ),
         .package(
-            url: "https://github.com/apple/swift-syntax",
-            .upToNextMajor(from: "601.0.0")
+            url: "https://github.com/swiftlang/swift-syntax",
+            .upToNextMajor(from: "602.0.0")
         ),
         .package(
             url: "https://github.com/pointfreeco/swift-macro-testing",
@@ -66,8 +66,13 @@ let package = Package(
         .macro(
             name: "LatticeMacros",
             dependencies: [
-                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftOperators", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
             ]
         ),
         .testTarget(
@@ -83,8 +88,17 @@ let package = Package(
             dependencies: [
                 "LatticeMacros",
                 .product(name: "MacroTesting", package: "swift-macro-testing"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
     ],
     swiftLanguageModes: [.v6]
 )
+
+for target in package.targets where target.type != .macro {
+    target.swiftSettings = target.swiftSettings ?? []
+    target.swiftSettings?.append(contentsOf: [
+        .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    ])
+}
