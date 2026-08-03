@@ -119,7 +119,8 @@ Sources/Lattice/Testing/
 ```
 
 `Sources/Lattice/Testing` stays excluded from `Lattice.podspec` (`s.exclude_files`, line 17) —
-no podspec change.
+no podspec change. *As landed:* `Package.swift` adds the `DequeModule` product of the
+already-present `swift-collections` dependency (the recorder's `Deque`).
 
 Deleted:
 
@@ -146,19 +147,19 @@ enum PendingCommit<DomainState, Action> {
     /// An `effectState.send` re-entry: the action, and the state after its update phase.
     case action(Action, resulting: DomainState)
 
-    /// A presence-flip cancellation commit (case-exit); asserted implicitly, surfaced only
-    /// by exhaustivity diagnostics.
-    case presenceCancellation(resulting: DomainState)
-
     var resultingState: DomainState {
         switch self {
-        case .mutation(let state), .action(_, resulting: let state),
-             .presenceCancellation(let state):
+        case .mutation(let state), .action(_, resulting: let state):
             return state
         }
     }
 }
 ```
+
+> **§10 sync point resolved (implementation):** the landed core never commits on pure
+> presence cancellation — transition detection runs *inside* the funnel of the mutation that
+> flipped the presence, and a scoped-drop `modify` runs no funnel pass at all — so the
+> sketched `.presenceCancellation` case was dead code and is dropped, as this plan flagged.
 
 No `Sendable`, no constraints — everything is confined to the test host's isolation (MainActor),
 per the pinned contract.
@@ -170,10 +171,8 @@ per the pinned contract.
 Full public surface (bodies elided only where they are one-line forwards to helpers shown):
 
 ```swift
-#if canImport(Clocks)
-import Clocks
-import CustomDump
 import DequeModule
+// (No Clocks import: Duration/ContinuousClock are stdlib; TestClock stays a consumer tool.)
 
 /// A domain-state-first testing host for a Lattice feature.
 ///
@@ -183,8 +182,8 @@ import DequeModule
 /// contract is step-wise and exhaustive:
 ///
 /// - ``send(_:changes:fileID:file:line:column:)`` asserts the update-phase mutation.
-/// - ``expect(changes:timeout:fileID:file:line:column:)`` asserts the next `effectState.modify` commit.
-/// - ``receive(_:changes:timeout:fileID:file:line:column:)`` asserts the next `effectState.send`
+/// - ``expect(timeout:changes:fileID:file:line:column:)`` asserts the next `effectState.modify` commit.
+/// - ``receive(_:timeout:changes:fileID:file:line:column:)`` asserts the next `effectState.send`
 ///   re-entry and its update-phase mutation.
 /// - Under ``Exhaustivity/on``, unasserted commits fail at deinit.
 ///
@@ -201,26 +200,35 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     public var timeout: Duration = .seconds(1)
 
     private let core: LatticeCore<DomainState, Action>
-    private var pendingCommits: Deque<PendingCommit<DomainState, Action>> = []
-    private var commitSignal = AsyncStream.makeStream(of: Void.self)
-    private var assertedState: DomainState
+    // 'nonisolated(unsafe)' solely for the deinit backstop (compiler-forced: a nonisolated
+    // deinit may not read a non-Sendable isolated property); every other access is
+    // MainActor-isolated, and deinit runs with exclusive access.
+    private nonisolated(unsafe) var pendingCommits: Deque<PendingCommit<DomainState, Action>> = []
+    // Parked continuations resumed by the recorder, NOT an AsyncStream: cancelling an
+    // AsyncStream consumer (the timeout race) terminates the stream, breaking every later
+    // wait. `domainState` doubles as the asserted-state baseline.
+    private var commitWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     public init(
         initialDomainState: DomainState,
         interactor: some Interactor<DomainState, Action>
     ) {
         self.domainState = initialDomainState
-        self.assertedState = initialDomainState
         self.core = LatticeCore(initialState: initialDomainState, isolation: MainActor.shared)
-        // Same mount call as ViewModel: routing walks the interactor tree from the root path,
-        // and the snapshot recorder is installed as the commit hook. (This host uses the
-        // origin-extended onCommit — a new ask on plan 02, see Risks.)
+        // Same mount call as ViewModel: the root effects handle walks the interactor tree
+        // from the root path (plan 04's landed spelling; the sketched `interactor.route`
+        // never existed), and the snapshot recorder is installed as the commit hook. (This
+        // host uses the origin-extended onCommit — renegotiated onto plan 02, see Risks.)
+        let rootEffects = _makeEffectsHandles(core: core, lens: .identity, path: GraphPath())
         core.mount(
-            interact: { [unowned core] state, action in
-                interactor.route(state: &state, action: action, core: core, path: GraphPath())
+            interact: { state, action in
+                interactor.interact(state: &state, action: action, effects: rootEffects)
             },
             onCommit: { [weak self] previous, current, origin in
                 self?.record(previous: previous, current: current, origin: origin)
+            },
+            onEffectLaunched: { [weak self] _, task in
+                self?.launchedEffectTasks.append(task)   // finish/dismount quiescence
             }
         )
     }
@@ -274,10 +282,13 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     // MARK: Expect (effectState.modify commits)
 
     /// Asserts the next effect-phase commit (an `effectState.modify`) via snapshot diff,
-    /// waiting up to `timeout` for one to arrive.
+    /// waiting up to `timeout` for one to arrive. (`timeout` precedes `changes` —
+    /// compiler-forced: a trailing `changes` closure cannot precede an explicitly passed
+    /// `timeout:` argument; the plan-09 call spellings `expect(changes:)`/`receive(_:changes:)`
+    /// are unaffected.)
     public func expect(
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -301,8 +312,8 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     /// asserts its update-phase mutation.
     public func receive(
         _ expectedAction: Action,
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -310,12 +321,12 @@ public final class TestViewModel<DomainState: Equatable, Action> {
     ) async where Action: Equatable { /* matcher wrapper over receive(matching:) */ }
 
     #if canImport(CasePaths)
-    /// Case-path variant of ``receive(_:changes:timeout:fileID:file:line:column:)``: matches
+    /// Case-path variant of ``receive(_:timeout:changes:fileID:file:line:column:)``: matches
     /// the next `effectState.send` re-entry against the given case of `Action`.
     public func receive<Value>(
         _ actionKeyPath: KeyPath<Action.AllCasePaths, AnyCasePath<Action, Value>>,
-        changes: ((inout DomainState) throws -> Void)? = nil,
         timeout duration: Duration? = nil,
+        changes: ((inout DomainState) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -346,7 +357,6 @@ public final class TestViewModel<DomainState: Equatable, Action> {
         line: UInt = #line, column: UInt = #column
     ) async
 }
-#endif
 ```
 
 ### Internals worth pinning
@@ -356,40 +366,45 @@ public final class TestViewModel<DomainState: Equatable, Action> {
 ```swift
 private func record(previous: DomainState, current: DomainState, origin: CommitOrigin<Action>) {
     switch origin {
-    case .send(let action) where isOwnSendInProgress:
-        // consumed synchronously by send(_:changes:); parked in a one-slot buffer
-        ownSendCommit = (action, current)
     case .send(let action):
-        pendingCommits.append(.action(action, resulting: current))
+        if isOwnSendInProgress {
+            // Consumed synchronously by send(_:changes:); parked in a one-slot buffer. The
+            // flag clears HERE — on the first .send-origin commit — so a synchronous
+            // effect-prefix 'effectState.send' re-entry (which fires before core.send
+            // returns) queues as pending instead of overwriting the parked commit.
+            ownSendCommit = current
+            isOwnSendInProgress = false
+        } else {
+            pendingCommits.append(.action(action, resulting: current))
+        }
     case .modify:
         pendingCommits.append(.mutation(resulting: current))
-    case .presenceCancellation:
-        pendingCommits.append(.presenceCancellation(resulting: current))
     }
-    commitSignal.continuation.yield()
+    // resume every parked commit waiter with `true`
 }
 ```
 
-**Snapshot diff** (`assertDiff`): apply `changes` to a copy of `assertedState`; if
+**Snapshot diff** (`assertDiff`): apply `changes` to a copy of `domainState` (the asserted
+baseline); if
 `expected != actual` (plain `Equatable` — no equality strategy to configure), report
-`TestFailure.stateChangeDoesNotMatch` carrying
+`TestFailure.stateMutationDidNotMatchExpectation` carrying
 `CustomDump.diff(expected, actual)` output (format matching TCA26 `TestCore.swift:1638-1706`'s
-expected/actual framing). On success, `assertedState = actual; domainState = actual`. A
+expected/actual framing). On completion, `domainState = actual` (mismatch or not, so one
+failure does not cascade). A
 `changes: nil` call asserts *no visible change* — same convention as today's `send` with no
 trailing closure and TCA26's `send(_:)` non-asserting overload, but exhaustive mode still
 requires the commit to be *consumed*.
 
-**Waiting** (`nextPendingCommit(timeout:)`): if `pendingCommits` is non-empty, pop immediately.
-Otherwise race `commitSignal.stream` against a `ContinuousClock` timeout (or `TestClock` if
+**Waiting** (`nextPendingCommit(until:)`): if `pendingCommits` is non-empty, pop immediately.
+Otherwise park a continuation resumed by the recorder on the next commit, raced against a
+`ContinuousClock` deadline task (or `TestClock` if
 injected via the effect under test — the clock is the consumer's, not ours). No `megaYield`:
-commits are yielded synchronously by the funnel, and effect sync-prefixes have already run by
+commits are signaled synchronously by the funnel, and effect sync-prefixes have already run by
 the time `send` returns (plan 02 §5 effect-ordering guarantee).
 
-**Presence-cancellation commits** are consumed implicitly by the next assertion (they carry no
-consumer-visible mutation of their own — transition detection cancels tasks, it does not mutate
-state) but appear in exhaustivity diagnostics so a surprising case-exit is visible. If plan 02
-ends up not committing on pure cancellation (no state delta), this case is dead code and is
-dropped — flagged as an open sync point in §10.
+Under `.off` exhaustivity, `expect`/`receive` skip non-matching pending commits silently,
+advancing `domainState` to each skipped commit's resulting state so the next snapshot diff
+baselines correctly.
 
 ### View-layer assertions
 
@@ -403,7 +418,9 @@ surface a view reads, compile-checked against the visible members:
 
 `projection` is exposed via a conditional extension (`DomainState: FeatureStateProtocol`) that
 reads the committed state; domain-only tests never touch it, and the test host leaves `_commit`
-unwired — `onCommit` carries the recorder instead. Projection/registrar behavior itself
+unwired — `onCommit` carries the recorder instead. Each access builds a **fresh registrar**, so
+derived members always compute from current committed state (a persistent registrar's
+derivation cache would go stale with `_commit` unwired). Projection/registrar behavior itself
 (granularity, `RecordingRegistrar`) is tested in plan 05's workstream, not here.
 
 ---
@@ -426,8 +443,10 @@ keeping `EventTask: Sendable`).
 ```
 
 `finish(timeout:)` keeps its diagnostic: if the composite task does not complete within the
-timeout, report `TestFailure.effectsDidNotFinish` (message rewritten to name in-flight
-`(GraphPath, Location)` keys via `core.currentTasks(at:)` — better than today's opaque count).
+timeout, report `TestFailure.expectedTaskToFinish` and cancel the still-running effects (the
+old `cancellableValue` race semantics). *As landed:* the message does **not** name in-flight
+`(GraphPath, Location)` keys — `TestEventTask` is `Sendable` and cannot hold the non-Sendable
+core, and the core exposes no key-enumeration API; add one if the diagnostic proves needed.
 
 ---
 
@@ -541,7 +560,10 @@ Old → new mapping table (consumer-facing; feeds plan 09's migration guide):
 - `InternalTests/EmissionExecutionTests.swift` — deleted; replaced by plan 02 §8's core suite.
 - New: `TestingInfrastructureTests/TestViewModelExpectTests.swift` covering: expect happy path,
   expect timeout failure, mutation-vs-action mismatch failure, exhaustivity-at-deinit failure
-  (via `withKnownIssue`), presence-cancellation visibility, `changes: nil` no-change assertion.
+  (via `withKnownIssue`), scoped-drop silence (a departed-scope `modify` records no pending
+  commit — replaces the sketched presence-cancellation visibility item, dropped with
+  `PendingCommit.presenceCancellation`, §4), `changes: nil` no-change assertion, and
+  projection reads over committed state (§5).
 
 ## Acceptance gates
 
@@ -577,8 +599,10 @@ grep -n "exclude_files" Lattice.podspec            # Testing still excluded
 
 ## §10 Sync points with sibling plans
 
-- **Plan 02**: add `origin` to `onCommit` (risk 1); confirm whether pure presence-cancellation
-  produces a commit (if not, `PendingCommit.presenceCancellation` is dropped).
+- **Plan 02**: *resolved in this plan's implementation* — `origin` added to `onCommit`
+  (`CommitOrigin<Action>`: `.send(Action)` / `.modify`), production hook ignores it; pure
+  presence-cancellation produces no commit, so `PendingCommit.presenceCancellation` was
+  dropped (§4).
 - **Plan 06**: quiescence/EventTask semantics (direct-effects-only coverage) consumed as
   written (no divergence).
 - **Plan 05**: projection/registrar unit tests (granularity, `RecordingRegistrar`) live there;

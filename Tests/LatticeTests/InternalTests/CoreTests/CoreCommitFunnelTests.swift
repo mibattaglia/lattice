@@ -55,6 +55,38 @@ extension CoreTests {
             #expect(core.updateContext == nil)
         }
 
+        /// Pins the commit-origin contract the test host's recorder depends on (plan 07 §2):
+        /// the update-phase commit fires synchronously inside `send` with `.send(action)`
+        /// origin, **before** any effect's synchronous-prefix `modify` commit can interleave.
+        @Test
+        func sendCommitCarriesSendOriginAndPrecedesEffectCommits() throws {
+            var origins: [String] = []
+            let core = TestCore(initialState: S(), isolation: MainActor.shared)
+            core.mount(
+                interact: { [unowned core] state, action in
+                    action.run(&state, core)
+                },
+                onCommit: { _, new, origin in
+                    switch origin {
+                    case .send: origins.append("send(\(new.n))")
+                    case .modify: origins.append("modify(\(new.n))")
+                    }
+                }
+            )
+
+            try core.send(
+                SAction { state, core in
+                    state.n = 1
+                    core.launchEffect(path: GraphPath(), location: loc(1)) { [weak core] in
+                        // Synchronous prefix: commits before 'send' returns, after the
+                        // update-phase commit.
+                        try? core?.modify { $0.n = 2 }
+                    }
+                })
+
+            #expect(origins == ["send(1)", "modify(2)"])
+        }
+
         @Test
         func presenceFlipViaSendCancelsChildBucketOnly() async throws {
             let recorder = Recorder()

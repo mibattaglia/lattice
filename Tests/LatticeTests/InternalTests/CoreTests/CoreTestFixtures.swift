@@ -54,7 +54,7 @@ func makeCore(
         interact: { [unowned core] state, action in
             action.run(&state, core)
         },
-        onCommit: onCommit,
+        onCommit: onCommit.map { hook in { old, new, _ in hook(old, new) } },
         onEffectLaunched: onEffectLaunched
     )
     return core

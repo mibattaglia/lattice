@@ -94,7 +94,7 @@ public final class ViewModel<State: FeatureStateProtocol, Action>: Observable {
             interact: { state, action in
                 interactor.interact(state: &state, action: action, effects: rootEffects)
             },
-            onCommit: { [registrar] old, new in
+            onCommit: { [registrar] old, new, _ in
                 registrar.commit {
                     State._commit(old: old, new: new, registrar: registrar, key: ProjectionKey())
                 }
