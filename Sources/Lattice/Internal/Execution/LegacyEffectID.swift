@@ -1,6 +1,6 @@
 import Foundation
 
-struct EffectID: Hashable, Sendable {
+struct LegacyEffectID: Hashable, Sendable {
     let rawValue: UUID
 
     init(rawValue: UUID = UUID()) {

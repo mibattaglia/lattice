@@ -59,7 +59,7 @@ struct RootScopeTasksTests {
         let probe = Probe()
         let rootScopeID = SendScopeID()
 
-        probe.rootScopes[rootScopeID] = .init(inFlightEffectIDs: [EffectID()])
+        probe.rootScopes[rootScopeID] = .init(inFlightEffectIDs: [LegacyEffectID()])
 
         let task = RootScopeTasks.makeTask(
             rootScopeID: rootScopeID,

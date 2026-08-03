@@ -6,12 +6,12 @@ enum EmissionExecution {
         from emission: Emission<Action>,
         rootScopeID: SendScopeID,
         cancellationRegistry: EffectCancellationRegistry,
-        makeEffectID: @escaping @Sendable () -> EffectID,
-        effectDidStart: @MainActor @escaping (EffectID) -> Void,
-        effectDidComplete: @MainActor @escaping (EffectID) -> Void,
-        effectDidCancel: @MainActor @escaping (EffectID) -> Void,
+        makeEffectID: @escaping @Sendable () -> LegacyEffectID,
+        effectDidStart: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidComplete: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidCancel: @MainActor @escaping (LegacyEffectID) -> Void,
         enqueueEmittedAction: @MainActor @escaping (Action, SendScopeID) -> Void
-    ) -> [EffectID: Task<Void, Never>] {
+    ) -> [LegacyEffectID: Task<Void, Never>] {
         spawnTasks(
             from: emission,
             rootScopeID: rootScopeID,
@@ -28,12 +28,12 @@ enum EmissionExecution {
         from emission: Emission<Action>,
         rootScopeID: SendScopeID,
         effectCancellationRegistry: EffectCancellationRegistry,
-        makeEffectID: @escaping @Sendable () -> EffectID,
-        effectDidStart: @MainActor @escaping (EffectID) -> Void,
-        effectDidComplete: @MainActor @escaping (EffectID) -> Void,
-        effectDidCancel: @MainActor @escaping (EffectID) -> Void,
+        makeEffectID: @escaping @Sendable () -> LegacyEffectID,
+        effectDidStart: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidComplete: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidCancel: @MainActor @escaping (LegacyEffectID) -> Void,
         enqueueEmittedAction: @MainActor @escaping (Action, SendScopeID) -> Void
-    ) -> [EffectID: Task<Void, Never>] {
+    ) -> [LegacyEffectID: Task<Void, Never>] {
         switch emission.kind {
         case .none:
             return [:]
@@ -187,12 +187,12 @@ enum EmissionExecution {
     }
 
     private static func makeTrackedTask(
-        effectID: EffectID,
-        effectDidStart: @MainActor @escaping (EffectID) -> Void,
-        effectDidComplete: @MainActor @escaping (EffectID) -> Void,
-        effectDidCancel: @MainActor @escaping (EffectID) -> Void,
+        effectID: LegacyEffectID,
+        effectDidStart: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidComplete: @MainActor @escaping (LegacyEffectID) -> Void,
+        effectDidCancel: @MainActor @escaping (LegacyEffectID) -> Void,
         operation: @MainActor @escaping @Sendable () async -> Void
-    ) -> [EffectID: Task<Void, Never>] {
+    ) -> [LegacyEffectID: Task<Void, Never>] {
         effectDidStart(effectID)
 
         let task = Task { @MainActor in

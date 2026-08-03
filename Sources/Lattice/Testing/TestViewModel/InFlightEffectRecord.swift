@@ -1,6 +1,6 @@
 import Foundation
 
 struct InFlightEffectRecord<Action: Sendable>: Sendable {
-    let id: EffectID
+    let id: LegacyEffectID
     let rootScopeID: SendScopeID
 }

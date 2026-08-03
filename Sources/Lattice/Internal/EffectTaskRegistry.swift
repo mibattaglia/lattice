@@ -2,9 +2,9 @@ import Foundation
 
 final class EffectTaskRegistry: @unchecked Sendable {
     private let lock = NSLock()
-    private var tasks: [EffectID: Task<Void, Never>] = [:]
+    private var tasks: [LegacyEffectID: Task<Void, Never>] = [:]
 
-    func insert(_ tasks: [EffectID: Task<Void, Never>]) {
+    func insert(_ tasks: [LegacyEffectID: Task<Void, Never>]) {
         guard !tasks.isEmpty else { return }
 
         lock.lock()
@@ -12,7 +12,7 @@ final class EffectTaskRegistry: @unchecked Sendable {
         lock.unlock()
     }
 
-    func remove(_ ids: some Sequence<EffectID>) {
+    func remove(_ ids: some Sequence<LegacyEffectID>) {
         lock.lock()
         for id in ids {
             tasks[id] = nil
