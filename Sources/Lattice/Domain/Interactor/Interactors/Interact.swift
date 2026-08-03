@@ -59,21 +59,65 @@ import Foundation
 /// - State mutations are applied before the emission is processed
 /// - Effects return actions that are fed back through the interactor
 public struct Interact<State: Sendable, Action: Sendable>: Interactor, @unchecked Sendable {
-    /// The type of the handler closure that processes actions.
+    /// The type of the legacy handler closure that processes actions and returns an ``Emission``.
     public typealias Handler = (inout State, Action) -> Emission<Action>
 
-    private let handler: Handler
+    /// The type of the handler closure that mutates state and may launch effects.
+    public typealias EffectsHandler = (inout State, Action, Effects<State, Action>) -> Void
+
+    private enum Storage {
+        case emission(Handler)
+        case effects(EffectsHandler)
+    }
+
+    private let storage: Storage
 
     /// Creates an `Interact` primitive with the given handler.
     ///
     /// - Parameter handler: A closure that processes actions and returns an ``Emission``.
     public init(handler: @escaping Handler) {
-        self.handler = handler
+        self.storage = .emission(handler)
+    }
+
+    /// Creates an `Interact` primitive with the given effects handler.
+    ///
+    /// The handler receives the update-phase ``Effects`` handle unmodified (`Interact` is a
+    /// leaf: it appends no structural path component). A second `effects.perform` triggered
+    /// from the *same* call site replaces the previous in-flight task automatically
+    /// (per-call-site auto-replacement) — see ``Effects/perform(id:_:fileID:filePath:line:column:)``.
+    ///
+    /// Interactors that never launch effects ignore the third parameter (`{ state, action, _ in … }`);
+    /// the two-argument `Void` convenience arrives when plan 06 deletes the legacy ``Emission``
+    /// handler (a multi-statement closure's return type cannot disambiguate the two while both
+    /// two-argument shapes exist).
+    ///
+    /// - Parameter handler: A closure that mutates state and may launch effects.
+    public init(handler: @escaping EffectsHandler) {
+        self.storage = .effects(handler)
     }
 
     public var body: some Interactor<State, Action> { self }
 
     public func interact(state: inout State, action: Action) -> Emission<Action> {
-        handler(&state, action)
+        switch storage {
+        case .emission(let handler):
+            return handler(&state, action)
+        case .effects(let handler):
+            // Transitional: an effects-style handler hosted by the legacy Emission runtime
+            // runs with a detached handle — mutations apply; `perform` reports an issue.
+            handler(&state, action, _detachedEffectsHandle(path: GraphPath()))
+            return .none
+        }
+    }
+
+    public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
+        switch storage {
+        case .emission(let handler):
+            // Transitional mutation-only bridge: the returned emission is discarded on the
+            // imperative-effect pathway.
+            _ = handler(&state, action)
+        case .effects(let handler):
+            handler(&state, action, effects)
+        }
     }
 }

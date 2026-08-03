@@ -37,6 +37,17 @@ public struct GraphPath: Hashable {
         return path
     }
 
+    /// Component-shaped spelling of the two `appending` variants, for callers that carry a
+    /// pre-built `Component` (the combinators' pinned plan-04 SPI).
+    func appending(_ component: Component) -> GraphPath {
+        switch component {
+        case .keyPath(let keyPath):
+            return appending(keyPath)
+        case .id(let id):
+            return appending(id: id)
+        }
+    }
+
     /// True when `self` is `prefix` or a descendant of it. The transition-detection and
     /// remount primitive.
     func starts(with prefix: GraphPath) -> Bool {

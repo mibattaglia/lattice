@@ -53,17 +53,28 @@ import Foundation
                 case casePath(AnyCasePath<ParentState, Child.DomainState>)
             }
 
+            /// Transitional box mirroring `StatePath`'s `@unchecked Sendable`: `When` keeps
+            /// its legacy `Sendable` conformance until plan 06's flip, and key-path-backed
+            /// components are immutable. Deleted with the conformance.
+            private struct PathComponentBox: @unchecked Sendable {
+                let component: GraphPath.Component
+            }
+
             private let toChildState: StatePath
             private let toChildAction: AnyCasePath<ParentAction, Child.Action>
+            private let pathComponentBox: PathComponentBox
+            private var pathComponent: GraphPath.Component { pathComponentBox.component }
             private let child: Child
 
             init(
                 toChildState: StatePath,
                 toChildAction: AnyCasePath<ParentAction, Child.Action>,
+                pathComponent: GraphPath.Component,
                 child: Child
             ) {
                 self.toChildState = toChildState
                 self.toChildAction = toChildAction
+                self.pathComponentBox = PathComponentBox(component: pathComponent)
                 self.child = child
             }
 
@@ -81,6 +92,7 @@ import Foundation
                 self.init(
                     toChildState: .keyPath(toChildState),
                     toChildAction: AnyCasePath(toChildAction),
+                    pathComponent: .keyPath(toChildState),
                     child: child()
                 )
             }
@@ -99,6 +111,8 @@ import Foundation
                 self.init(
                     toChildState: .casePath(AnyCasePath(toChildState)),
                     toChildAction: AnyCasePath(toChildAction),
+                    // CaseKeyPath is a KeyPath; its identity is the structural component.
+                    pathComponent: .keyPath(toChildState),
                     child: child()
                 )
             }
@@ -122,6 +136,55 @@ import Foundation
                     defer { state = casePath.embed(childState) }
                     let childEmission = child.interact(state: &childState, action: childAction)
                     return childEmission.map { [toChildAction] in toChildAction.embed($0) }
+                }
+            }
+
+            /// The imperative-effect pathway: the child receives an ``Effects`` handle pulled
+            /// back through the state and action lenses, with this node's state path appended
+            /// as a `GraphPath` component. Child effects mutate parent state through the lens
+            /// via `modify`.
+            ///
+            /// ## Dismissal semantics
+            ///
+            /// If the parent's enum has left the child's case (or the scoped optional is
+            /// `nil`) by the time a child effect calls `modify`, the mutation is **dropped
+            /// silently** and the child subtree's in-flight tasks are cancelled, so effects
+            /// that outlive a dismissed child never write stale state back into the parent.
+            /// Task cancellation for the *transition* into absence is the core's job
+            /// (transition detection in the commit funnel), not `When`'s.
+            public func interact(
+                state: inout ParentState,
+                action: ParentAction,
+                effects: Effects<ParentState, ParentAction>
+            ) {
+                guard let childAction = toChildAction.extract(from: action) else {
+                    return
+                }
+
+                switch toChildState {
+                case .keyPath(let keyPath):
+                    let childEffects = effects.scoped(
+                        state: keyPath,
+                        action: toChildAction,
+                        component: pathComponent
+                    )
+                    child.interact(
+                        state: &state[keyPath: keyPath],
+                        action: childAction,
+                        effects: childEffects
+                    )
+
+                case .casePath(let casePath):
+                    guard var childState = casePath.extract(from: state) else {
+                        return
+                    }
+                    let childEffects = effects.scoped(
+                        state: casePath,
+                        action: toChildAction,
+                        component: pathComponent
+                    )
+                    child.interact(state: &childState, action: childAction, effects: childEffects)
+                    state = casePath.embed(childState)
                 }
             }
         }

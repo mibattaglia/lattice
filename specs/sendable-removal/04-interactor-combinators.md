@@ -4,6 +4,41 @@ Workstream 4 of the Sendable-removal rework. Depends on plan 2 (core runtime: `G
 task storage, commit funnel) and is co-designed with plan 3 (`Effects` handle). Lands in the
 same PR train as 2 and 3 — the repo does not build between them.
 
+> **Additive staging (as landed).** Per `orchestration.md` ("plans 01–05 keep the *old* test
+> suite green — everything before 06 is additive") and supervisor decision, this plan landed
+> **additively**: `interact(state:action:effects:)` was added as a second protocol requirement
+> alongside the legacy Emission-returning `interact(state:action:)`, with a defaulted
+> mutation-only bridge (legacy-only conformances run their legacy `interact`; the returned
+> `Emission` is discarded on the new pathway) and a body-forwarding default where `Body`
+> matches. The existing combinators gained the new pathway (path derivation, scoped handles)
+> next to their Emission pathway; `Interact` gained the `EffectsHandler` initializer while an
+> effects-style handler hosted by the legacy runtime runs with a detached handle (mutations
+> apply, `perform` reports an issue). The following items from this plan's text **defer to
+> plan 06's deletion commit** (see the pointer in `06-viewmodel.md` §7):
+>
+> - the in-place signature flip (removal of the legacy requirement and of the `Sendable`
+>   constraints on the protocol's associated types, combinators, builder, erasure, and the
+>   `when` modifier);
+> - the file deletions listed under "Deletions & replacement idioms" and the `Domain/` grep
+>   gates (gate 2);
+> - `UncheckedSendableInteractor` / `uncheckedSendable()` / `eraseToAnyInteractorUnchecked()`
+>   removal and the builder's switch to `eraseToAnyInteractor()`;
+> - the headline non-Sendable erasure test (test suite 4) and the destructive rewrites of
+>   `WhenInteractorTests` / `InteractorBuilderTests` and the old-test deletions (new suites
+>   were added additively instead);
+> - `Interact`'s two-argument `Void` convenience initializer (compiler-forced: a
+>   multi-statement closure's return type does not participate in overload ranking, so the
+>   `Void` and `Emission` two-argument shapes cannot coexist — the risk called out below bit
+>   in practice; call sites ignore the handle with `{ state, action, _ in … }` until 06);
+> - new-style-only custom conformances (implementing *only* the effects requirement with no
+>   matching `body`) are unsupported until the flip — no reverse bridge exists, to keep the
+>   legacy requirement free of an unconstrained default (mutual-recursion hazard).
+>
+> Transitional artifacts deleted by the 06 flip: `When`'s `PathComponentBox`
+> (`@unchecked Sendable` box for its `GraphPath.Component`, forced by the retained legacy
+> `Sendable` conformance) and the `_detachedEffectsHandle` bridge inside `Interact`'s legacy
+> pathway.
+
 ## Overview
 
 This plan rewrites the interactor layer around the pinned contract in `README.md`:
@@ -63,6 +98,22 @@ extension Effects {
 `.keyPath(_:)` for **both** lens variants — a `CaseKeyPath<Root, Value>` *is* a
 `KeyPath<Case<Root>, Case<Value>>`, so it hashes and compares as an `AnyKeyPath` with stable
 in-process identity. Positional and branch components use `.id(_:)`.
+
+> **SPI reconciliation (as landed).** Plan 03 landed handle construction as
+> `_ScopeLens` + `_makeEffectsHandles` (mount-time root handle) rather than methods on
+> `Effects`. The pinned SPI above is implemented — with the pinned signatures — as thin
+> methods on `Effects` backed by an erased factory (`_EffectsHandleFactory`, carried by every
+> handle) that remembers the root types and lens chain and calls `_makeEffectsHandles` for
+> each derivation. Consequences, approved in both plans:
+>
+> - Child handles are derived **during `interact`** (per routed action), not retained in node
+>   storage; paths are identical either way because the tree is static.
+> - The enum-state `scoped` overload registers the child's presence watcher **lazily** on
+>   first derivation; `LatticeCore.registerPresenceWatcher` became idempotent per path to
+>   absorb re-registration. (Tasks under a scope can only exist after the child has routed at
+>   least one action, so lazy registration never misses a cancellable transition.)
+> - A factory whose weak core has died yields *detached* handles (`_detachedEffectsHandle`):
+>   dismounted semantics with correctly extended paths.
 
 ### Path derivation (worked example)
 
@@ -1027,6 +1078,11 @@ Unchanged (`public enum Interactors {}`).
 
 ## Deletions & replacement idioms
 
+> **Staging note:** none of the deletions below executed on this plan's branch — the legacy
+> runtime (ViewModel/EmissionExecution/TestViewModel) still consumes them and the old suite
+> must stay green. The whole table executes in plan 06's deletion commit (pointer in
+> `06-viewmodel.md` §7). The replacement idioms are live now via the additive pathway.
+
 Files deleted by this plan:
 
 - `Sources/Lattice/Domain/Emission.swift` (incl. internal `DebounceToken`,
@@ -1220,11 +1276,25 @@ Deleted test files (no shims, per decision of record): `Interactors+DebounceTest
 `EventTaskTests`, `FeatureViewModelTests`, `ViewModelBindingTests`, `ViewModelTests` — those
 call sites flip to `eraseToAnyInteractor()`; broader rewrites belong to plans 6/7).
 
+> **Staging note:** the old-test deletions and the destructive rewrites of
+> `WhenInteractorTests`/`InteractorBuilderTests` ride with plan 06/07. As landed, this plan
+> **added** `InteractorGraphPathTests` (suite 1), `WhenEffectsRoutingTests` (suite 2, new-path
+> assertions incl. the case-departure watcher integration), `InteractEffectsTests` (suites 5
+> and 6). Suite 4 (non-Sendable erasure) is impossible while the protocol's `Sendable`
+> constraints stand — it lands with the 06 flip. Suite 5's 2-arg `Void` overload assertion
+> became a `{ state, action, _ in }` wildcard assertion (see the staging note at the top).
+
 Commands: `swift build`, `swift test --filter LatticeTests` (macro tests unaffected — the
 macro plugin references neither `Emission` nor `interact`, confirmed by grep; binary refresh
 is plan 8).
 
 ## Acceptance gates
+
+> **As run on this branch (additive staging):** gate 1 ran as `swift build` green with the
+> legacy runtime intact; gate 2 defers to 06 (the deletions haven't executed); gate 3 ran as
+> the full `swift test` green — old suite untouched plus the new suites; gate 4 held via
+> `InteractorGraphPathTests`; gate 5 defers to 06 with suite 4; gate 6 held against the
+> factory-backed implementation (see "SPI reconciliation" above).
 
 1. `swift build` succeeds at the head of the 2+3+4 PR train (plans 2–4 merge together; this
    plan alone does not build).

@@ -39,5 +39,19 @@ extension Interactors {
             }
             return .merge(emissions)
         }
+
+        /// Each child receives an effects handle with its positional index appended as a
+        /// `GraphPath` component (`.id(i)`). Path identity is positional: `for`-loops that
+        /// build interactors from dynamic collections must produce a stable order (the
+        /// composition tree is static).
+        public func interact(
+            state: inout Element.DomainState,
+            action: Element.Action,
+            effects: Effects<Element.DomainState, Element.Action>
+        ) {
+            for (index, interactor) in interactors.enumerated() {
+                interactor.interact(state: &state, action: action, effects: effects.appending(.id(index)))
+            }
+        }
     }
 }

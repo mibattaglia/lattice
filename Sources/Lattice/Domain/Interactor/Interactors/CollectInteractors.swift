@@ -18,5 +18,11 @@ extension Interactors {
         public func interact(state: inout State, action: Action) -> Emission<Action> {
             interactors.interact(state: &state, action: action)
         }
+
+        /// Structurally transparent: forwards the effects handle unmodified; the builder
+        /// result it wraps appends its own positional components.
+        public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
+            interactors.interact(state: &state, action: action, effects: effects)
+        }
     }
 }

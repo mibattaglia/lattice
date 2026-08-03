@@ -37,5 +37,17 @@ extension Interactors {
             let emission1 = i1.interact(state: &state, action: action)
             return .merge([emission0, emission1])
         }
+
+        /// Each child receives an effects handle with a positional `GraphPath` component
+        /// appended (`.id(0)` / `.id(1)`), so effects launched by the two children never
+        /// collide in the core's task storage.
+        public func interact(
+            state: inout I0.DomainState,
+            action: I0.Action,
+            effects: Effects<I0.DomainState, I0.Action>
+        ) {
+            i0.interact(state: &state, action: action, effects: effects.appending(.id(0)))
+            i1.interact(state: &state, action: action, effects: effects.appending(.id(1)))
+        }
     }
 }
