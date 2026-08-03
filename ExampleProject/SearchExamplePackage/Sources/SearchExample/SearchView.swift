@@ -2,9 +2,9 @@ import Lattice
 import SwiftUI
 
 struct SearchView: View {
-    @Bindable private var viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>
+    @Bindable private var viewModel: ViewModel<SearchState, SearchEvent>
 
-    init(viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>) {
+    init(viewModel: ViewModel<SearchState, SearchEvent>) {
         self.viewModel = viewModel
     }
 
@@ -29,57 +29,52 @@ struct SearchView: View {
 
                     TextField(
                         "New York, San Francisco, ...",
-                        text: $viewModel.loaded.query.sending(\.search.query)
+                        text: $viewModel.results.query.sending(\.search.query, default: "")
                     )
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                 }
                 .padding(.horizontal, 16)
 
-                switch viewModel.viewState {
-                case .none:
-                    EmptyView()
-                case .loaded(let listContent):
-                    if listContent.listItems.isEmpty {
-                        EmptyView()
-                    } else {
-                        listView(listContent)
-                            .transition(.opacity)
-                    }
+                // Case-accessor projection read: `results` is the `.results` case's payload,
+                // or nil when the state is `.noResults`.
+                if let content = viewModel.results, !content.results.isEmpty {
+                    listView(content)
                 }
 
                 Spacer()
             }
-            .animation(.default, value: viewModel.viewState)
             .navigationTitle("Search")
         }
     }
 
-    private func listView(_ content: SearchListContent) -> some View {
-        List(content.listItems) { listItem in
-            VStack(alignment: .leading) {
-                Button {
-                    viewModel.sendViewEvent(.locationTapped(id: listItem.id))
-                } label: {
-                    HStack {
-                        Text(listItem.name)
+    private func listView(_ content: FeatureProjection<SearchState.ResultState>) -> some View {
+        List(content.results.ids, id: \.self) { id in
+            if let listItem = content.results[id: id] {
+                VStack(alignment: .leading) {
+                    Button {
+                        viewModel.sendViewEvent(.locationTapped(id: listItem.id))
+                    } label: {
+                        HStack {
+                            Text(listItem.name)
 
-                        if listItem.isLoading {
-                            ProgressView()
+                            if listItem.isLoading {
+                                ProgressView()
+                            }
                         }
                     }
-                }
 
-                if let weather = listItem.weather {
-                    weatherView(weather)
+                    if let forecasts = listItem.forecasts {
+                        forecastView(forecasts)
+                    }
                 }
             }
         }
     }
 
-    private func weatherView(_ weather: Weather) -> some View {
+    private func forecastView(_ forecasts: [String]) -> some View {
         VStack(alignment: .leading) {
-            ForEach(weather.forecasts, id: \.self) { day in
+            ForEach(forecasts, id: \.self) { day in
                 Text(day)
             }
         }

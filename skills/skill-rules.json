@@ -6,21 +6,21 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Lattice architecture: Interactor, Feature, ViewModel, ViewStateReducer, Emission",
+      "description": "Lattice architecture: Interactor, Feature, ViewModel, @FeatureState, effects",
       "promptTriggers": {
-        "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission", "scope", "scopedviewmodel"],
+        "keywords": ["lattice", "interactor", "viewmodel", "feature state", "effects", "scope", "scopedviewmodel"],
         "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)", "(scope|compose).*?(view|child)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/Lattice/**"],
-        "contentPatterns": ["@Interactor", "ViewModel", "ViewStateReducer", "ScopedViewModel"]
+        "contentPatterns": ["@Interactor", "ViewModel", "FeatureState", "ScopedViewModel", "effects\\.perform"]
       }
     },
     "lattice-case-paths": {
       "type": "domain",
       "enforcement": "suggest",
       "priority": "medium",
-      "description": "CasePaths ergonomics for Lattice actions and view state",
+      "description": "CasePaths ergonomics for Lattice actions and feature state",
       "promptTriggers": {
         "keywords": ["case paths", "casepathable", "case path", "enum", "associated value", "scopeifactive", "enum scoping"],
         "intentPatterns": ["(bind|extract|embed|scope).*?case"]
@@ -55,21 +55,21 @@
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/**"],
-        "contentPatterns": ["@Observable", "ObservableState"]
+        "contentPatterns": ["@Observable", "FeatureState"]
       }
     },
     "lattice-testing": {
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Testing Lattice features with TestViewModel, TestEventTask, and TestClock",
+      "description": "Testing Lattice features with snapshot-diff TestViewModel and TestClock",
       "promptTriggers": {
         "keywords": ["test", "testviewmodel", "testeventtask", "testclock", "exhaustivity"],
-        "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|emission)"]
+        "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|effect)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Tests/**"],
-        "contentPatterns": ["TestViewModel", "TestEventTask", "TestClock", "skipReceivedActions", "skipInFlightEffects", "receive\\("]
+        "contentPatterns": ["TestViewModel", "TestEventTask", "TestClock", "skipPendingCommits", "expect\\(", "receive\\("]
       }
     }
   }

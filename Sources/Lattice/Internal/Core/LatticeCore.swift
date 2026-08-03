@@ -132,7 +132,7 @@ final class LatticeCore<DomainState, Action> {
     /// scopes are always present and must not register.
     ///
     /// Idempotent per path: scoped-handle construction registers lazily from inside `interact`
-    /// (plan 04's `When` pullback), so the same node re-registers on every routed child action;
+    /// (the `When` pullback), so the same node re-registers on every routed child action;
     /// only the first registration sticks.
     func registerPresenceWatcher(path: GraphPath, isPresent: @escaping (DomainState) -> Bool) {
         guard !presenceWatchers.contains(where: { $0.path == path }) else { return }

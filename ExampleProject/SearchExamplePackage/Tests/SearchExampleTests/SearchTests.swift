@@ -1,5 +1,6 @@
 import Clocks
 import Foundation
+import IdentifiedCollections
 import Lattice
 import Testing
 
@@ -15,7 +16,7 @@ struct SearchTests {
     func debouncedSearchUsesLatestQuery() async throws {
         let clock = TestClock()
         let weatherService = TestWeatherService()
-        await weatherService.setSearchResult(
+        weatherService.setSearchResult(
             WeatherSearchDomainModel(results: [makeResult(id: 1, name: "New York")]),
             for: "new"
         )
@@ -23,151 +24,103 @@ struct SearchTests {
         let model = makeTestViewModel(
             weatherService: weatherService,
             clock: clock,
-            initialDomainState: .results(.none)
+            initialState: .results(.none)
         )
 
-        let t1 = try await model.send(.search(.query("n"))) {
-            $0 = makeSearchDomainState(query: "n")
+        // Update phase: the query lands synchronously; typing again replaces the previous
+        // in-flight debounce task at the same perform call site.
+        await model.send(.search(.query("n"))) {
+            $0 = makeSearchState(query: "n")
         }
-        let t2 = try await model.send(.search(.query("ne"))) {
-            $0 = makeSearchDomainState(query: "ne")
+        await model.send(.search(.query("ne"))) {
+            $0 = makeSearchState(query: "ne")
         }
-        let t3 = try await model.send(.search(.query("new"))) {
-            $0 = makeSearchDomainState(query: "new")
+        await model.send(.search(.query("new"))) {
+            $0 = makeSearchState(query: "new")
         }
 
-        #expect(model.domainState == makeSearchDomainState(query: "new"))
+        #expect(model.domainState == makeSearchState(query: "new"))
 
+        // Cross the debounce window; only the last query's request runs.
         await clock.advance(by: .milliseconds(300))
-        try await t1.finish()
-        try await t2.finish()
-        try await t3.finish()
 
-        let calls = await weatherService.searchCalls()
-        #expect(calls == ["new"])
-
-        try await model.receive(
-            .search(
-                .searchCompleted(
-                    query: "new",
-                    results: [makeResultItem(id: 1, name: "New York")]
-                )
-            )
-        ) {
-            $0 = makeSearchDomainState(
+        await model.expect {
+            $0 = makeSearchState(
                 query: "new",
                 results: [makeResultItem(id: 1, name: "New York")]
             )
         }
 
-        #expect(
-            model.domainState
-                == makeSearchDomainState(
-                    query: "new",
-                    results: [makeResultItem(id: 1, name: "New York")]
-                )
-        )
+        #expect(weatherService.searchCalls() == ["new"])
+        await model.dismount()
     }
 
     @Test
-    func tappingNewLocationIgnoresOlderForecasts() async throws {
+    func tappingNewLocationCancelsOlderForecastRequest() async throws {
         let clock = TestClock()
         let weatherService = TestWeatherService()
+        weatherService.forecastDelay = .seconds(1)
+        weatherService.forecastClock = clock
 
         let model = makeTestViewModel(
             weatherService: weatherService,
             clock: clock,
-            initialDomainState: makeSearchDomainState(
+            initialState: makeSearchState(
                 query: "",
                 results: [
                     makeResultItem(id: 1, name: "First"),
                     makeResultItem(id: 2, name: "Second"),
-                ],
-                forecastRequestNonce: 1
+                ]
             )
         )
 
-        let expectedInitialState = makeSearchDomainState(
-            query: "",
-            results: [
-                makeResultItem(id: 1, name: "First"),
-                makeResultItem(id: 2, name: "Second"),
-            ],
-            forecastRequestNonce: 1
-        )
-
-        try await model.send(
-            .forecastReceived(
-                index: 0,
-                forecast: makeForecast(dayOffset: 0),
-                requestNonce: 0
-            )
-        )
-        #expect(model.domainState == expectedInitialState)
-
-        try await model.send(
-            .forecastReceived(
-                index: 1,
-                forecast: makeForecast(dayOffset: 1),
-                requestNonce: 0
-            )
-        )
-        #expect(model.domainState == expectedInitialState)
-
-        try await model.send(
-            .forecastReceived(
-                index: 1,
-                forecast: makeForecast(dayOffset: 1),
-                requestNonce: 1
-            )
-        ) { state in
-            applyForecast(
-                makeForecast(dayOffset: 1),
-                at: 1,
-                in: &state
-            )
+        // Tap the first row: its forecast request starts (suspended on the clock).
+        await model.send(.locationTapped(id: "1")) { state in
+            setLoading(id: "1", in: &state)
         }
 
-        #expect(
-            model.domainState
-                == makeSearchDomainState(
-                    query: "",
-                    results: [
-                        makeResultItem(id: 1, name: "First"),
-                        makeResultItem(
-                            id: 2,
-                            name: "Second",
-                            forecast: makeForecast(dayOffset: 1)
-                        ),
-                    ],
-                    forecastRequestNonce: 1
-                )
-        )
+        // Tap the second row before the first responds: the same perform call site
+        // replaces (cancels) the first request — no nonce bookkeeping needed.
+        await model.send(.locationTapped(id: "2")) { state in
+            setLoading(id: "2", in: &state)
+        }
+
+        await clock.advance(by: .seconds(1))
+
+        // Only the second row's forecast lands; the first request was cancelled at launch
+        // of the newer one.
+        await model.expect { state in
+            applyForecast(makeForecast(dayOffset: 0), id: "2", in: &state)
+        }
+
+        #expect(weatherService.forecastCalls() == 2)
+        await model.dismount()
     }
 
     private func makeTestViewModel(
         weatherService: TestWeatherService,
         clock: TestClock,
-        initialDomainState: SearchDomainState
-    ) -> TestViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>> {
+        initialState: SearchState
+    ) -> TestViewModel<SearchState, SearchEvent> {
         TestViewModel(
-            initialDomainState: initialDomainState,
-            feature: Feature(
-                interactor: SearchInteractor(
-                    weatherService: weatherService,
-                    clock: clock,
-                    debounceDuration: .milliseconds(300)
-                ),
-                reducer: SearchViewStateReducer()
+            initialDomainState: initialState,
+            interactor: SearchInteractor(
+                weatherService: weatherService,
+                clock: clock,
+                debounceDuration: .milliseconds(300)
             )
         )
     }
 }
 
-private actor TestWeatherService: WeatherService {
+// A plain class — nothing in the new runtime requires test doubles to be Sendable.
+private final class TestWeatherService: WeatherService {
     private var searchResults: [String: WeatherSearchDomainModel] = [:]
     private var recordedSearchCalls: [String] = []
-    private var forecastResults: [ForecastKey: ForecastDomainModel] = [:]
+    private var recordedForecastCalls = 0
+
+    var forecastDelay: Duration = .zero
+    var forecastClock: TestClock?
 
     func setSearchResult(_ model: WeatherSearchDomainModel, for query: String) {
         searchResults[query] = model
@@ -177,27 +130,22 @@ private actor TestWeatherService: WeatherService {
         recordedSearchCalls
     }
 
+    func forecastCalls() -> Int {
+        recordedForecastCalls
+    }
+
     func searchWeather(query: String) async throws -> WeatherSearchDomainModel {
         recordedSearchCalls.append(query)
         return searchResults[query] ?? WeatherSearchDomainModel(results: [])
     }
 
     func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel {
-        return forecastResults[ForecastKey(latitude: latitude, longitude: longitude)]
-            ?? ForecastDomainModel(
-                daily: .init(temperatureMax: [], temperatureMin: [], time: []),
-                dailyUnits: .init(temperatureMax: "", temperatureMin: "")
-            )
+        recordedForecastCalls += 1
+        if let forecastClock, forecastDelay > .zero {
+            try await forecastClock.sleep(for: forecastDelay)
+        }
+        return makeForecast(dayOffset: 0)
     }
-
-    func setForecast(_ model: ForecastDomainModel, for location: (latitude: Double, longitude: Double)) {
-        forecastResults[ForecastKey(latitude: location.latitude, longitude: location.longitude)] = model
-    }
-}
-
-private struct ForecastKey: Hashable {
-    let latitude: Double
-    let longitude: Double
 }
 
 private func makeResult(id: Int, name: String) -> WeatherSearchDomainModel.Result {
@@ -210,16 +158,14 @@ private func makeResult(id: Int, name: String) -> WeatherSearchDomainModel.Resul
     )
 }
 
-private func makeSearchDomainState(
+private func makeSearchState(
     query: String,
-    results: [SearchDomainState.ResultState.ResultItem] = [],
-    forecastRequestNonce: Int = 0
-) -> SearchDomainState {
+    results: [SearchState.ResultState.ResultItem] = []
+) -> SearchState {
     .results(
         .init(
             query: query,
-            results: results,
-            forecastRequestNonce: forecastRequestNonce
+            results: IdentifiedArray(uniqueElements: results)
         )
     )
 }
@@ -229,31 +175,37 @@ private func makeResultItem(
     name: String,
     forecast: ForecastDomainModel? = nil,
     isLoading: Bool = false
-) -> SearchDomainState.ResultState.ResultItem {
+) -> SearchState.ResultState.ResultItem {
     .init(
-        isLoading: isLoading,
         weatherModel: makeResult(id: id, name: name),
-        forecast: forecast
+        forecast: forecast,
+        isLoading: isLoading
     )
+}
+
+private func setLoading(id: String, in state: inout SearchState) {
+    guard case .results(var resultState) = state else { return }
+    for itemID in resultState.results.ids {
+        resultState.results[id: itemID]?.isLoading = false
+    }
+    resultState.results[id: id]?.isLoading = true
+    state = .results(resultState)
 }
 
 private func applyForecast(
     _ forecast: ForecastDomainModel,
-    at index: Int,
-    in state: inout SearchDomainState
+    id: String,
+    in state: inout SearchState
 ) {
-    guard case .results(var resultState) = state, index < resultState.results.count else {
-        return
-    }
-
-    resultState.results[index].isLoading = false
-    resultState.results[index].forecast = forecast
+    guard case .results(var resultState) = state else { return }
+    resultState.results[id: id]?.isLoading = false
+    resultState.results[id: id]?.forecast = forecast
     state = .results(resultState)
 }
 
 private func makeForecast(dayOffset: Int) -> ForecastDomainModel {
     let calendar = Calendar(identifier: .gregorian)
-    let baseDate = calendar.startOfDay(for: Date())
+    let baseDate = calendar.startOfDay(for: Date(timeIntervalSince1970: 0))
     let date = calendar.date(byAdding: .day, value: dayOffset, to: baseDate) ?? baseDate
     return ForecastDomainModel(
         daily: .init(

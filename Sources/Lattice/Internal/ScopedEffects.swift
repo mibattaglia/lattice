@@ -67,8 +67,8 @@ extension _ScopeLens {
 
 /// Builds the update-phase/effect-phase handle pair for one tree node. The root handle is
 /// built by the host with `_ScopeLens.identity`; the combinators derive child handles from it
-/// during `interact` through the factory-backed `Effects.appending(_:)`/`scoped(...)` SPI
-/// (plan 04's pinned contract). Every closure captures the root core weakly: the host's strong
+/// during `interact` through the factory-backed `Effects.appending(_:)`/`scoped(...)` SPI.
+/// Every closure captures the root core weakly: the host's strong
 /// reference is the core's lifetime, and a dead core reads as dismounted.
 func _makeEffectsHandles<RootState, RootAction, State, Action>(
     core: LatticeCore<RootState, RootAction>,
@@ -182,10 +182,10 @@ func _makeEffectsHandles<RootState, RootAction, State, Action>(
     )
 }
 
-// MARK: - Handle derivation (plan 04's pinned combinator SPI)
+// MARK: - Handle derivation (combinator SPI)
 
 /// The erased rescoping capability carried by every `Effects` handle. Backs the combinators'
-/// pinned internal SPI (`appending(_:)`, both `scoped(state:action:component:)` overloads)
+/// internal SPI (`appending(_:)`, both `scoped(state:action:component:)` overloads)
 /// on top of the `_ScopeLens`/`_makeEffectsHandles` mechanism: the factory remembers the
 /// root types the lens chain composes through, which the handle's own generic parameters
 /// have erased.

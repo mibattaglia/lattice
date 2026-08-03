@@ -3,11 +3,10 @@
     import MacroTesting
     import XCTest
 
-    /// Expansion baselines: plan 05 §4's hand expansions are the normative shapes; one
-    /// exact-match test per §4 example plus one test per implemented plan 05 §8
-    /// syntactic-diagnostic row. (§8 row 2 — the `@FeatureState`-returning computed-member
-    /// warning — is not implementable with the attached-macro API and is deferred; see the
-    /// spec.)
+    /// Expansion baselines: one exact-match test per representative fixture shape, plus
+    /// one test per implemented syntactic-diagnostic rule. (The `@FeatureState`-returning
+    /// computed-member warning is not implementable with the attached-macro API and is
+    /// not emitted.)
     final class FeatureStateMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
@@ -17,7 +16,7 @@
             }
         }
 
-        // MARK: §4 expansion baselines
+        // MARK: Expansion baselines
 
         func testRepresentativeStruct() {
             assertMacro {
@@ -282,7 +281,7 @@
             }
         }
 
-        // MARK: §8 syntactic diagnostics
+        // MARK: Syntactic diagnostics
 
         func testDiagnostic_VisibleComputedCollectionReturn_EmitsWarning() {
             assertMacro {

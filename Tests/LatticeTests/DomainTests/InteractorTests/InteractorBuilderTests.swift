@@ -1,5 +1,5 @@
 // Compile-shape tests to make sure builder type inference works, plus runtime routing
-// assertions (plan 04 test suite 3) and the headline non-Sendable erasure test (suite 4).
+// assertions and the headline non-Sendable erasure test.
 // Inspired by tests in https://github.com/pointfreeco/swift-composable-architecture/blob/main/Tests/ComposableArchitectureTests/ReducerBuilderTests.swift
 import Foundation
 import Testing
@@ -101,7 +101,7 @@ struct InteractorBuilderRoutingTests {
     }
 }
 
-// MARK: - Non-Sendable erasure (plan 04 suite 4, the headline)
+// MARK: - Non-Sendable erasure (the headline)
 
 /// A deliberately non-Sendable service: mutable reference state, no locks, no conformances.
 private final class NonSendableService {

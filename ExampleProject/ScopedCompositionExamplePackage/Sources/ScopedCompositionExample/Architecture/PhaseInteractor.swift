@@ -1,61 +1,67 @@
 import Lattice
 
-@Interactor<PhaseDomainState, PhaseEvent>
-struct PhaseInteractor: Sendable {
+@Interactor<PhaseState, PhaseEvent>
+struct PhaseInteractor {
+    /// Named identity for the tick stream: `isRunning` replaces the old `isTicking` flag,
+    /// and the id gives the long-lived effect an explicit handle.
+    @EffectID var ticker
+
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { [ticker] state, event, effects in
             switch event {
             case .loadTapped:
                 // Fake an async load so the .loading -> .success case change is visible.
-                return .perform {
+                // The effect re-enters by mutating state directly — no `.loaded` action.
+                effects.perform { effectState in
                     try? await ContinuousClock().sleep(for: .seconds(1))
-                    return .loaded
+                    try effectState.modify { state in
+                        state = .success(SuccessState())
+                    }
                 }
-
-            case .loaded:
-                state.isLoaded = true
-                return .none
 
             case .resetTapped:
-                state.isLoaded = false
-                return .none
+                state = .loading
 
             case .startTicking:
-                guard !state.isTicking else { return .none }
-                state.isTicking = true
-                // Once-per-second tick stream: the unrelated-reduce driver that makes the
-                // _$inert fix visible while a payloadless case (.loading or .idle) is active,
-                // and the deep-leaf driver while the .active sub-phase is showing.
-                return .observe {
+                guard !ticker.isRunning else { return }
+                // Once-per-second tick stream. Ticks that land while no `.active` sub-phase
+                // is showing mutate nothing — a no-change commit fires no observers.
+                effects.perform(id: ticker) { effectState in
                     let clock = ContinuousClock()
-                    return AsyncStream(unfolding: {
-                        try? await clock.sleep(for: .seconds(1))
-                        return Task.isCancelled ? nil : .tick
-                    })
+                    while !Task.isCancelled {
+                        try await clock.sleep(for: .seconds(1))
+                        try effectState.modify { state in
+                            guard case .success(var success) = state,
+                                case .active(var active) = success.session.telemetry.subphase
+                            else { return }
+                            active.tick += 1
+                            success.session.telemetry.subphase = .active(active)
+                            state = .success(success)
+                        }
+                    }
                 }
-
-            case .tick:
-                state.tick += 1
-                return .none
 
             case .success(let action):
-                // Late sends after the case deactivated are dropped here, by design: the
-                // interactor is the arbiter of whether an action still applies.
-                guard state.isLoaded else { return .none }
+                // Late sends after the case deactivated are dropped here, by design: `When`
+                // isn't used for this demo's action routing, so the interactor is the
+                // arbiter of whether an action still applies.
+                guard case .success(var success) = state else { return }
                 switch action {
                 case .titleChanged(let title):
-                    state.title = title
+                    success.title = title
                 case .summary(.incremented):
-                    state.count += 1
+                    success.summary.count += 1
                 case .session(.telemetry(.startTapped)):
-                    state.isActive = true
+                    success.session.telemetry.subphase = .active(ActiveState())
                 case .session(.telemetry(.stopTapped)):
-                    state.isActive = false
+                    success.session.telemetry.subphase = .idle
                 case .session(.telemetry(.subphase(.active(.noteChanged(let note))))):
-                    guard state.isActive else { return .none }
-                    state.note = note
+                    guard case .active(var active) = success.session.telemetry.subphase
+                    else { return }
+                    active.note = note
+                    success.session.telemetry.subphase = .active(active)
                 }
-                return .none
+                state = .success(success)
             }
         }
     }

@@ -21,7 +21,7 @@ Use the `EventTask` returned from `sendViewEvent(_:)` when the UI needs to await
 
 - View-only state (focus, selection, animation flags).
 - Temporary UI state that is not part of the feature's domain state.
-- UI helpers that do not trigger emissions or side effects.
+- UI helpers that do not trigger effects or feature-state mutations.
 
 ## Patterns
 
@@ -29,13 +29,12 @@ Use the `EventTask` returned from `sendViewEvent(_:)` when the UI needs to await
 
 ```swift
 @Interactor<CounterState, CounterAction>
-struct CounterInteractor: Sendable {
+struct CounterInteractor {
     var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
-                return .none
             }
         }
     }
@@ -43,11 +42,8 @@ struct CounterInteractor: Sendable {
 
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(count: 0),
-        feature: Feature(
-            interactor: CounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(),
+        interactor: CounterInteractor()
     )
 
     var body: some View {
@@ -76,7 +72,7 @@ struct ScreenView: View {
 
 ## Async work
 
-Async work must live in the interactor. Views can create a `Task` when they need to await `EventTask` completion.
+Async work must live in the interactor, launched with `effects.perform`. Views can create a `Task` when they need to await `EventTask` completion.
 
 ```swift
 Button("Refresh") { Task { await viewModel.sendViewEvent(.refresh).finish() } }

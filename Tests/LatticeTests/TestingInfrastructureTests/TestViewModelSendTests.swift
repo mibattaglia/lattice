@@ -1,5 +1,4 @@
-// Plan 07 §8-§9: the send/expect/receive contract on the rewritten host. Scenarios migrated
-// from the Emission-era suite: effects commit state directly (asserted with `expect`);
+// The send/expect/receive contract: effects commit state directly (asserted with `expect`);
 // `receive` covers genuine `effectState.send` re-entries.
 
 import CasePaths

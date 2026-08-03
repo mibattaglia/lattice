@@ -1,15 +1,12 @@
 import CasePaths
 
 @CasePathable
-enum SearchEvent: Equatable, Sendable {
+enum SearchEvent: Equatable {
     case search(SearchQueryEvent)
     case locationTapped(id: String)
-    case forecastReceived(index: Int, forecast: ForecastDomainModel, requestNonce: Int)
 }
 
 @CasePathable
-enum SearchQueryEvent: Equatable, Sendable {
+enum SearchQueryEvent: Equatable {
     case query(String)
-    case searchCompleted(query: String, results: [SearchDomainState.ResultState.ResultItem])
-    case searchFailed
 }

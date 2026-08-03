@@ -1,6 +1,6 @@
 ---
 name: lattice
-description: Build Swift application features using Lattice interactors, features, view models, and view state reducers.
+description: Build Swift application features using Lattice interactors, features, view models, and feature state projections.
 license: MIT
 metadata:
   short-description: Build features with Lattice.
@@ -10,49 +10,49 @@ metadata:
 
 ## Goal
 
-Build Swift features using Lattice's Interactor + Feature + ViewModel + ViewStateReducer architecture.
+Build Swift features using Lattice's Interactor + `@FeatureState` + ViewModel architecture.
 For new feature setup, use the bootstrap checklist in `resources/bootstrapping.md`.
 
 ## State modeling rules
 
-- `DomainState` is business logic state. It can hold raw values and domain-aligned external models.
-- `ViewState` is render instructions only. Keep raw formatting concerns out of views.
-- Interactors own side effects and external data access via dependencies.
-- `ViewStateReducer` is a synchronous, stateless translation from domain data to presentation values.
-- Prefer Interactor + reducer layering; use `Feature(interactor:)` only when `DomainState == ViewState`.
+- One state type per feature, annotated `@FeatureState`.
+- `@Domain` members are business-logic state: raw values, workflow state, domain-aligned external models. They are invisible to views.
+- Every other member — stored or computed — is the view contract. Visible computed properties are derived view output, diffed by output at commit.
+- Interactors own side effects and external data access via plain (non-`Sendable`) dependencies.
+- No `Sendable` conformances anywhere: state, actions, interactors, and dependencies live in the feature's isolation domain.
 
 ## Quick start
 
-1. Add the `swift-lattice` package dependency.
+1. Add the `swift-lattice` package dependency (Swift 6.2 toolchain required).
 2. Add the `Lattice` product to your target's dependencies.
 3. `import Lattice` as needed.
-4. `@Interactor<DomainState, Action>` and `@ViewStateReducer<DomainState, ViewState>` require explicit generic arguments.
+4. `@Interactor<DomainState, Action>` requires explicit generic arguments; `@FeatureState` attaches to the state type.
 
 ## Build a basic feature
 
 ```swift
 import Lattice
 
-struct CounterState: Sendable, Equatable {
-    var count = 0
+@FeatureState
+struct CounterState {
+    var count: Int = 0
+    var countText: String { "\(count)" }
 }
 
-enum CounterAction: Sendable {
+enum CounterAction {
     case decrementButtonTapped
     case incrementButtonTapped
 }
 
 @Interactor<CounterState, CounterAction>
-struct CounterInteractor: Sendable {
+struct CounterInteractor {
     var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
             case .decrementButtonTapped:
                 state.count -= 1
-                return .none
             case .incrementButtonTapped:
                 state.count += 1
-                return .none
             }
         }
     }
@@ -60,7 +60,16 @@ struct CounterInteractor: Sendable {
 ```
 
 - Do name actions after user intent (`incrementButtonTapped`), not the state change.
-- Do keep domain state in the interactor; view state is derived.
+- One state type: annotate it `@FeatureState`. Mark interactor-only members `@Domain`;
+  everything else — stored or computed — is what views read (`viewModel.count`,
+  `viewModel.countText`). There is no separate ViewState type and no reducer: visible
+  computed properties *are* the derived view output, diffed by output at commit.
+- Visible stored members need an explicit type annotation (`var count: Int = 0`) — the macro
+  builds the projection from the declared types.
+- No `Sendable` conformances anywhere: state, actions, interactors, and dependencies are plain
+  types living in the feature's isolation domain.
+- Pure state mutation uses the two-argument `Interact { state, action in }` overload; take the
+  third `effects` parameter only when you launch async work.
 
 ## Connect to SwiftUI
 
@@ -68,88 +77,101 @@ struct CounterInteractor: Sendable {
 import Lattice
 import SwiftUI
 
-@ObservableState
-struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
-    static let defaultValue = CounterViewState(countText: "0")
-    var countText = "0"
-}
-
-@ViewStateReducer<CounterState, CounterViewState>
-struct CounterViewStateReducer: Sendable {
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { domainState, viewState in
-            viewState.countText = String(domainState.count)
-        }
-    }
-}
-
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(),
-        feature: Feature(
-            interactor: CounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(),
+        interactor: CounterInteractor()
     )
 
     var body: some View {
         HStack {
             Button("-") { viewModel.sendViewEvent(.decrementButtonTapped) }
-            Text(viewModel.viewState.countText)
+            Text(viewModel.countText)
             Button("+") { viewModel.sendViewEvent(.incrementButtonTapped) }
         }
     }
 }
 ```
 
+- Views read visible members straight off the view model (`viewModel.countText`) through the
+  generated projection; observation is per member, so a view re-renders only when a member it
+  reads actually changed.
 - Do keep view methods thin; move multi-line logic to private methods named after user actions.
-- Do use `@ObservableState` on view state types.
-- `BuildViewState { domainState, viewState in ... }` is the standard reducer style.
-- If view state does not conform to `DefaultValueProvider`, provide `initialViewState(for:)`.
-- `sendViewEvent(_:)` returns an `EventTask`; use `finish()` when the view must await root-scope completion, and `cancel()` when lifecycle-bound work should stop.
-- If `DomainState == ViewState`, initialize `Feature` with only an interactor.
-- Pass `areStatesEqual:` when `DomainState` is not `Equatable` or when version/identity comparison is more appropriate than full equality.
-- Don't push formatting (`Date` to text, enum display labels, color decisions) into SwiftUI views.
+- `sendViewEvent(_:)` returns an `EventTask`; use `finish()` when the view must await the
+  effects the send launched, and `cancel()` when lifecycle-bound work should stop.
+- Don't push formatting (`Date` to text, enum display labels, color decisions) into SwiftUI
+  views — derive it as a visible computed property on the state.
 
 ## Async work
 
-Use `.perform` or `.observe` emissions from the interactor.
+Launch effects imperatively with `effects.perform` during the synchronous update phase; effects
+re-enter by mutating state directly with `effectState.modify`. There are no follow-up "response"
+actions.
 
 ```swift
-enum SearchAction: Sendable {
+enum SearchAction {
     case queryChanged(String)
-    case searchResponse([String])
 }
 
 @Interactor<SearchState, SearchAction>
-struct SearchInteractor: Sendable {
-    let searchClient: SearchClient
+struct SearchInteractor {
+    let searchClient: SearchClient   // plain protocol, no Sendable
+    let clock: any Clock<Duration>
 
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, effects in
             switch action {
             case .queryChanged(let query):
-                state.query = query
-                return .perform { [searchClient] in
+                state.query = query          // synchronous mutation, visible immediately
+                state.isLoading = true
+                effects.perform { [searchClient, clock] effectState in
+                    try await clock.sleep(for: .milliseconds(300))   // debounce window
                     do {
                         let results = try await searchClient.search(query)
-                        return .searchResponse(results)
+                        try effectState.modify { state in
+                            state.isLoading = false
+                            state.results = results
+                        }
                     } catch {
-                        return nil
+                        try effectState.modify { state in
+                            state.isLoading = false
+                            state.results = []
+                        }
                     }
                 }
-            case .searchResponse(let results):
-                state.results = results
-                return .none
             }
         }
     }
 }
 ```
 
-- `.perform` returns `Action?`; return `nil` when cancelled work or error handling should emit nothing.
-- Use `.append`, `appending(with:)`, or `.then(...)` when follow-up emissions must run sequentially.
-Advanced effect orchestration techniques (debouncing, stream observation, and composition) are covered in `resources/advanced-composition.md`.
+- `effects.perform` is legal only during the update phase (inside `interact`); it launches the
+  operation in the feature's isolation domain.
+- `effectState.modify` is legal only from inside a launched effect; it throws `CancellationError`
+  if the feature was torn down, so spell it `try effectState.modify { … }`.
+- Re-dispatching the same action **replaces** the previous in-flight task at that action
+  location — that auto-replacement plus `clock.sleep` *is* debouncing; there is no debounce API.
+- Streams are `for await` loops inside `perform`:
+
+```swift
+case .task:
+    effects.perform { effectState in
+        for await status in networkMonitor.statusUpdates {
+            effectState.isOnline = status.isConnected
+        }
+    }
+```
+
+- Sequential work is sequential `await`s inside one `perform` closure; concurrent work is
+  multiple `perform` calls.
+- Name a long-lived effect with `@EffectID var recording` and `effects.perform(id: recording)`
+  to cancel (`effects.perform { _ in recording.cancel() }`) or await (`try await recording()`) it
+  explicitly.
+- CPU-bound work should hop off-domain via a consumer-side `@concurrent` function taking
+  `sending` values, then re-enter with `effectState.modify`.
+
+Advanced effect orchestration (streams, `EffectID`, composition, dismissal semantics) is
+covered in `resources/advanced-composition.md`.
 
 ## Bindings from SwiftUI
 
@@ -157,23 +179,26 @@ Use `@Bindable` on `ViewModel` and derive bindings with `sending`.
 
 ```swift
 @CasePathable
-enum FormAction: Sendable {
+enum FormAction {
     case nameChanged(String)
 }
 
-@Bindable var viewModel: ViewModel<Feature<FormAction, FormState, FormViewState>>
+@Bindable var viewModel: ViewModel<FormState, FormAction>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
 - Actions must be `@CasePathable` to use `sending`.
-- For enum view state case bindings, use `sending(_:default:)` when case presence is conditional.
+- For enum state case bindings, use `sending(_:default:)` when case presence is conditional.
 
 ## Child features
 
-Model child state in domain, and use `ViewStateReducer` to derive view state as needed.
+Model child state as a member (or enum case) of the parent's `@FeatureState` type.
 Prefer composing interactors rather than nesting logic in views.
 Use `when(state:action:child:)` or `Interactors.When` for scoped child handling.
+If the child's case departs (or the scoped optional becomes `nil`) while a child effect is in
+flight, the child's tasks are cancelled and straggling `modify`/`send` calls are dropped
+silently — the navigation-dismissed-mid-request contract.
 
 ## Scoped child views
 
@@ -185,7 +210,7 @@ HeaderView(model: viewModel.scope(state: \.header, action: \.header))
 
 // Child view
 struct HeaderView: View {
-    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+    let model: ScopedViewModel<HeaderState, HeaderAction>
 
     var body: some View {
         Text(model.title)
@@ -194,9 +219,9 @@ struct HeaderView: View {
 }
 ```
 
-- Do read members through the scope (`model.title`) for fine-grained observation; don't read the whole `model.viewState` (coarse, identity-only).
+- Do read members through the scope (`model.title`) for fine-grained observation.
 - Do create scopes inline in `body`; don't store them (`@State` etc.) — a scope retains its parent view model.
-- For enum view state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive.
+- For enum state, use `if let success = viewModel.scopeIfActive(state: \.success, action: \.success)` to branch on the active case; the trapping `scope(state:action:)` variant is for contexts that already established the case is active.
 - Details and more overloads (closure embedding, read-only, nested scopes, bindings) in `resources/advanced-composition.md`.
 
 ## References

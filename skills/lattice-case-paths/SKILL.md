@@ -1,6 +1,6 @@
 ---
 name: lattice-case-paths
-description: Ergonomic enum access and generic algorithms for Lattice actions and view state using CasePaths.
+description: Ergonomic enum access and generic algorithms for Lattice actions and feature state using CasePaths.
 license: MIT
 metadata:
   short-description: CasePaths ergonomics for Lattice enums.
@@ -10,12 +10,12 @@ metadata:
 
 ## Goal
 
-Use CasePaths to make Lattice enums (Actions, ViewState enums, Effect-like enums) concise to read, write, and test. Prefer case key paths over verbose pattern matching when you need to probe, embed, or mutate associated values.
+Use CasePaths to make Lattice enums (Actions, feature-state enums, Effect-like enums) concise to read, write, and test. Prefer case key paths over verbose pattern matching when you need to probe, embed, or mutate associated values.
 
 ## When to use
 
 - Action enums with associated values that you want to inspect or transform.
-- ViewState enums driving SwiftUI rendering or navigation.
+- Feature-state enums driving SwiftUI rendering or navigation.
 - Tests that need to surgically modify an associated value without re-creating the whole enum.
 
 ## Quick start
@@ -29,7 +29,7 @@ Use CasePaths to make Lattice enums (Actions, ViewState enums, Effect-like enums
 import CasePaths
 
 @CasePathable
-enum CounterAction: Sendable {
+enum CounterAction {
     case increment
     case setCount(Int)
     case loadResponse(Result<Int, Error>)
@@ -69,7 +69,7 @@ action.modify(\.setCount) { $0 += 1 }
 ```swift
 @CasePathable
 @dynamicMemberLookup
-enum LoadState: Sendable {
+enum LoadState {
     case idle
     case loading(progress: Double)
     case loaded(Int)
@@ -81,17 +81,17 @@ let progress = state.loading
 
 ## SwiftUI + ViewModel bindings
 
-When a ViewState is a `CasePathable` enum, the Lattice `@Bindable` APIs can derive bindings to case payloads. This keeps SwiftUI code small and intent-driven.
+When feature state is a `@FeatureState` `@CasePathable` enum, the Lattice `@Bindable` APIs can derive bindings to case payloads. This keeps SwiftUI code small and intent-driven.
 
 ```swift
-@ObservableState
+@FeatureState
 @CasePathable
-enum ScreenState: Sendable, Equatable {
+enum ScreenState {
     case list(ListState)
     case detail(DetailState)
 }
 
-@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ScreenState>>
+@Bindable var viewModel: ViewModel<ScreenState, Action>
 
 let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged)
 ```
@@ -104,33 +104,33 @@ let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default
 
 ## Enum-case scoping
 
-Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when view state itself is a `CasePathable` enum, `scope(state: CaseKeyPath, action: CaseKeyPath)` projects onto the active case's payload:
+Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when state itself is a `@FeatureState` `@CasePathable` enum, `scopeIfActive` projects onto the active case's payload via the generated case accessors:
 
 ```swift
-switch viewModel.viewState {
-case .list:
-    ListView(model: viewModel.scope(state: \.list, action: \.list))
-case .detail:
-    DetailView(model: viewModel.scope(state: \.detail, action: \.detail))
+if let list = viewModel.scopeIfActive(state: \.list, action: \.list) {
+    ListView(model: list)
+} else if let detail = viewModel.scopeIfActive(state: \.detail, action: \.detail) {
+    DetailView(model: detail)
 }
 ```
 
-- The trapping `scope` is for use inside a matched `switch` case; it `fatalError`s if the case is inactive.
-- `scopeIfActive(state:action:)` returns `nil` instead, for conditional contexts.
-- In reducers, mutate the active payload in place with `modify` (`viewState.modify(\.detail) { ... }`) so case scopes observe the change fine-grained; rebuilding the whole case value is a wholesale replacement.
+- `scopeIfActive(state:action:)` returns `nil` when the case is inactive — the branch condition and the scope in one call.
+- The trapping `scope(state:action:)` variant is sugar for contexts that already established the case is active; it `fatalError`s otherwise.
+- Same-case granularity comes from making the payload itself `@FeatureState`: a payload change recurses into the payload's own commit diff, so only the members that changed re-render.
 
-## Testing buffered receives
+## Asserting sent-back actions in tests
 
-When action enums are `CasePathable`, `TestViewModel.receive` can match by case path instead of full-value equality.
+Most effects re-enter via `effectState.modify` and are asserted with `expect(changes:)`. When an
+effect re-enters with `effectState.send`, assert it by case key path:
 
 ```swift
-await model.receive(\.loadResponse) {
-    $0.count = 42
+await model.receive(\.readyToClose) {
+    $0.phase = .closed
 }
 ```
 
 ## Gotchas
 
 - Case paths are for enums only. Use regular key paths for structs.
-- For view state, prefer enums with simple associated values and keep domain state in the interactor.
+- For enum feature state, prefer simple associated values and mark interactor-only payload members `@Domain`.
 - `sending(_:)` on a case binding crashes if that case is inactive; use `sending(_:default:)` when the view may read outside the active case.

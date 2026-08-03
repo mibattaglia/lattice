@@ -2,9 +2,9 @@ import Lattice
 import SwiftUI
 
 struct TimerLeakView: View {
-    private var viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakDomainState, TimerLeakViewState>>
+    private var viewModel: ViewModel<TimerLeakState, TimerLeakEvent>
 
-    init(viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakDomainState, TimerLeakViewState>>) {
+    init(viewModel: ViewModel<TimerLeakState, TimerLeakEvent>) {
         self.viewModel = viewModel
     }
 
@@ -16,37 +16,34 @@ struct TimerLeakView: View {
 
                 Text(
                     """
-                    Throwaway demo for the @ObservableState registrar leak,
-                    mirroring HybrdLiveWorkout's metric grid: a TimelineView
-                    re-renders the rows continuously on a date schedule (reusing
-                    view identities), reading each row's nested @ObservableState
-                    leaf every frame. A ~50 Hz timer rebuilds the child (\
-                    \(TimerLeakConstants.rowCount) rows) wholesale underneath; the
-                    rebuild is content-equal, so each previously-tracked registrar
-                    is silently swapped out and never cancelled. Watch resident
-                    memory climb steadily.
+                    Stress demo for diff-at-commit under continuous re-rendering: a
+                    TimelineView re-renders \(TimerLeakConstants.rowCount) rows every frame
+                    (reusing view identities), each row reading the projected
+                    `displayedValue`. A ~50 Hz timer effect commits underneath; most commits
+                    leave the visible output unchanged, so the per-member diff pokes the
+                    rows' observers only once per 100 ticks. Resident memory should stay
+                    flat — the host-owned registrar has no per-copy identity to leak.
                     """
                 )
                 .font(.footnote)
                 .padding(.horizontal)
 
-                // TimelineView drives continuous re-rendering via `context.date`,
-                // exactly like LiveWorkoutBottomSheetView's metric timeline. Each
-                // re-render re-reads the current rows from the view model and
-                // re-observes their registrars; the reducer's wholesale child
-                // rebuild orphans the previous ones.
+                // TimelineView drives continuous re-rendering via `context.date`. Each
+                // re-render re-reads `displayedValue` through the projection; observation is
+                // registrar-keyed per member, not per state copy, so re-registration is
+                // stable across the timer's commits.
                 TimelineView(.animation) { context in
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(viewModel.viewState.child.rows) { row in
-                                RowView(row: row, date: context.date)
+                            ForEach(0..<TimerLeakConstants.rowCount, id: \.self) { _ in
+                                RowView(value: viewModel.displayedValue, date: context.date)
                             }
                         }
                     }
                 }
             }
             .padding(.vertical)
-            .navigationTitle("Timer Leak")
+            .navigationTitle("Timer")
             .task {
                 viewModel.sendViewEvent(.start)
             }
@@ -54,17 +51,15 @@ struct TimerLeakView: View {
     }
 }
 
-/// One observing subview per nested row, modeled on `LiveWorkoutMetricValueText`.
-/// Reading `row.value` registers an observation on the row's registrar; the
-/// `date` input changes every frame, so this body re-runs (and re-observes the
-/// current registrar) on every TimelineView tick.
+/// One row per line; the `date` input changes every frame, so this body re-runs (and
+/// re-reads the projected value) on every TimelineView tick.
 private struct RowView: View {
-    let row: TimerRowViewState
+    let value: String
     let date: Date
 
     var body: some View {
         HStack {
-            Text(row.value)
+            Text(value)
             Spacer()
             Text(date, format: .dateTime.hour().minute().second())
         }

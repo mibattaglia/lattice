@@ -1,25 +1,21 @@
 import Lattice
 
-@Interactor<ScopedCompositionDomainState, ScopedCompositionEvent>
-struct ScopedCompositionInteractor: Sendable {
+@Interactor<ScopedCompositionState, ScopedCompositionEvent>
+struct ScopedCompositionInteractor {
     var body: some InteractorOf<Self> {
         Interact { state, event in
             switch event {
             case .dashboard(.header(.titleChanged(let title))):
-                state.title = title
-                return .none
+                state.dashboard.header.title = title
 
             case .dashboard(.header(.badge(.labelChanged(let label)))):
-                state.badgeLabel = label
-                return .none
+                state.dashboard.header.badge.label = label
 
             case .dashboard(.header(.badge(.incremented))):
-                state.badgeCount += 1
-                return .none
+                state.dashboard.header.badge.count += 1
 
             case .setFooter(let status):
-                state.footerStatus = status
-                return .none
+                state.footer.status = status
             }
         }
     }

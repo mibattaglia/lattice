@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # Interactors
 
 `Interactor` is the core domain primitive in Lattice. It synchronously handles an action, mutates `DomainState`, and returns an `Emission<Action>` that describes any follow-up work.

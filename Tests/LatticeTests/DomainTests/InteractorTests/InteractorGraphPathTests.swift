@@ -1,4 +1,4 @@
-// Plan 04 test suite 1: path derivation through the imperative-effect pathway.
+// Path derivation through the imperative-effect pathway.
 // A recording leaf captures the `Effects` handle path at every structural position.
 
 import CasePaths
@@ -41,8 +41,7 @@ private enum PathEnumAction: Sendable {
 }
 
 /// Collects the `Effects` handle paths observed by recording leaves. `@unchecked Sendable`
-/// is transitional: the protocol's `Sendable` associated-type constraints (and erasure gates)
-/// are removed by plan 06; all touches happen on the MainActor.
+/// is a formality: all touches happen on the MainActor.
 private final class PathRecorder: @unchecked Sendable {
     private(set) var paths: [String: GraphPath] = [:]
 

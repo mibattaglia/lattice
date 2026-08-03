@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # ViewStateReducer
 
 `ViewStateReducer` is Lattice's synchronous projection layer from domain state into render state. It exists to keep presentation formatting and UI-facing derivation out of `ViewModel` and out of the interactor.

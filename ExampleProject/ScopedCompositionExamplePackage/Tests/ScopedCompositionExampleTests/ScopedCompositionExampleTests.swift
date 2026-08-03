@@ -5,6 +5,8 @@ import Testing
 @testable import ScopedCompositionExample
 import Lattice
 
+// Sendable here is an Observation-API requirement (withObservationTracking's onChange
+// closure is @Sendable), not a Lattice one — Lattice itself imposes no Sendable constraints.
 private final class ChangeProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var hasChanged = false
@@ -17,11 +19,8 @@ private final class ChangeProbe: @unchecked Sendable {
 struct ScopedCompositionExampleTests {
     private func makeViewModel() -> ScopedCompositionViewModel {
         ViewModel(
-            initialDomainState: ScopedCompositionDomainState(),
-            feature: Feature(
-                interactor: ScopedCompositionInteractor(),
-                reducer: ScopedCompositionViewStateReducer()
-            )
+            initialState: ScopedCompositionState(),
+            interactor: ScopedCompositionInteractor()
         )
     }
 
@@ -33,7 +32,7 @@ struct ScopedCompositionExampleTests {
             .scope(state: \.badge, action: \.badge)
 
         badge.sendViewEvent(.incremented)
-        #expect(viewModel.viewState.dashboard.header.badge.count == 1)
+        #expect(viewModel.dashboard.header.badge.count == 1)
     }
 
     @Test
@@ -46,7 +45,7 @@ struct ScopedCompositionExampleTests {
 
         viewModel.sendViewEvent(.dashboard(.header(.badge(.incremented))))
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.dashboard.header.badge.count == 1)
+        #expect(viewModel.dashboard.header.badge.count == 1)
     }
 
     @Test
@@ -58,7 +57,7 @@ struct ScopedCompositionExampleTests {
 
         viewModel.sendViewEvent(.setFooter("Updated"))
         #expect(probe.didChange)
-        #expect(viewModel.viewState.footer.status == "Updated")
+        #expect(viewModel.footer.status == "Updated")
     }
 
     @Test
@@ -71,6 +70,6 @@ struct ScopedCompositionExampleTests {
 
         #expect(binding.wrappedValue == "Badge")
         binding.wrappedValue = "Typed"
-        #expect(viewModel.viewState.dashboard.header.badge.label == "Typed")
+        #expect(viewModel.dashboard.header.badge.label == "Typed")
     }
 }

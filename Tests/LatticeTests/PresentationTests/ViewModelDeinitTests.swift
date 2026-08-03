@@ -1,4 +1,4 @@
-// New in plan 06 (test plan): the deinit story. `ViewModel` has no deinit — teardown is the
+// The deinit story: `ViewModel` has no deinit — teardown is the
 // core storage's plain deinit cancelling every task bucket; effects hold the core weakly.
 
 import Clocks
@@ -139,7 +139,8 @@ struct ViewModelDeinitTests {
         #expect(task.hasEffects == true)
     }
 
-    // (4) A post-teardown modify throws CancellationError (shared with plan 03's contract).
+    // (4) A post-teardown modify throws CancellationError (the same contract effect
+    // handles observe when their scope is gone).
     @Test
     func postTeardownModifyThrowsCancellationError() async {
         let clock = TestClock()

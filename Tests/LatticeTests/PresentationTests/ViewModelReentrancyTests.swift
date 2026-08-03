@@ -1,8 +1,7 @@
-// Rewritten for the flipped host (plan 06 test plan). The old exclusivity-trap test is
-// deleted: the trap it guarded (a formal access on `_viewState` open during reduce) cannot
-// exist without the working copy — nothing fires at `willSet`, and `_commit` diffs two value
-// copies while the registrar side table is separate from the state. What remains is the
-// suite's other purpose: synchronous observers notified mid-commit.
+// Reentrancy behavior. No exclusivity trap exists here: a formal access on `_viewState`
+// open during reduce cannot happen without a working copy — nothing fires at `willSet`,
+// and `_commit` diffs two value copies while the registrar side table is separate from the
+// state. This suite pins the remaining contract: synchronous observers notified mid-commit.
 
 import Foundation
 import Observation

@@ -1,10 +1,11 @@
+import Foundation
 import Lattice
 import SwiftUI
 
 struct TodosView: View {
-    @Bindable private var viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>
+    @Bindable private var viewModel: ViewModel<TodosState, TodosEvent>
 
-    init(viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>) {
+    init(viewModel: ViewModel<TodosState, TodosEvent>) {
         self.viewModel = viewModel
     }
 
@@ -20,10 +21,7 @@ struct TodosView: View {
                 )
                 .padding(.horizontal, 16)
 
-                switch viewModel.viewState {
-                case .loaded(let content):
-                    contentView(content)
-                }
+                contentView
             }
             .navigationTitle("Todos")
             #if os(iOS)
@@ -36,12 +34,12 @@ struct TodosView: View {
         }
     }
 
-    private func contentView(_ content: TodosViewContent) -> some View {
+    private var contentView: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 TextField(
                     "New todo",
-                    text: $viewModel.loaded.newTodoText.sending(\.newTodoTextChanged)
+                    text: $viewModel.newTodoText.sending(\.newTodoTextChanged)
                 )
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { viewModel.sendViewEvent(.addTodo) }
@@ -50,19 +48,25 @@ struct TodosView: View {
                     viewModel.sendViewEvent(.addTodo)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(content.newTodoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    viewModel.newTodoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
             .padding(.horizontal, 16)
 
-            Picker("Filter", selection: $viewModel.loaded.filter.sending(\.setFilter)) {
-                ForEach(TodosDomainState.Filter.allCases) { filter in
+            Picker("Filter", selection: $viewModel.filter.sending(\.setFilter)) {
+                ForEach(TodosState.Filter.allCases) { filter in
                     Text(filter.title).tag(filter)
                 }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
 
-            if content.todos.isEmpty {
+            // Collection-level structure (the filtered ids) is a derived member; each row is
+            // read through the identity-keyed collection projection and re-renders only when
+            // its own visible members change.
+            let visibleIDs = viewModel.visibleTodoIDs
+            if visibleIDs.isEmpty {
                 Text("No todos yet")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -71,30 +75,32 @@ struct TodosView: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(content.todos) { item in
-                        HStack {
-                            Toggle(
-                                isOn: Binding(
-                                    get: { item.isComplete },
-                                    set: { isComplete in
-                                        viewModel.sendViewEvent(
-                                            .setTodoCompletion(id: item.id, isComplete: isComplete)
-                                        )
-                                    }
-                                )
-                            ) {
-                                Text(item.title)
-                                    .strikethrough(item.isComplete, color: .secondary)
-                                    .foregroundStyle(item.isComplete ? .secondary : .primary)
+                    ForEach(visibleIDs, id: \.self) { id in
+                        if let item = viewModel.todos[id: id] {
+                            HStack {
+                                Toggle(
+                                    isOn: Binding(
+                                        get: { item.isComplete },
+                                        set: { isComplete in
+                                            viewModel.sendViewEvent(
+                                                .setTodoCompletion(id: id, isComplete: isComplete)
+                                            )
+                                        }
+                                    )
+                                ) {
+                                    Text(item.title)
+                                        .strikethrough(item.isComplete, color: .secondary)
+                                        .foregroundStyle(item.isComplete ? .secondary : .primary)
+                                }
                             }
                         }
                     }
                     .onDelete { offsets in
-                        let ids = offsets.map { content.todos[$0].id }
+                        let ids = offsets.map { visibleIDs[$0] }
                         viewModel.sendViewEvent(.deleteTodos(ids: ids))
                     }
                     .onMove { offsets, destination in
-                        let ids = offsets.map { content.todos[$0].id }
+                        let ids = offsets.map { visibleIDs[$0] }
                         viewModel.sendViewEvent(.moveTodos(ids: ids, destination: destination))
                     }
                 }

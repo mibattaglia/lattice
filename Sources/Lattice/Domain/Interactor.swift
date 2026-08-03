@@ -75,7 +75,7 @@ public protocol Interactor<DomainState, Action> {
     ///   - action: The action to process.
     ///   - effects: The handle for launching async effects. Only
     ///     ``Effects/perform(id:_:fileID:filePath:line:column:)`` is legal during this call;
-    ///     `modify`/`send` are effect-phase APIs.
+    ///     `modify`/`send` belong to the effect phase.
     func interact(
         state: inout DomainState,
         action: Action,

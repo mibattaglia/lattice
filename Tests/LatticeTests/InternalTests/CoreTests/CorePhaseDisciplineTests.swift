@@ -1,5 +1,5 @@
 // Exit tests exercising the core's loud phase-discipline preconditions directly, below the
-// typed handles (plan 02 §8). Swift Testing exit tests require the 6.2 toolchain and are
+// typed handles. Swift Testing exit tests require the 6.2 toolchain and are
 // macOS-only in this package.
 
 #if os(macOS)

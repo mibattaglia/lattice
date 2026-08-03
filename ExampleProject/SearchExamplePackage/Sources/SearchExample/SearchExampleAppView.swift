@@ -2,18 +2,14 @@ import Lattice
 import SwiftUI
 
 public struct SearchExampleAppView: View {
-    @State private var viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>
+    @State private var viewModel: ViewModel<SearchState, SearchEvent>
 
     public init() {
         let weatherService = RealWeatherService()
-        let feature = Feature(
-            interactor: SearchInteractor(weatherService: weatherService),
-            reducer: SearchViewStateReducer()
-        )
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: .results(.init(query: "", results: [])),
-                feature: feature
+                initialState: .results(.none),
+                interactor: SearchInteractor(weatherService: weatherService)
             )
         )
     }

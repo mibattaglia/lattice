@@ -1,5 +1,5 @@
-// Plan 07 §9: exhaustivity scenarios migrated from the Emission-era suite — the scope
-// extends from buffered actions to pending commits.
+// Exhaustivity scenarios — the exhaustivity scope
+// covers both buffered actions and pending commits.
 
 import CasePaths
 import Foundation

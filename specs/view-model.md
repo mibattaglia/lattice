@@ -1,3 +1,6 @@
+> **Historical (pre-1.0):** describes the `Emission`/`ViewStateReducer`-era runtime removed in
+> the 1.0 Sendable-removal rework; see `specs/sendable-removal/` for the current design.
+
 # ViewModel
 
 `ViewModel` is Lattice's production bridge between SwiftUI and a `Feature`. It is a `@MainActor` reference type that owns runtime execution, publishes `viewState`, and gives views a single entry point for sending actions with `sendViewEvent(_:)`.

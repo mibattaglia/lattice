@@ -1,6 +1,6 @@
 import Foundation
 
-protocol WeatherService: Sendable {
+protocol WeatherService {
     func searchWeather(query: String) async throws -> WeatherSearchDomainModel
     func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel
 }

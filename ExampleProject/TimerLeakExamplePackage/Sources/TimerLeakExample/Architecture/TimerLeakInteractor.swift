@@ -1,8 +1,8 @@
 import Foundation
 import Lattice
 
-@Interactor<TimerLeakDomainState, TimerLeakEvent>
-struct TimerLeakInteractor: Sendable {
+@Interactor<TimerLeakState, TimerLeakEvent>
+struct TimerLeakInteractor {
     /// Tick interval. ~20ms ≈ 50 Hz, inside the spec's 30–60 Hz window.
     private let tickInterval: Duration
 
@@ -11,27 +11,28 @@ struct TimerLeakInteractor: Sendable {
     }
 
     var body: some InteractorOf<Self> {
-        Interact { [tickInterval] state, event in
+        Interact { [tickInterval] state, event, effects in
             switch event {
             case .start:
-                guard !state.isRunning else { return .none }
+                guard !state.isRunning else { return }
                 state.isRunning = true
-                return .observe {
+                // Long-lived timer stream: a `for`-style loop inside one effect. Each
+                // `modify` runs the commit funnel; observers of `displayedValue` are poked
+                // only on the ticks where the derived output actually changes.
+                effects.perform { effectState in
                     let clock = ContinuousClock()
-                    return AsyncStream(unfolding: {
-                        try? await clock.sleep(for: tickInterval)
-                        return Task.isCancelled ? nil : .tick
-                    })
+                    while !Task.isCancelled {
+                        try await clock.sleep(for: tickInterval)
+                        try effectState.modify { state in
+                            state.tickCount += 1
+                            // Visible value changes only every 100 ticks; all other
+                            // commits are visible no-ops for the rows.
+                            if state.tickCount % 100 == 0 {
+                                state.displayedValue = "value-\(state.tickCount / 100)"
+                            }
+                        }
+                    }
                 }
-
-            case .tick:
-                state.tickCount += 1
-                // Leaf value changes only every 100 ticks; on all other ticks
-                // the rebuilt child is content-equal -> forces the leak path.
-                if state.tickCount % 100 == 0 {
-                    state.displayedValue = "value-\(state.tickCount / 100)"
-                }
-                return .none
             }
         }
     }

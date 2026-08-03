@@ -14,14 +14,6 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/apple/swift-async-algorithms",
-            .upToNextMajor(from: "1.0.0")
-        ),
-        .package(
-            url: "https://github.com/pointfreeco/combine-schedulers",
-            .upToNextMajor(from: "1.0.3")
-        ),
-        .package(
             url: "https://github.com/pointfreeco/swift-case-paths",
             .upToNextMajor(from: "1.7.0")
         ),
@@ -53,8 +45,6 @@ let package = Package(
             name: "Lattice",
             dependencies: [
                 "LatticeMacros",
-                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
-                .product(name: "CombineSchedulers", package: "combine-schedulers"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "Clocks", package: "swift-clocks"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),

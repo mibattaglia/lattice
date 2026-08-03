@@ -2,9 +2,7 @@ import Foundation
 import Lattice
 import SwiftUI
 
-typealias ScopedCompositionViewModel = ViewModel<
-    Feature<ScopedCompositionEvent, ScopedCompositionDomainState, ScopedCompositionViewState>
->
+typealias ScopedCompositionViewModel = ViewModel<ScopedCompositionState, ScopedCompositionEvent>
 
 /// Root of the demo. Owns the `ViewModel`, creates scopes inline in `body`, and reads
 /// nothing observable itself — the buttons only send. This is the read-light container
