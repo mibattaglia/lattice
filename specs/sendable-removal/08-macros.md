@@ -120,9 +120,11 @@ What **this** plan owns — the plugin-target mechanics:
   - `Sources/LatticeMacros/Plugins/DomainMacro.swift` — empty peer expansion (the same no-op
     pattern as today's `ObservationStateIgnoredMacro`).
   - Registration in `Plugins/Plugin.swift` alongside `InteractorMacro`.
-  - Library-target `#externalMacro` declarations in `Sources/Lattice/FeatureState/Macros.swift`
-    (plan 05 §2.1 pins the attachment kinds and names), *not* in `Sources/Lattice/Macros.swift`
-    — the new state layer keeps its declarations next to its runtime types.
+  - Library-target `#externalMacro` declarations in
+    `Sources/Lattice/FeatureState/FeatureStateMacros.swift` (plan 05 §2.1 pins the
+    attachment kinds and names), *not* in `Sources/Lattice/Macros.swift` — the new state
+    layer keeps its declarations next to its runtime types. (Named `FeatureStateMacros.swift`
+    rather than `Macros.swift`: SwiftPM cannot build two same-named files in one target.)
   - Reuse the existing `Extensions/` syntax helpers (`moduleQualified`, availability copying)
     rather than duplicating them.
 - **Expansion-test strategy:** `Tests/LatticeMacrosTests/FeatureStateMacroTests.swift` using
@@ -216,8 +218,10 @@ swift test --filter FeatureStateRuntimeTests   # plan 05 gate: real expansion, s
 1. `InteractorMacroTests` passes with the same 5 tests, **zero test-file edits** relative to
    the pre-rework tree.
 2. `Tests/LatticeMacrosTests/FeatureStateMacroTests.swift` exists with one exact-match
-   expansion baseline per plan 05 §4 example and one test per plan 05 §8 syntactic-diagnostic
-   row, all green.
+   expansion baseline per plan 05 §4 example and one test per implemented plan 05 §8
+   syntactic-diagnostic row, all green. (The `@FeatureState`-returning computed-member
+   warning row is not implementable with the attached-macro API — macros cannot resolve
+   sibling types — and is deferred; plan 05 §8 marks it accordingly.)
 3. After phase C, `Sources/LatticeMacros/` contains exactly: `Plugins/Plugin.swift`,
    `Plugins/InteractorMacro.swift`, `Plugins/FeatureStateMacro.swift`,
    `Plugins/DomainMacro.swift`, and `Extensions/**`. `Plugins/Derived/` and
@@ -225,8 +229,8 @@ swift test --filter FeatureStateRuntimeTests   # plan 05 gate: real expansion, s
 4. `ObservableStateMacroTests.swift` and `ViewStateReducerMacroTests.swift` are deleted, not
    skipped or fixture-stubbed.
 5. `Sources/Lattice/Macros.swift` declares only `@Interactor`; the `@FeatureState`/`@Domain`
-   declarations live in `Sources/Lattice/FeatureState/Macros.swift` with the plan 05 §2.1
-   attachment kinds.
+   declarations live in `Sources/Lattice/FeatureState/FeatureStateMacros.swift` with the
+   plan 05 §2.1 attachment kinds.
 6. No commit in the release adds `Macros/LatticeMacros` or any binary artifact; `Macros/` is
    gitignored (plan 01) and `scripts/rebuild-macro.sh` succeeds on the final manifest
    (command 4 above, verify-and-discard).

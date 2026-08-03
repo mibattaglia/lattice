@@ -73,7 +73,9 @@ executes then.
 | `@FeatureState` | structs and enums | Generates the projection namespace, the key-path map, the derived-member set, and `_commit`; adds `FeatureStateProtocol` conformance. |
 | `@Domain` | stored **and** computed members | Marker: excluded from projection and diff. A computed `@Domain` member is an interactor-side helper. No code is generated for it. |
 
-Declarations (in `Sources/Lattice/FeatureState/Macros.swift`):
+Declarations (in `Sources/Lattice/FeatureState/FeatureStateMacros.swift` — SwiftPM cannot
+build two same-named files in one target, so the file cannot be named `Macros.swift`
+alongside the existing top-level `Sources/Lattice/Macros.swift`):
 
 ```swift
 @attached(member, names: named(_ViewMembers), named(_viewKeyPaths), named(_derivedMembers), named(_commit), arbitrary)
@@ -123,6 +125,13 @@ struct SearchView: View {
 `viewModel.rawResults` **does not compile** — `@Domain` members are absent from the generated
 key-path namespace, so the failure is an ordinary "no member" error at the call site.
 
+**Inline chained reads are coarse.** `viewModel.detail.title` written inline resolves through
+the leaf subscript (a constraint-solver scoring consequence, see §3.5) and registers the
+child's interior subtree key: the reader wakes on any visible change under `detail` — correct,
+but coarser than per-member. Binding the child projection first
+(`let detail = viewModel.detail`, the `if let` optional idiom, or §6.3's row idiom) picks the
+child subscript and keeps per-member granularity and cache-served derived reads.
+
 ## 3. Runtime types — full source
 
 New directory `Sources/Lattice/FeatureState/`. These are library types, not macro output; the
@@ -140,18 +149,25 @@ public protocol FeatureStateProtocol {
     associatedtype _ViewMembers
 
     /// Maps a namespace key path to the corresponding key path on the state type.
+    /// `@MainActor`: key paths are not `Sendable`, so a stored static map must be isolated
+    /// (Swift 6 rejects a nonisolated `static let` of non-Sendable type); every reader
+    /// (projection, `_commit`, `_diff`) is already MainActor-confined.
+    @MainActor
     static var _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] { get }
 
     /// The subset of `_ViewMembers` key paths whose members are computed — derived view
     /// output. The projection serves these from the registrar's derivation cache (seeding
     /// on first read); stored members read straight through committed state. Enum case
     /// accessors are deliberately excluded (§4.2): they read through.
+    @MainActor
     static var _derivedMembers: Set<PartialKeyPath<_ViewMembers>> { get }
 
     /// The generated reducer: diff each view-visible member of `old` against `new` and
     /// fire `registrar` for every member whose value or derived output changed.
     /// `key` is the projection-key prefix under which this value lives (root for the
     /// host's own state; extended per member/element when nested).
+    /// `@MainActor`: `_commit` talks to the MainActor-confined registrar.
+    @MainActor
     static func _commit(
         old: Self, new: Self,
         registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -176,7 +192,8 @@ public struct ProjectionKey: Hashable {
 
     public init() {}
 
-    func appending(_ member: AnyKeyPath) -> Self {
+    // Public: macro-generated `_commit` bodies in consumer modules build member keys.
+    public func appending(_ member: AnyKeyPath) -> Self {
         var copy = self
         copy.components.append(.member(member))
         return copy
@@ -265,6 +282,13 @@ public final class FeatureStateRegistrar {
     /// the fresh outputs to store into derived signals when their poke is delivered.
     private var batch: (fired: Set<ProjectionKey>, outputs: [ProjectionKey: Any])?
 
+    /// Internal test seam: invoked once for every signal poke actually delivered (batched
+    /// pokes at batch close, immediate fires otherwise). Test helpers install a closure
+    /// here to record fires per commit. (The spec previously sketched a
+    /// `RecordingRegistrar` subclass; the class is `final` and batching is private, so a
+    /// subclass cannot observe pokes — the seam replaces it.)
+    var onPoke: ((ProjectionKey) -> Void)?
+
     public init() {}
 
     // MARK: Read side
@@ -321,26 +345,42 @@ public final class FeatureStateRegistrar {
             } else {
                 signal.fire()
             }
+            onPoke?(key)
         }
     }
 
-    /// Fire one key: a stored member's value changed. Inside a batch, recorded for the
-    /// batched poke; outside one (tests, direct use), delivered immediately.
+    /// Fire one key: a stored member's value changed. Inside a batch, recorded
+    /// unconditionally — even when the key itself has never been read — so that registered
+    /// ancestors (subtree/root slots) still bubble; outside one (tests, direct use),
+    /// delivered immediately to the key's own signal when one exists.
     func invalidate(_ key: ProjectionKey) {
-        guard let signal = signals[key] else { return }
-        if batch != nil { batch!.fired.insert(key) } else { signal.fire() }
+        if batch != nil {
+            batch!.fired.insert(key)
+        } else if let signal = signals[key] {
+            signal.fire()
+            onPoke?(key)
+        }
     }
 
     /// Coarse fire: everything at or under `prefix` changed at once (enum case flips,
     /// optional-presence flips). Fires every registered signal under the prefix — the
     /// prefix's own key included — and clears every cached output under it: an output
     /// cached against the departed shape must never be served against the new one. The
-    /// next commit (or first read) reseeds and fires conservatively.
+    /// next commit (or first read) reseeds and fires conservatively. Inside a batch the
+    /// prefix itself is also recorded unconditionally, so registered ancestors bubble even
+    /// when nothing under the prefix has been read.
+    /// Public: generated enum `_commit` case-flip branches call it from consumer modules.
     /// ponytail: O(#accessed keys) scan; index by first component if profiling demands.
-    func invalidate(prefix: ProjectionKey) {
+    public func invalidate(prefix: ProjectionKey) {
+        if batch != nil { batch!.fired.insert(prefix) }
         for (key, signal) in signals where key.hasPrefix(prefix) {
             signal.cachedOutput = nil
-            if batch != nil { batch!.fired.insert(key) } else { signal.fire() }
+            if batch != nil {
+                batch!.fired.insert(key)
+            } else {
+                signal.fire()
+                onPoke?(key)
+            }
         }
     }
 
@@ -352,7 +392,8 @@ public final class FeatureStateRegistrar {
     /// - cached output present: compute once, compare by `==`; on change, fire and store;
     /// - signal present but cache empty (first commit after a coarse drop): compute,
     ///   store, and fire conservatively.
-    func commitDerived<Output: Equatable>(_ key: ProjectionKey, _ compute: () -> Output) {
+    /// Public: generated `_commit` bodies call it from consumer modules.
+    public func commitDerived<Output: Equatable>(_ key: ProjectionKey, _ compute: () -> Output) {
         guard let signal = signals[key] else { return }
         let fresh = compute()
         if let cached = signal.cachedOutput, (cached as! Output) == fresh { return }
@@ -361,6 +402,7 @@ public final class FeatureStateRegistrar {
             batch!.outputs[key] = fresh
         } else {
             signal.fire(storing: fresh)
+            onPoke?(key)
         }
     }
 
@@ -410,6 +452,7 @@ only when observed.
 
 ```swift
 // Nested feature state that is also Equatable: cheap whole-value gate, then recurse.
+@MainActor
 public func _diff<Child: FeatureStateProtocol & Equatable>(
     _ old: Child, _ new: Child,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -419,6 +462,7 @@ public func _diff<Child: FeatureStateProtocol & Equatable>(
 }
 
 // Nested feature state: delegate to the child's generated commit.
+@MainActor
 public func _diff<Child: FeatureStateProtocol>(
     _ old: Child, _ new: Child,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -427,6 +471,7 @@ public func _diff<Child: FeatureStateProtocol>(
 }
 
 // Optional feature state (optional stored members; enum case accessors).
+@MainActor
 public func _diff<Child: FeatureStateProtocol>(
     _ old: Child?, _ new: Child?,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -445,6 +490,7 @@ public func _diff<Child: FeatureStateProtocol>(
 }
 
 // Identified collections of feature states: identity-keyed diff (see CollectionDiff.swift).
+@MainActor
 public func _diff<Element>(
     _ old: IdentifiedArrayOf<Element>, _ new: IdentifiedArrayOf<Element>,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -455,6 +501,7 @@ public func _diff<Element>(
 // Leaf values: fire when the stored value changed.
 // Disfavored so that any of the structure-aware overloads above outranks it when both apply.
 @_disfavoredOverload
+@MainActor
 public func _diff<Value: Equatable>(
     _ old: Value, _ new: Value,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -473,6 +520,7 @@ public func _diff<Value: Equatable>(
         mark the member '@Domain', or make it 'private'
         """
 )
+@MainActor
 public func _diff<Value>(
     _ old: Value, _ new: Value,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -564,15 +612,27 @@ public struct FeatureProjection<State: FeatureStateProtocol> {
 }
 ```
 
-**Chaining must not register interior keys.** Interior keys (a nested child's slot, an
-optional child's slot, a collection's slot) are the coarse subtree slots that fine-grained
-fires bubble up to. If chaining registered `(child)` en route to `child.title`, every
-fine-grained reader would become a coarse subtree observer and granularity would collapse —
-any change anywhere under the child would wake every reader of any one of its members. So the
-child subscript registers nothing, and presence/membership observation goes through the
-dedicated **shape key** (`key.structure`), which presence flips and structural pings fire and
-which content changes never reach. Only explicitly coarse reads — a whole-state snapshot on
-the root key, a deliberate subtree read on an interior key — register interior/root keys.
+**Chaining and interior keys.** Interior keys (a nested child's slot, an optional child's
+slot, a collection's slot) are the coarse subtree slots that fine-grained fires bubble up
+to. The child subscripts therefore register nothing, and presence/membership observation
+goes through the dedicated **shape key** (`key.structure`), which presence flips and
+structural pings fire and which content changes never reach.
+
+**Inline chained reads resolve to the leaf subscript, not the child chain** — a confirmed
+constraint-solver scoring consequence, not a tunable ranking: both interpretations of
+`projection.child.title` contain exactly one disfavored use (the trailing leaf hop is itself
+the disfavored subscript), so the solver tie-breaks on key-path-application count and the
+one-lookup raw-value read always beats the two-lookup chain. No `@_disfavoredOverload`
+placement changes this. Accepted semantics (supervisor decision, phase A): the leaf
+subscript's registered `memberKey` for a feature-typed member *is* the child's interior
+subtree key, so inline chained reads degrade to **coarse-but-correct subtree reads** — the
+reader wakes on any visible change under the child (fires bubble to the interior key), and
+nested derived members read inline compute from committed state, bypassing the derivation
+cache. Per-member granularity and cache-served derived reads require **binding the child
+projection first** (`let child = projection.child`, the `if let` optional idiom, §6.3's row
+idiom), which the solver resolves to the child subscripts. Collection reads
+(`projection.items[id:]`, `.ids`) resolve to `CollectionProjection` even inline, because
+their trailing hops are real members, not the disfavored leaf subscript.
 
 ### 3.6 `CollectionProjection.swift`
 
@@ -622,6 +682,7 @@ where Element: FeatureStateProtocol & Identifiable & Equatable {
 The identity-keyed diff — full semantics and the worked example in §6.
 
 ```swift
+@MainActor
 func _diffIdentifiedCollection<Element>(
     _ old: IdentifiedArrayOf<Element>, _ new: IdentifiedArrayOf<Element>,
     registrar: FeatureStateRegistrar, key: ProjectionKey
@@ -683,43 +744,43 @@ struct SearchState {
         "\(rawResults.count) results"
     }
 
-    // Key-path namespace over the view-visible members. Never instantiated; the private
-    // unavailable initializer makes that a compiler-enforced fact.
     struct _ViewMembers {
         let query: String
         let isLoading: Bool
         let subtitle: String
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
-    static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
+    @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
         \_ViewMembers.query: \SearchState.query,
         \_ViewMembers.isLoading: \SearchState.isLoading,
         \_ViewMembers.subtitle: \SearchState.subtitle,
     ]
 
-    // Computed members: served from the registrar's derivation cache on reads.
-    static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
-        \_ViewMembers.subtitle
+    @MainActor static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
+        \_ViewMembers.subtitle,
     ]
 
-    static func _commit(
+    @MainActor static func _commit(
         old: SearchState, new: SearchState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Stored members: compared by value.
-        Lattice._diff(old.query, new.query,
+        Lattice._diff(
+            old.query, new.query,
             registrar: registrar, key: key.appending(\_ViewMembers.query))
-        Lattice._diff(old.isLoading, new.isLoading,
+        Lattice._diff(
+            old.isLoading, new.isLoading,
             registrar: registrar, key: key.appending(\_ViewMembers.isLoading))
-        // Computed members: evaluated at most once — and only when some reader holds a
-        // signal for the key — then compared against, and stored into, the cached output.
-        registrar.commitDerived(key.appending(\_ViewMembers.subtitle)) { new.subtitle }
-        // `rawResults` is @Domain: not in the namespace, not diffed, unreachable from views.
+        registrar.commitDerived(key.appending(\_ViewMembers.subtitle)) {
+            new.subtitle
+        }
     }
 }
 
-extension SearchState: Lattice.FeatureStateProtocol {}
+extension SearchState: Lattice.FeatureStateProtocol {
+}
 ```
 
 Points worth pinning:
@@ -772,14 +833,17 @@ enum RouteState {
         }
     }
 
-    // Case accessors: optional views over each case's payload.
     var detail: DetailState? {
-        guard case .detail(let value) = self else { return nil }
+        guard case .detail(let value) = self else {
+            return nil
+        }
         return value
     }
 
     var banner: String? {
-        guard case .banner(let value) = self else { return nil }
+        guard case .banner(let value) = self else {
+            return nil
+        }
         return value
     }
 
@@ -787,52 +851,48 @@ enum RouteState {
         let detail: DetailState?
         let banner: String?
         let accessibilityLabel: String
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
-    static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
+    @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
         \_ViewMembers.detail: \RouteState.detail,
         \_ViewMembers.banner: \RouteState.banner,
         \_ViewMembers.accessibilityLabel: \RouteState.accessibilityLabel,
     ]
 
-    // Case accessors are deliberately absent: extracting a payload is one enum match, so
-    // they read through committed state, and their payloads diff granularly in the case
-    // switch below rather than as cached leaf outputs.
-    static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
-        \_ViewMembers.accessibilityLabel
+    @MainActor static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
+        \_ViewMembers.accessibilityLabel,
     ]
 
-    static func _commit(
+    @MainActor static func _commit(
         old: RouteState, new: RouteState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Case identity first. A case flip is a whole-view change by definition: fire one
-        // coarse notification over everything under this slot and stop. Never compare two
-        // different cases' payloads, and never fall back to whole-value == across cases.
         switch (old, new) {
         case (.list, .list):
             break
         case (.detail(let oldValue), .detail(let newValue)):
-            // Same case: recurse into the payload under the case-accessor key.
-            Lattice._diff(oldValue, newValue,
+            Lattice._diff(
+                oldValue, newValue,
                 registrar: registrar, key: key.appending(\_ViewMembers.detail))
         case (.banner(let oldValue), .banner(let newValue)):
-            Lattice._diff(oldValue, newValue,
+            Lattice._diff(
+                oldValue, newValue,
                 registrar: registrar, key: key.appending(\_ViewMembers.banner))
         default:
             registrar.invalidate(prefix: key)
             return
         }
-        // Same case: computed members diff exactly as on structs — once, against the cache,
-        // observed keys only.
         registrar.commitDerived(key.appending(\_ViewMembers.accessibilityLabel)) {
             new.accessibilityLabel
         }
     }
 }
 
-extension RouteState: Lattice.FeatureStateProtocol {}
+extension RouteState: Lattice.FeatureStateProtocol {
+}
 ```
 
 Semantics locked here:
@@ -891,39 +951,50 @@ expands to:
 struct TransactionsState {
     // ... original members unchanged ...
 
+
     struct _ViewMembers {
         let transactions: IdentifiedArrayOf<Transaction>
         let visibleOrder: [Transaction.ID]
         let emptyMessage: String?
-        @available(*, unavailable) private init() { fatalError() }
+        @available(*, unavailable) private init() {
+            fatalError()
+        }
     }
 
-    static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
+    @MainActor static let _viewKeyPaths: [PartialKeyPath<_ViewMembers>: AnyKeyPath] = [
         \_ViewMembers.transactions: \TransactionsState.transactions,
         \_ViewMembers.visibleOrder: \TransactionsState.visibleOrder,
         \_ViewMembers.emptyMessage: \TransactionsState.emptyMessage,
     ]
 
-    static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
+    @MainActor static let _derivedMembers: Set<PartialKeyPath<_ViewMembers>> = [
         \_ViewMembers.visibleOrder,
         \_ViewMembers.emptyMessage,
     ]
 
-    static func _commit(
+    @MainActor static func _commit(
         old: TransactionsState, new: TransactionsState,
         registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey
     ) {
-        // Overload ranking routes this to the identity-keyed collection diff.
-        Lattice._diff(old.transactions, new.transactions,
+        Lattice._diff(
+            old.transactions, new.transactions,
             registrar: registrar, key: key.appending(\_ViewMembers.transactions))
-        // Derived members: at most one evaluation each, observed keys only.
-        registrar.commitDerived(key.appending(\_ViewMembers.visibleOrder)) { new.visibleOrder }
-        registrar.commitDerived(key.appending(\_ViewMembers.emptyMessage)) { new.emptyMessage }
+        registrar.commitDerived(key.appending(\_ViewMembers.visibleOrder)) {
+            new.visibleOrder
+        }
+        registrar.commitDerived(key.appending(\_ViewMembers.emptyMessage)) {
+            new.emptyMessage
+        }
     }
 }
 
-extension TransactionsState: Lattice.FeatureStateProtocol {}
+extension TransactionsState: Lattice.FeatureStateProtocol {
+}
 ```
+
+`visibleOrder` draws the §8 collection-return warning by design — the message names the
+`[ID]` idiom as the accepted shape; there is no suppression mechanism beyond it being a
+warning.
 
 Note what the macro did *not* have to know: that `Transaction` is a feature state, that
 `IdentifiedArrayOf` is a collection, or what `visibleOrder` costs. Stored members are all the
@@ -1164,7 +1235,7 @@ diff line.
 | Condition | Severity | Message shape |
 |---|---|---|
 | visible computed property whose return type is syntactically `[...]`, `Array<...>`, `Set<...>`, `Dictionary<...>`, `IdentifiedArrayOf<...>` | warning | "returns a collection: derived collections are rebuilt and compared as one leaf value whenever observed at commit — model elements as `@FeatureState` values in an `IdentifiedArrayOf` stored member, return `[ID]`/section keys for structure, or accept the O(n) compare". No suppression mechanism beyond it being a warning; the `[ID]` idiom is named in the message as the accepted shape. |
-| visible computed property whose return type is syntactically a `@FeatureState`-annotated type (resolvable in the same file; best-effort) | warning | "computed members diff as leaf values through the derivation cache: the whole output gets one coarse fire when it changes, with no granular recursion into its members — store it as a stored member (granular via overload ranking) or accept the coarse fire" |
+| ~~visible computed property whose return type is syntactically a `@FeatureState`-annotated type~~ | — | **Not implementable with the attached-macro API; deferred.** Attached macros see only the attached declaration and its lexical context, never file siblings, so "resolvable in the same file" cannot be checked. The semantic consequence (computed members diff as leaf values through the cache, one coarse fire, no granular recursion) is documented in §7 instead. |
 | visible computed property referencing another visible computed property, where the reference graph has a cycle (A reads B, B reads A) | warning | "cyclic derived properties will recurse at evaluation; break the cycle or mark one `@Domain`" — non-cyclic cross-reads are allowed and common |
 | visible computed property with a setter | error | "view-visible computed properties are get-only; add `@Domain` for interactor-side settable helpers" |
 | `@Domain` on a `private` member | warning | redundant; `private` already excludes it |
@@ -1172,6 +1243,7 @@ diff line.
 | enum case with two or more associated values | error | "wrap the payload in a single struct (annotate it `@FeatureState` for granular observation)" |
 | enum case name colliding with an existing member (blocks the case accessor) | error | rename the case or the member |
 | zero visible members | warning | every member is `@Domain`/private; the type has no view surface — likely a missing removal of `@FeatureState` |
+| visible stored member without an explicit type annotation | error | the macro cannot see inferred types, and `_ViewMembers` needs the member's type — "add one, mark the member '@Domain', or make it 'private'" |
 
 Syntactic scanning of computed bodies (cycle detection, collection returns) is heuristic:
 type aliases and helper-function indirection can evade it. Documented as best-effort; the
@@ -1275,11 +1347,13 @@ constraint. The ViewModel owns exactly: core, registrar, projection, event sendi
 - **View assertions read the projection**: `#expect(viewModel.subtitle == "3 results")` — same
   reads a view performs, compile-checked against the visible surface, no ViewState fixture
   construction.
-- **Granularity assertions** become possible for the first time: a `RecordingRegistrar`
-  (test-support subclass or protocol seam over `FeatureStateRegistrar`) records the
-  `ProjectionKey`s fired per commit, so tests can pin "flagging one transaction fires exactly
-  `(transactions, X, icon)` and `(transactions, X, isFlagged)`". The library's own §12 gate
-  tests use this; whether it ships in `Sources/Lattice/Testing` for consumers is a plan 7 call.
+- **Granularity assertions** become possible for the first time: the registrar's internal
+  `onPoke` test seam records the `ProjectionKey`s poked per commit, so tests can pin
+  "flagging one transaction fires exactly `(transactions, X, icon)` and
+  `(transactions, X, isFlagged)`". (The earlier `RecordingRegistrar` subclass sketch is not
+  implementable: the class is `final` and batching is private, so a subclass cannot observe
+  pokes; the seam replaces it.) The library's own §12 gate tests use this; whether a
+  consumer-facing recording helper ships in `Sources/Lattice/Testing` is a plan 7 call.
 - **Cache and gating assertions** join them, against the same seam:
   - *cache correctness*: after every commit, each observed derived member's cached output
     equals a fresh computation from committed state — gated by a randomized mutation-sequence
@@ -1294,8 +1368,10 @@ constraint. The ViewModel owns exactly: core, registrar, projection, event sendi
     structural diff;
   - *batch dedupe*: each signal is poked exactly once per commit, ancestors included;
   - *root slot*: the root key fires iff the commit changed something visible;
-  - *chaining registers leaf-only*: reading `child.title` registers the leaf (and, for
-    optional children, the shape key) but never the interior subtree keys.
+  - *bound chaining registers leaf-only*: reading `title` through a bound child projection
+    registers the leaf (and, for optional children, the shape key) but never the interior
+    subtree keys; an *inline* chained read registers exactly the interior subtree key
+    (coarse-but-correct, §3.5).
 - **Deleted from test surface**: reducer unit tests as a category (there is no reducer type),
   `initialViewState` fixtures, `areStatesEqual` init parameters on harnesses.
 
@@ -1422,9 +1498,10 @@ every commit, including a randomized mutation-sequence gate); reads served from 
 (seed on first read, no recompute per read); coarse drop clears caches under the prefix and
 the next commit fires conservatively; element-signal pruning on removal; batch dedupe (each
 signal poked once per commit); root slot fires iff the commit changed something visible;
-chaining registers leaf/shape keys only; nested delegation; optional presence flip
-⇒ prefix fire; enum case flip ⇒ coarse, same-case ⇒ granular; every row of §6.1's table via a
-`RecordingRegistrar`.
+bound chaining registers leaf/shape keys only while inline chained reads register the coarse
+subtree key (§3.5); nested delegation; optional presence flip
+⇒ prefix fire; enum case flip ⇒ coarse, same-case ⇒ granular; every row of §6.1's table via
+the registrar's `onPoke` recording seam.
 
 **Phase B — the macro.** Implement `FeatureStateMacro`/`DomainMacro`, replace phase A's
 hand expansions with real annotations, land the expansion baselines and diagnostic tests.
@@ -1458,7 +1535,7 @@ plus a manual ExampleProject pass exercising a collection screen for per-row inv
 | **Any-cast discipline on the hot read path** | `derived(_:compute:)` and `commitDerived` cast the cached `Any?` to the member's output type on every hit. Safe by construction — the generator emits the key and the typed closure for the same member, so the stored value's type is pinned at the only write sites — the same argument that already covers the `_viewKeyPaths` force-casts. Spike A asserts round-tripping per member kind; a mismatch is a generator bug, caught by the expansion baselines. |
 | **Host memory scales with on-screen derived output** | The registrar now retains one copy of each observed derived member's last output, for as long as its signal lives. Bounded by the visible surface (plus per-element keys, pruned on removal), but a huge derived value read once stays resident. Guidance: derived members return small view-shaped values (§6.2); the §8 collection-return warning catches the common offender. |
 | **Bubbling walk cost** | Every fired key walks its ancestor prefixes — O(depth) dictionary lookups per fired key, deduped into the batch set. Depth is bounded by state nesting (shallow in practice); the batched poke keeps total notifications at one per signal per commit. If profiling ever shows the walk, precomputing ancestor chains per key is a mechanical internal change. |
-| **`@dynamicMemberLookup` ergonomics** | Autocomplete and diagnostics depend on Xcode's handling of `dynamicMember` key-path subscripts (historically good, occasionally laggy for overload sets). Overload-set misranking would surface as a *compile-time* wrong-subscript pick, so spike A pins every ranking pair with a test. If leaf-vs-child ranking proves fragile across toolchains, `@_disfavoredOverload` placement is the tuning knob — no design change. |
+| **`@dynamicMemberLookup` ergonomics** | Autocomplete and diagnostics depend on Xcode's handling of `dynamicMember` key-path subscripts. **Phase A confirmed one misranking that no `@_disfavoredOverload` placement can fix**: inline chained reads (`projection.child.title`) resolve to the leaf subscript because both interpretations carry one disfavored use and the solver tie-breaks on key-path-application count. Resolved (supervisor decision) by accepting coarse-but-correct interior-key registration for inline chains and documenting the bind-first idiom for per-member granularity (§3.5); single-hop, bound, and collection reads resolve as designed — spike A pins every ranking pair with a test. |
 | **O(n) Equatable sweeps on large collections** | Every commit pays one `==` per element. That is the deliberate price of the skip gate and is cheap for value elements; a pathological element (huge blobs in `@Domain` storage) makes `==` itself expensive. Guidance: keep heavy blobs behind references or IDs. Escalation path is §7's input-gated skip, not a collection redesign. |
 | **Transient row access after removal** | `CollectionProjection`'s `subscript(id:)` returns `nil` for removed IDs; a row view's *captured* `FeatureProjection` read closure force-unwraps. Views built on §6.2's idiom (identity and projections derived in the same body pass) never hold one across a removal; the migration guide documents the idiom as the contract. If field reports say otherwise, the read closure changes to cache-last-value — internal change. |
 | **Silent visibility mistakes** | Forgetting `@Domain` leaks a member into the view surface (and requires it be `Equatable`). No unsafe behavior — just a wider surface — and the non-`Equatable` error catches many cases incidentally. The zero-visible-members warning covers the inverse. Naming/lint conventions are a docs concern (plan 9). |
