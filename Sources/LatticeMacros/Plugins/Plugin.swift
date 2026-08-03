@@ -7,9 +7,5 @@ struct MacrosPlugin: CompilerPlugin {
         InteractorMacro.self,
         FeatureStateMacro.self,
         DomainMacro.self,
-        ViewStateReducerMacro.self,
-        ObservableStateMacro.self,
-        ObservationStateIgnoredMacro.self,
-        ObservationStateTrackedMacro.self,
     ]
 }

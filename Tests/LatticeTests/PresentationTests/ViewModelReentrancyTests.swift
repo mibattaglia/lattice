@@ -1,108 +1,101 @@
-import CasePaths
+// Rewritten for the flipped host (plan 06 test plan). The old exclusivity-trap test is
+// deleted: the trap it guarded (a formal access on `_viewState` open during reduce) cannot
+// exist without the working copy — nothing fires at `willSet`, and `_commit` diffs two value
+// copies while the registrar side table is separate from the state. What remains is the
+// suite's other purpose: synchronous observers notified mid-commit.
+
 import Foundation
 import Observation
 import Testing
 
 @testable import Lattice
 
+@FeatureState
+private struct ReentrancyState {
+    var count: Int = 0
+    var mirror: Int = -1
+}
+
+private enum ReentrancyEvent {
+    case increment
+    case mirror(Int)
+}
+
+private struct ReentrancyInteractor: Interactor {
+    var body: some Interactor<ReentrancyState, ReentrancyEvent> {
+        Interact { state, action in
+            switch action {
+            case .increment:
+                state.count += 1
+            case .mirror(let value):
+                state.mirror = value
+            }
+        }
+    }
+}
+
+// MainActor-confined by usage; `@unchecked Sendable` so the observer closure may capture it.
+private final class ReentrancyRecorder: @unchecked Sendable {
+    var observedCounts: [Int] = []
+    var reentrantEventTask: EventTask?
+}
+
 @MainActor
 @Suite
 struct ViewModelReentrancyTests {
-    // Regression test for an exclusive-access crash: during a reduce, an in-place tracked
-    // mutation fires the observation `willSet`. A synchronous observer (e.g. SwiftUI
-    // re-evaluating `body` inside that `willSet`) re-reads `viewModel.viewState.getter`
-    // while the reducer is still running. If the reducer held a formal write access on the
-    // stored view state open across its body (as the former `viewState` `_modify` accessor
-    // did), the re-entrant read trapped with "Fatal access conflict detected".
+
+    /// A synchronous observer reads the projection mid-commit: it sees the committed value
+    /// (the registrar fires after the state value is committed) and nothing traps — there is
+    /// no working copy and no formal access open on observable storage while observers run.
     @Test
-    func synchronousReadDuringReduceMutation() {
-        let viewModel = makeViewModel(reducer: CounterPhaseReducer())
+    func synchronousObserverReadsCommittedValuesMidCommit() {
+        let viewModel = ViewModel(
+            initialState: ReentrancyState(),
+            interactor: ReentrancyInteractor()
+        )
+        let recorder = ReentrancyRecorder()
 
         withObservationTracking {
-            _ = viewModel.viewState.phase
+            _ = viewModel.count
         } onChange: {
-            // Re-enter the getter synchronously, exactly as SwiftUI body re-evaluation can.
-            // `onChange` fires from `withMutation`'s `willSet`, which the reducer triggers
-            // mid-reduce.
             MainActor.assumeIsolated {
-                _ = viewModel.viewState
+                recorder.observedCounts.append(viewModel.count)
             }
         }
 
         viewModel.sendViewEvent(.increment)
 
-        #expect(viewModel.viewState.phase.active?.value == "1")
+        #expect(recorder.observedCounts == [1])
+        #expect(viewModel.count == 1)
     }
 
-    private func makeViewModel<R: ViewStateReducer & Sendable>(
-        reducer: R
-    ) -> ViewModel<Feature<CounterPhaseAction, CounterPhaseDomainState, CounterPhaseViewState>>
-    where R.DomainState == CounterPhaseDomainState, R.ViewState == CounterPhaseViewState {
-        ViewModel(
-            initialDomainState: .init(count: 0),
-            feature: Feature(interactor: CounterPhaseInteractor(), reducer: reducer)
+    /// A synchronous observer calls `sendViewEvent` mid-commit: the send runs as a plain
+    /// synchronous recursion — its own full update and commit — and both states are correct
+    /// when the outer send returns. No reentrancy crash, no deferral.
+    @Test
+    func synchronousObserverSendsMidCommitRunsRecursively() {
+        let viewModel = ViewModel(
+            initialState: ReentrancyState(),
+            interactor: ReentrancyInteractor()
         )
-    }
-}
+        let recorder = ReentrancyRecorder()
 
-private struct CounterPhaseInteractor: Interactor, Sendable {
-    typealias DomainState = CounterPhaseDomainState
-    typealias Action = CounterPhaseAction
-
-    var body: some InteractorOf<Self> { self }
-
-    func interact(
-        state: inout CounterPhaseDomainState,
-        action: CounterPhaseAction
-    ) -> Emission<CounterPhaseAction> {
-        switch action {
-        case .increment:
-            state.count += 1
-            return .none
+        withObservationTracking {
+            _ = viewModel.count
+        } onChange: {
+            MainActor.assumeIsolated {
+                recorder.reentrantEventTask = viewModel.sendViewEvent(
+                    .mirror(viewModel.count)
+                )
+            }
         }
+
+        viewModel.sendViewEvent(.increment)
+
+        // The recursive send committed synchronously, before the outer send returned.
+        #expect(viewModel.count == 1)
+        #expect(viewModel.mirror == 1)
+        #expect(recorder.reentrantEventTask != nil)
+        #expect(recorder.reentrantEventTask?.hasEffects == false)
     }
-}
-
-private struct CounterPhaseReducer: ViewStateReducer, Sendable {
-    typealias DomainState = CounterPhaseDomainState
-    typealias ViewState = CounterPhaseViewState
-
-    var body: some ViewStateReducerOf<Self> { self }
-
-    func initialViewState(for domainState: CounterPhaseDomainState) -> CounterPhaseViewState {
-        CounterPhaseViewState.defaultValue
-    }
-
-    func reduce(_ domainState: CounterPhaseDomainState, into viewState: inout CounterPhaseViewState) {
-        viewState.phase = .active(.init(value: "\(domainState.count)"))
-    }
-}
-
-@ObservableState
-private struct CounterPhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self(phase: .active(.init(value: "0")))
-
-    var phase: CounterPhase
-}
-
-@ObservableState
-@CasePathable
-@dynamicMemberLookup
-private enum CounterPhase: Equatable, Sendable {
-    case idle
-    case active(CounterPhasePayload)
-}
-
-@ObservableState
-private struct CounterPhasePayload: Equatable, Sendable {
-    var value: String
-}
-
-private struct CounterPhaseDomainState: Equatable, Sendable {
-    var count = 0
-}
-
-@CasePathable
-private enum CounterPhaseAction: Sendable {
-    case increment
 }

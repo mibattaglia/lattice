@@ -1,16 +1,13 @@
-import Observation
-
 /// Generates conformance to the ``Interactor`` protocol.
 ///
 /// Apply this macro to a struct to make it an interactor:
 ///
 /// ```swift
 /// @Interactor<CounterState, CounterAction>
-/// struct CounterInteractor: Sendable {
+/// struct CounterInteractor {
 ///     var body: some InteractorOf<Self> {
-///         Interact(initialValue: CounterState()) { state, action in
+///         Interact { state, action in
 ///             // Handle actions
-///             return .state
 ///         }
 ///     }
 /// }
@@ -30,52 +27,3 @@ import Observation
 @attached(memberAttribute)
 @attached(extension, conformances: Interactor)
 public macro Interactor<DomainState, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
-
-/// Generates conformance to the ``ViewStateReducer`` protocol.
-///
-/// Apply this macro to a struct to make it a view state reducer:
-///
-/// ```swift
-/// @ViewStateReducer<CounterDomainState, CounterViewState>
-/// struct CounterViewStateReducer: Sendable {
-///     var body: some ViewStateReducerOf<Self> {
-///         BuildViewState { domainState in
-///             CounterViewState(count: domainState.count)
-///         }
-///     }
-/// }
-/// ```
-///
-/// The macro generates:
-/// - `typealias DomainState`
-/// - `typealias ViewState`
-/// - Protocol conformance to `ViewStateReducer`
-@attached(
-    member,
-    names:
-        named(body),
-    named(initialViewState),
-    named(DomainState),
-    named(ViewState)
-)
-@attached(memberAttribute)
-@attached(extension, conformances: ViewStateReducer)
-public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
-
-/// Defines and implements conformance of the Observable protocol.
-@attached(extension, conformances: Observable, ObservableState)
-@attached(
-    member, names: named(_$id), named(_$observationRegistrar), named(_$willModify),
-    named(shouldNotifyObservers))
-@attached(memberAttribute)
-public macro ObservableState() =
-    #externalMacro(module: "LatticeMacros", type: "ObservableStateMacro")
-
-@attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
-public macro ObservationStateTracked() =
-    #externalMacro(module: "LatticeMacros", type: "ObservationStateTrackedMacro")
-
-@attached(accessor, names: named(willSet))
-public macro ObservationStateIgnored() =
-    #externalMacro(module: "LatticeMacros", type: "ObservationStateIgnoredMacro")

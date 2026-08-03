@@ -18,9 +18,13 @@ import Foundation
 ///   }
 /// }
 /// ```
+///
+/// Composition is structural: sibling positions, `if/else` branches, and `When` lenses each
+/// append a `GraphPath` component, giving every effect-launching leaf a stable structural
+/// identity for task storage and cancellation.
 @resultBuilder
-public enum InteractorBuilder<State: Sendable, Action: Sendable> {
-    /// Builds an interactor from an array literal `[...]`.
+public enum InteractorBuilder<State, Action> {
+    /// Builds an interactor from an array literal `[...]` or a `for` loop.
     public static func buildArray(
         _ interactors: [some Interactor<State, Action>]
     ) -> some Interactor<State, Action> {
@@ -46,16 +50,16 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
 
     /// ``if/else`` first-branch.
     public static func buildEither<I0: Interactor<State, Action>, I1: Interactor<State, Action>>(
-        first Interactor: I0
+        first interactor: I0
     ) -> Interactors.Conditional<I0, I1> {
-        .first(Interactor)
+        .first(interactor)
     }
 
     /// ``if/else`` second-branch.
     public static func buildEither<I0: Interactor<State, Action>, I1: Interactor<State, Action>>(
-        second Interactor: I1
+        second interactor: I1
     ) -> Interactors.Conditional<I0, I1> {
-        .second(Interactor)
+        .second(interactor)
     }
 
     /// Accepts an expression that is already an ``Interactor``.
@@ -68,8 +72,7 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildExpression(
         _ expression: any Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = expression.eraseToAnyInteractorUnchecked()
-        return erased
+        expression.eraseToAnyInteractor()
     }
 
     public static func buildFinalResult<I: Interactor<State, Action>>(_ interactor: I) -> I {
@@ -79,14 +82,13 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildLimitedAvailability(
         _ wrapped: some Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = wrapped.eraseToAnyInteractorUnchecked()
-        return erased
+        wrapped.eraseToAnyInteractor()
     }
 
     public static func buildOptional(_ wrapped: (any Interactor<State, Action>)?) -> AnyInteractor<
         State, Action
     > {
-        wrapped?.eraseToAnyInteractorUnchecked() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
+        wrapped?.eraseToAnyInteractor() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
     }
 
     public static func buildPartialBlock<I: Interactor<State, Action>>(first: I) -> I {

@@ -133,10 +133,12 @@ public final class ViewModel<State: FeatureStateProtocol, Action> {
 Plan 05 §11.1 owns the normative sketch (the full `dynamicMember` overload set, projection
 semantics, registrar); this plan owns the file. Notes:
 
-- `DequeModule` / `OrderedCollections` imports drop out of this file, and so does
-  `Observation`: the ViewModel no longer touches the observation framework directly — the
-  registrar's signal objects do, in `Sources/Lattice/FeatureState/`. Whether the collections
-  package dependency itself becomes removable is a workstream 9 pruning question (the core may
+- `DequeModule` / `OrderedCollections` imports drop out of this file. `Observation` stays as
+  a single-line dependency (compiler-forced, recorded at the flip): `ViewModel` must conform
+  to the empty `Observable` marker protocol for SwiftUI's `@Bindable` to accept it — but it
+  still touches no observation machinery directly; signals live in the registrar's objects in
+  `Sources/Lattice/FeatureState/`. Whether the collections package dependency itself becomes
+  removable is a workstream 9 pruning question (the core may
   still use ordered collections internally).
 - The `_ViewModel` shim protocol (`ViewState: ObservableState`) and the `viewState` accessor
   are deleted; views read members through the projection, and `ViewModelBinding` retargets its
@@ -259,6 +261,13 @@ read key path retargets from `KeyPath<ViewState, Value>` to
 like any read), writes still send the event through the interactor. `_ViewModelBinding`,
 `_ViewModelCaseBinding`, `_ViewModelCaseMemberBinding`, and the `Bindable`/`Binding`
 subscripts keep their shape and call sites against the stable `sendViewEvent` signature.
+As-landed notes (compiler-forced/shape details recorded at the flip): the three wrapper
+structs became `@MainActor` (their read closures capture non-Sendable key paths into a
+main-actor read); the first binding hop carries `Member: Equatable` (the projection's leaf
+read), with nested hops chaining through the first hop's registered read; and the
+case-binding getters read state through an internal `ViewModel._observedState` that registers
+the registrar's root (whole-state) slot — coarse-but-correct, since a case flip is a
+whole-view change.
 
 ### 5. `Sources/Lattice/Presentation/Feature/Feature.swift` — narrowed to interactor + state type
 
@@ -305,7 +314,8 @@ ViewModel host):
   `eraseToAnyReducer()`.
 - `BuildViewState.swift`: the whole type.
 - The `@ViewStateReducer` macro's `initialViewState(for:)` / `DefaultValueProvider` validation
-  loses its target; the macro deletion itself is plan 08's line item (fed by plan 05 §11.3).
+  loses its target; the macro (plugin file, declaration, and macro tests) is deleted in the
+  same sweep per plan 05 §11.3, which executes at this flip.
 - The `@ObservableState` macro and `ObservationStateRegistrar`/`_$id` copy-identity machinery
   go in the same sweep (plan 05 §10); nothing in the presentation layer references
   `ObservableState` afterwards (§Acceptance gates).
@@ -314,11 +324,10 @@ ViewModel host):
 
 After this rewrite, the production side no longer references `BufferedAction`, `ActionSource`,
 `ActionTransition`, `RootScopeState`, `RootScopeTasks`, `EffectTaskRegistry`,
-`EffectCancellationRegistry`, or `EmissionExecution`. `TestViewModel` still does until
-workstream 7 rewrites it — physical file deletion is sequenced with plan 07 (or already done by
-plans 02/04 if the old test pipeline is removed earlier in the PR series; either way, the gate
-below only asserts the **Presentation** layer is clean). `SendScopeID` is deleted outright —
+`EffectCancellationRegistry`, or `EmissionExecution`. `SendScopeID` is deleted outright —
 nothing replaces it; `EventTask` wraps the composite task `core.send` returns (plan 02).
+The legacy `TestViewModel` consumed the same machinery and could not survive its deletion;
+see the staging note below for what was deleted from `Sources/Lattice/Testing` with it.
 
 > **Deferred from plans 02/03/04 (additive staging) — execute here.** Plans 02–04 landed
 > additively (old suite green, per `orchestration.md`), so this plan's deletion commit also
@@ -341,8 +350,14 @@ nothing replaces it; `EventTask` wraps the composite task `core.send` returns (p
 > - **Plan 02's execution-side deletions** (also staged additively): `EmissionExecution`,
 >   `ApplyAction`, `EffectTaskRegistry`, `EffectCancellationRegistry`, `BufferedAction`,
 >   `RootScopeState`/`RootScopeTasks`, `ActionSource`, `ActionTransition`, `SendScopeID`,
->   `LegacyEffectID` — sequenced with plan 07 where `TestViewModel` still consumes them, per
->   the note above.
+>   `LegacyEffectID` — executed here in full (supervisor decision at the flip): the legacy
+>   `TestViewModel` host that consumed them is itself the old pipeline mirror and cannot
+>   compile without them, so its uncompilable sources (`TestViewModel.swift`,
+>   `PendingReceive.swift`, `InFlightEffectRecord.swift`, `RootSendOrigin.swift`,
+>   `TestEventTask.swift`, `Exhaustivity.swift`) and its driving suites
+>   (`TestingInfrastructureTests/`, the `CounterInteractors` fixtures) were deleted with
+>   them. `TestFailure.swift` and `TestIssueReporting.swift` compile standalone and were
+>   kept for plan 07.
 
 ## Deinit story
 
@@ -433,7 +448,9 @@ state/action types to lock in the point of the rework.
 | `ViewModelAppendTests.swift` | Delete (`.append` emission composition no longer exists; plan 04 owns the concept's removal, this file goes with it). |
 | `ViewModelDeinitTests.swift` (new) | (1) Release a `ViewModel` with an in-flight effect → effect observes cancellation (confirmation via a continuation flipped in the effect's cancellation path); (2) `finish()` parked on an `EventTask` resumes when the `ViewModel` is released (cancelled effects wind down and the composite task completes); (3) an outstanding `EventTask` held after release does not keep the core alive (weak assertion on the core via a test hook, or absence-of-leak via `deinit`-side-effect flag); (4) post-teardown `modify` throws `CancellationError` (shared with plan 03's tests). |
 
-`TestViewModel`-side coverage is workstream 7; nothing here touches `Sources/Lattice/Testing`.
+`TestViewModel`-side coverage is workstream 7. This plan's deletion commit removed the
+legacy test host's uncompilable sources from `Sources/Lattice/Testing` (see §7); workstream 7
+rebuilds the test host on the shared core.
 
 ## Acceptance gates
 

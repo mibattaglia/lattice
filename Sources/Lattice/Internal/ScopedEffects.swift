@@ -321,8 +321,8 @@ struct _DetachedEffectsFactory<State, Action>: _EffectsHandleFactory {
 
 /// A handle pair with no core behind it. Reads as dismounted: `perform` no-ops (reporting an
 /// issue), `modify`/`send` throw `CancellationError`, `state` traps. Used where a handle is
-/// required but no runtime exists — a dead factory derivation, or the transitional legacy
-/// bridge running a new-style `Interact` handler under the Emission runtime.
+/// required but no runtime exists — a dead factory derivation, or pure-mutation tests that
+/// never launch effects.
 func _detachedEffectsHandle<State, Action>(path: GraphPath) -> Effects<State, Action> {
     let effectState = EffectState<State, Action>(
         path: path,

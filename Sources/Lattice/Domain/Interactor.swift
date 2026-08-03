@@ -1,10 +1,10 @@
 import Foundation
 
-/// A type that processes **actions** and produces **domain state**.
+/// A type that processes **actions** by mutating **domain state** and launching effects.
 ///
-/// An `Interactor` is the core unit of a feature's business logic. It plays a role similar to a
-/// "reducer" in other architectures, processing actions synchronously and returning an `Emission`
-/// that describes how to emit state (immediately or via an async effect).
+/// An `Interactor` is the core unit of a feature's business logic. It processes actions
+/// synchronously in the host's isolation domain, mutating state in place and launching
+/// imperative async effects through the ``Effects`` handle.
 ///
 /// ## Declaring an Interactor
 ///
@@ -12,7 +12,7 @@ import Foundation
 ///
 /// ```swift
 /// @Interactor<CounterState, CounterAction>
-/// struct CounterInteractor: Sendable {
+/// struct CounterInteractor {
 ///     var body: some InteractorOf<Self> {
 ///         Interact { state, action in
 ///             switch action {
@@ -21,57 +21,61 @@ import Foundation
 ///             case .decrement:
 ///                 state.count -= 1
 ///             }
-///             return .none
 ///         }
 ///     }
 /// }
 /// ```
 ///
-/// In most cases you only implement the `body` property and let the compiler infer its concrete
-/// return type via Swift's result-builder machinery.
+/// ## Effects
 ///
-/// ## Custom Implementation
-///
-/// For advanced scenarios, implement `interact(state:action:)` directly:
+/// Async work is launched during the synchronous update phase and re-enters by mutating
+/// state directly:
 ///
 /// ```swift
-/// func interact(state: inout DomainState, action: Action) -> Emission<Action> {
-///     // Custom processing logic
-///     return .none
+/// Interact { state, action, effects in
+///     switch action {
+///     case .refresh:
+///         state.isLoading = true
+///         effects.perform { [api] effectState in
+///             let items = try await api.fetchItems()
+///             try effectState.modify { state in
+///                 state.isLoading = false
+///                 state.items = items
+///             }
+///         }
+///     }
 /// }
 /// ```
 ///
-/// - Note: Custom `interact(state:action:)` implementations take precedence over `body`.
+/// ## Custom Implementation
+///
+/// For advanced scenarios, implement `interact(state:action:effects:)` directly. Custom
+/// implementations take precedence over `body`.
 public protocol Interactor<DomainState, Action> {
-    /// The type of state produced downstream.
-    associatedtype DomainState: Sendable
-    /// The type of actions received upstream.
-    associatedtype Action: Sendable
+    /// The type of state this interactor mutates.
+    associatedtype DomainState
+    /// The type of actions this interactor processes.
+    associatedtype Action
     /// The concrete type returned by the result-builder `body` property.
     associatedtype Body: Interactor
 
     /// A declarative description of this interactor constructed with ``InteractorBuilder``.
+    ///
+    /// `body` must be a pure, stable description: it is evaluated as part of the static
+    /// composition tree and must return the same structure every time.
     @InteractorBuilder<DomainState, Action>
     var body: Body { get }
 
-    /// Processes an action by mutating state and returning an emission.
-    ///
-    /// - Parameters:
-    ///   - state: The current state, passed as `inout` for mutation.
-    ///   - action: The action to process.
-    /// - Returns: An ``Emission`` describing actions to emit.
-    func interact(state: inout DomainState, action: Action) -> Emission<Action>
-
     /// Processes an action by mutating state and, optionally, launching effects.
     ///
-    /// The imperative-effect pathway: runs synchronously in the host's isolation domain during
-    /// the update phase. Only ``Effects/perform(id:_:fileID:filePath:line:column:)`` is legal
-    /// during this call; `modify`/`send` are effect-phase APIs on ``EffectState``.
+    /// Runs synchronously in the host's isolation domain during the update phase.
     ///
     /// - Parameters:
     ///   - state: The current state, passed as `inout` for mutation.
     ///   - action: The action to process.
-    ///   - effects: The handle for launching async effects.
+    ///   - effects: The handle for launching async effects. Only
+    ///     ``Effects/perform(id:_:fileID:filePath:line:column:)`` is legal during this call;
+    ///     `modify`/`send` are effect-phase APIs.
     func interact(
         state: inout DomainState,
         action: Action,
@@ -86,11 +90,6 @@ extension Interactor where Body.DomainState == Never {
 }
 
 extension Interactor where Body: Interactor<DomainState, Action> {
-    /// The default implementation forwards to the `body` interactor.
-    public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
-        body.interact(state: &state, action: action)
-    }
-
     /// The default implementation forwards to the `body` interactor, threading the effects
     /// handle unchanged (composition nodes, not `body` itself, append path components).
     public func interact(
@@ -102,29 +101,8 @@ extension Interactor where Body: Interactor<DomainState, Action> {
     }
 }
 
-extension Interactor {
-    /// Transitional mutation-only bridge for conformances that implement only the legacy
-    /// `interact(state:action:)` requirement (and have no matching `body`): mutations apply,
-    /// the returned ``Emission`` is discarded. Removed when plan 06 flips the protocol to the
-    /// effects-only shape.
-    public func interact(
-        state: inout DomainState,
-        action: Action,
-        effects: Effects<DomainState, Action>
-    ) {
-        _ = interact(state: &state, action: action)
-    }
-}
-
 /// A convenience alias that exposes the `DomainState` and `Action` associated types of an
 /// ``Interactor``.
-///
-/// Use this alias in `body` return types:
-/// ```swift
-/// var body: some InteractorOf<Self> {
-///     Interact(initialValue: MyState()) { ... }
-/// }
-/// ```
 public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Action>
 
 /// A type-erased wrapper around any ``Interactor``.
@@ -136,31 +114,25 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Actio
 /// let interactor: AnyInteractor<MyState, MyAction> = CounterInteractor()
 ///     .eraseToAnyInteractor()
 /// ```
-public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
-    private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
-    private let interactEffectsFunc: @Sendable (inout State, Action, Effects<State, Action>) -> Void
+public struct AnyInteractor<State, Action>: Interactor {
+    private let interactFunc: (inout State, Action, Effects<State, Action>) -> Void
 
-    public init<I: Interactor & Sendable>(_ base: I) where I.DomainState == State, I.Action == Action {
-        self.interactFunc = { state, action in base.interact(state: &state, action: action) }
-        self.interactEffectsFunc = { state, action, effects in
+    public init<I: Interactor>(_ base: I) where I.DomainState == State, I.Action == Action {
+        self.interactFunc = { state, action, effects in
             base.interact(state: &state, action: action, effects: effects)
         }
     }
 
     public var body: some Interactor<State, Action> { self }
 
-    public func interact(state: inout State, action: Action) -> Emission<Action> {
-        interactFunc(&state, action)
-    }
-
     /// Structurally transparent: forwards the handle unmodified, so erasure never perturbs
     /// `GraphPath`s.
     public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
-        interactEffectsFunc(&state, action, effects)
+        interactFunc(&state, action, effects)
     }
 }
 
-extension Interactor where Self: Sendable {
+extension Interactor {
     /// Erases this interactor to ``AnyInteractor``.
     ///
     /// Use this when you need to store interactors of different types uniformly:
@@ -172,50 +144,5 @@ extension Interactor where Self: Sendable {
     /// ```
     public func eraseToAnyInteractor() -> AnyInteractor<DomainState, Action> {
         AnyInteractor(self)
-    }
-}
-
-/// A wrapper that marks any interactor as `@unchecked Sendable`.
-///
-/// Use this when you need to erase an interactor that isn't `Sendable` but you
-/// know it's safe to use across concurrency boundaries (e.g., it only captures
-/// `@MainActor`-isolated closures that will be called on the main actor).
-public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked Sendable {
-    public let wrapped: I
-
-    public init(_ wrapped: I) {
-        self.wrapped = wrapped
-    }
-
-    public var body: some Interactor<I.DomainState, I.Action> { self }
-
-    public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.Action> {
-        wrapped.interact(state: &state, action: action)
-    }
-
-    /// Structurally transparent: forwards the handle unmodified.
-    public func interact(
-        state: inout I.DomainState,
-        action: I.Action,
-        effects: Effects<I.DomainState, I.Action>
-    ) {
-        wrapped.interact(state: &state, action: action, effects: effects)
-    }
-}
-
-extension Interactor {
-    /// Wraps this interactor in an unchecked sendable wrapper, allowing it to be erased.
-    ///
-    /// Use this when you need to erase an interactor that isn't `Sendable` but you
-    /// know it's safe to use across concurrency boundaries.
-    public func uncheckedSendable() -> UncheckedSendableInteractor<Self> {
-        UncheckedSendableInteractor(self)
-    }
-
-    /// Erases this interactor to `AnyInteractor` using an unchecked sendable wrapper.
-    ///
-    /// This is a convenience that combines `uncheckedSendable()` and `eraseToAnyInteractor()`.
-    public func eraseToAnyInteractorUnchecked() -> AnyInteractor<DomainState, Action> {
-        UncheckedSendableInteractor(self).eraseToAnyInteractor()
     }
 }

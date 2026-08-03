@@ -1,3 +1,8 @@
+// Destructive rewrite for the effects-only interactor shape (plan 04 test suite 2,
+// executed at plan 06's flip): `When` routing/embedding semantics on the new
+// `interact(state:action:effects:)` signature. Scoped-handle effects routing (drop/cancel
+// on case departure, lens pullback) is covered by `WhenEffectsRoutingTests`.
+
 import CasePaths
 import Foundation
 import Testing
@@ -6,39 +11,65 @@ import Testing
 
 // MARK: - Test Domain Models
 
-struct ParentState: Equatable, Sendable {
+private struct CounterState: Equatable {
+    var count = 0
+}
+
+private enum CounterAction: Equatable {
+    case increment
+    case decrement
+    case reset
+}
+
+private struct CounterInteractor: Interactor {
+    var body: some Interactor<CounterState, CounterAction> {
+        Interact { state, action in
+            switch action {
+            case .increment: state.count += 1
+            case .decrement: state.count -= 1
+            case .reset: state.count = 0
+            }
+        }
+    }
+}
+
+private struct ParentState: Equatable {
     var counter: CounterState
     var otherProperty: String
 }
 
 @CasePathable
-enum ParentAction: Sendable, Equatable {
+private enum ParentAction: Equatable {
     case counter(CounterAction)
     case otherAction
 }
 
-struct TwoCounterState: Equatable, Sendable {
+private struct TwoCounterState: Equatable {
     var counter1: CounterState
     var counter2: CounterState
 }
 
 @CasePathable
-enum TwoCounterAction: Sendable {
+private enum TwoCounterAction {
     case counter1(CounterAction)
     case counter2(CounterAction)
 }
 
 @CasePathable
-enum LoadingState: Equatable, Sendable {
+private enum LoadingState: Equatable {
     case idle
     case loading
     case loaded(CounterState)
 }
 
 @CasePathable
-enum LoadingAction: Sendable {
+private enum LoadingAction {
     case startLoading
     case loaded(CounterAction)
+}
+
+private func detached<State, Action>() -> Effects<State, Action> {
+    _detachedEffectsHandle(path: GraphPath())
 }
 
 // MARK: - KeyPath Tests
@@ -48,7 +79,7 @@ enum LoadingAction: Sendable {
 struct WhenKeyPathTests {
 
     @Test
-    func basicFunctionality() async throws {
+    func basicFunctionality() throws {
         var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
@@ -58,21 +89,14 @@ struct WhenKeyPathTests {
             CounterInteractor()
         }
 
-        let emission = interactor.interact(state: &state, action: .counter(.increment))
+        interactor.interact(state: &state, action: .counter(.increment), effects: detached())
 
         #expect(state.counter.count == 1)
         #expect(state.otherProperty == "test")
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
     }
 
     @Test
-    func ignoresNonChildActions() async throws {
+    func ignoresNonChildActions() throws {
         var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
@@ -82,20 +106,13 @@ struct WhenKeyPathTests {
             CounterInteractor()
         }
 
-        let emission = interactor.interact(state: &state, action: .otherAction)
+        interactor.interact(state: &state, action: .otherAction, effects: detached())
 
         #expect(state.counter.count == 0)
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
     }
 
     @Test
-    func multipleActions() async throws {
+    func multipleActions() throws {
         var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interactors.When<ParentState, ParentAction, _>(
@@ -105,51 +122,14 @@ struct WhenKeyPathTests {
             CounterInteractor()
         }
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
+        interactor.interact(state: &state, action: .counter(.increment), effects: detached())
         #expect(state.counter.count == 1)
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
+        interactor.interact(state: &state, action: .counter(.increment), effects: detached())
         #expect(state.counter.count == 2)
 
-        _ = interactor.interact(state: &state, action: .counter(.decrement))
+        interactor.interact(state: &state, action: .counter(.decrement), effects: detached())
         #expect(state.counter.count == 1)
-    }
-
-    @Test
-    func childEmissionMapsToParentAction() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
-        let childInteractor = Interact<CounterState, CounterAction> { state, action in
-            switch action {
-            case .increment:
-                state.count += 1
-                return .action(.decrement)
-            case .decrement:
-                state.count -= 1
-                return .none
-            case .reset:
-                state.count = 0
-                return .none
-            }
-        }
-
-        let interactor = Interactors.When<ParentState, ParentAction, _>(
-            state: \.counter,
-            action: \.counter
-        ) {
-            childInteractor
-        }
-
-        let emission = interactor.interact(state: &state, action: .counter(.increment))
-
-        #expect(state.counter.count == 1)
-
-        switch emission.kind {
-        case .action(let action):
-            #expect(action == .counter(.decrement))
-        default:
-            Issue.record("Expected .action emission, got \(emission.kind)")
-        }
     }
 }
 
@@ -160,38 +140,37 @@ struct WhenKeyPathTests {
 struct WhenModifierTests {
 
     @Test
-    func modifierCombinesWithParent() async throws {
+    func modifierCombinesWithParent() throws {
         var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
 
         let interactor = Interact<ParentState, ParentAction> { state, action in
             switch action {
             case .otherAction:
                 state.otherProperty = "modified"
-                return .none
             case .counter:
-                return .none
+                break
             }
         }
         .when(state: \.counter, action: \.counter) {
             CounterInteractor()
         }
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
+        interactor.interact(state: &state, action: .counter(.increment), effects: detached())
         #expect(state.counter.count == 1)
         #expect(state.otherProperty == "test")
 
-        _ = interactor.interact(state: &state, action: .otherAction)
+        interactor.interact(state: &state, action: .otherAction, effects: detached())
         #expect(state.otherProperty == "modified")
     }
 
     @Test
-    func multipleWhenModifiers() async throws {
+    func multipleWhenModifiers() throws {
         var state = TwoCounterState(
             counter1: CounterState(count: 0),
             counter2: CounterState(count: 10)
         )
 
-        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in .none }
+        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in }
             .when(state: \.counter1, action: \.counter1) {
                 CounterInteractor()
             }
@@ -199,11 +178,11 @@ struct WhenModifierTests {
                 CounterInteractor()
             }
 
-        _ = interactor.interact(state: &state, action: .counter1(.increment))
+        interactor.interact(state: &state, action: .counter1(.increment), effects: detached())
         #expect(state.counter1.count == 1)
         #expect(state.counter2.count == 10)
 
-        _ = interactor.interact(state: &state, action: .counter2(.decrement))
+        interactor.interact(state: &state, action: .counter2(.decrement), effects: detached())
         #expect(state.counter1.count == 1)
         #expect(state.counter2.count == 9)
     }
@@ -216,7 +195,7 @@ struct WhenModifierTests {
 struct WhenCasePathTests {
 
     @Test
-    func basicFunctionality() async throws {
+    func basicFunctionality() throws {
         var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
@@ -226,24 +205,17 @@ struct WhenCasePathTests {
             CounterInteractor()
         }
 
-        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+        interactor.interact(state: &state, action: .loaded(.increment), effects: detached())
 
         if case .loaded(let counter) = state {
             #expect(counter.count == 1)
         } else {
             Issue.record("Expected .loaded state")
         }
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
     }
 
     @Test
-    func ignoresWhenStateDoesNotMatch() async throws {
+    func ignoresWhenStateDoesNotMatch() throws {
         var state = LoadingState.idle
 
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
@@ -253,20 +225,13 @@ struct WhenCasePathTests {
             CounterInteractor()
         }
 
-        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+        interactor.interact(state: &state, action: .loaded(.increment), effects: detached())
 
         #expect(state == .idle)
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
     }
 
     @Test
-    func ignoresNonChildActions() async throws {
+    func ignoresNonChildActions() throws {
         var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
@@ -276,40 +241,32 @@ struct WhenCasePathTests {
             CounterInteractor()
         }
 
-        let emission = interactor.interact(state: &state, action: .startLoading)
+        interactor.interact(state: &state, action: .startLoading, effects: detached())
 
         if case .loaded(let counter) = state {
             #expect(counter.count == 0)
         } else {
             Issue.record("Expected .loaded state")
         }
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
     }
 
     @Test
-    func casePathModifier() async throws {
+    func casePathModifier() throws {
         var state = LoadingState.loaded(CounterState(count: 0))
 
         let interactor = Interact<LoadingState, LoadingAction> { state, action in
             switch action {
             case .startLoading:
                 state = .loading
-                return .none
             case .loaded:
-                return .none
+                break
             }
         }
         .when(state: \.loaded, action: \.loaded) {
             CounterInteractor()
         }
 
-        _ = interactor.interact(state: &state, action: .loaded(.increment))
+        interactor.interact(state: &state, action: .loaded(.increment), effects: detached())
 
         if case .loaded(let counter) = state {
             #expect(counter.count == 1)
@@ -317,7 +274,7 @@ struct WhenCasePathTests {
             Issue.record("Expected .loaded state")
         }
 
-        _ = interactor.interact(state: &state, action: .startLoading)
+        interactor.interact(state: &state, action: .startLoading, effects: detached())
         #expect(state == .loading)
     }
 }

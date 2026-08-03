@@ -1,60 +1,47 @@
-import DequeModule
+import IdentifiedCollections
 import Observation
-import OrderedCollections
-import SwiftUI
 
-@MainActor
-protocol _ViewModel {
-    associatedtype ViewState: ObservableState
-
-    var viewState: ViewState { get }
-}
-
-/// A generic class that binds a SwiftUI view to your domain/business logic.
+/// A thin, main-actor host that binds a SwiftUI view to a feature's domain logic.
 ///
-/// `ViewModel` connects a `Feature` to SwiftUI. Views send user events through
-/// ``sendViewEvent(_:)``, and render from ``viewState``.
+/// `ViewModel` owns the feature's runtime core and a per-instance ``FeatureStateRegistrar``
+/// side table. Views send user events through ``sendViewEvent(_:)``, and render by reading
+/// view-visible members through dynamic member lookup, which routes through the state's
+/// generated view projection.
 ///
 /// ## Overview
 ///
 /// The data flow is unidirectional:
 ///
-/// 1. View calls `sendViewEvent(_:)` with user actions
-/// 2. The ``Interactor`` processes the action synchronously and returns an ``Emission``
-/// 3. State mutations are applied immediately
-/// 4. The ``ViewStateReducer`` transforms domain state to view state
-/// 5. Any async effects from the emission are spawned as tasks inside the originating root send scope
-/// 6. View observes `viewState` changes and re-renders
+/// 1. The view calls `sendViewEvent(_:)` with a user action.
+/// 2. The ``Interactor`` processes the action synchronously, mutating domain state in place
+///    and launching effects via ``Effects/perform(id:_:fileID:filePath:line:column:)``.
+/// 3. Every mutation commits through a single funnel: the generated
+///    `_commit(old:new:registrar:key:)` diff fires the registrar for exactly the view-visible
+///    members whose value or derived output changed.
+/// 4. Effects re-enter by mutating state directly (``EffectState/modify(_:fileID:filePath:line:column:)``);
+///    each re-entry is its own commit through the same funnel.
+/// 5. The view observes the fired members and re-renders.
 ///
-/// ## Initialization
+/// ## Ordering guarantee
 ///
-/// Create a view model by providing the initial domain state and a `Feature`:
+/// For a non-reentrant `sendViewEvent`: the update phase runs, every synchronous mutation is
+/// committed through the funnel (transition detection, then the projection diff firing the
+/// registrar for changed members), effect tasks launch in-domain (they cannot preempt the
+/// update; their first suspension point is after the send returns), and then `sendViewEvent`
+/// returns the ``EventTask``. Effects' later `modify` calls commit through the same funnel
+/// one at a time, each firing exactly the projection keys that commit changed.
 ///
-/// ```swift
-/// let feature = Feature(
-///     interactor: CounterInteractor(),
-///     reducer: CounterViewStateReducer()
-/// )
-/// let viewModel = ViewModel(
-///     initialDomainState: CounterDomainState(count: 0),
-///     feature: feature
-/// )
-/// ```
-///
-/// ## Key Components
-///
-/// - ``viewState``: Observable state used by SwiftUI rendering.
-/// - ``sendViewEvent(_:)``: Dispatches actions and returns an ``EventTask`` for any spawned effects.
+/// A `sendViewEvent` re-entered synchronously from an observer notified mid-commit executes
+/// as a plain synchronous recursion — its own full update, commit, and effect launch,
+/// returning its own ``EventTask``.
 ///
 /// ## SwiftUI Integration
-///
-/// Use `@State` to hold the view model:
 ///
 /// ```swift
 /// struct CounterView: View {
 ///     @State var viewModel = ViewModel(
-///         initialDomainState: CounterState(count: 0),
-///         feature: Feature(interactor: CounterInteractor())
+///         initialState: CounterState(),
+///         interactor: CounterInteractor()
 ///     )
 ///
 ///     var body: some View {
@@ -68,369 +55,119 @@ protocol _ViewModel {
 ///
 /// ## Awaiting Effects
 ///
-/// Use ``EventTask/finish()`` to await transitive effect completion when needed:
+/// Use ``EventTask/finish()`` to await the effects a send launched:
 ///
 /// ```swift
 /// .refreshable {
 ///     await viewModel.sendViewEvent(.refresh).finish()
 /// }
 /// ```
-@dynamicMemberLookup
+///
+/// ## Teardown
+///
+/// `ViewModel` owns no teardown hook: it is the unique strong owner of the core (effects
+/// capture the core weakly; ``EventTask`` holds only effect task handles), so releasing the
+/// last reference tears the core down, which cancels every in-flight effect. A late
+/// `effectState.modify` after teardown throws `CancellationError`.
 @MainActor
-public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
-    public typealias Action = F.Action
-    public typealias DomainState = F.DomainState
-    public typealias ViewState = F.ViewState
+@dynamicMemberLookup
+public final class ViewModel<State: FeatureStateProtocol, Action>: Observable {
+    private let core: LatticeCore<State, Action>
+    let registrar = FeatureStateRegistrar()
 
-    private var domainState: DomainState
-    private var bufferedActions: Deque<BufferedAction<Action>> = []
-    private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
-    private var effectTasks: OrderedDictionary<LegacyEffectID, Task<Void, Never>> = [:]
-    private var isSending = false
-
-    private var _viewState: ViewState
-
-    private let interactor: AnyInteractor<DomainState, Action>
-    private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
-    private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    private nonisolated let taskRegistry = EffectTaskRegistry()
-    private nonisolated let cancellationRegistry = EffectCancellationRegistry()
-
-    private let _$observationRegistrar = ObservationRegistrar()
-
-    /// Creates a ViewModel for a concrete feature.
+    /// Creates a ViewModel hosting the given interactor over the given initial state.
     ///
     /// - Parameters:
-    ///   - initialDomainState: The initial domain state value.
-    ///   - feature: The feature bundle containing interactor/reducer wiring.
-    public convenience init(
-        initialDomainState: DomainState,
-        feature: F
-    ) {
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: feature.makeInitialViewState(initialDomainState),
-            interactor: feature.interactor,
-            viewStateReducer: feature.viewStateReducer,
-            areStatesEqual: feature.areStatesEqual
+    ///   - initialState: The initial domain state value.
+    ///   - interactor: The feature's interactor tree.
+    public init(initialState: State, interactor: some Interactor<State, Action>) {
+        let core = LatticeCore<State, Action>(
+            initialState: initialState,
+            isolation: MainActor.shared
         )
-    }
+        self.core = core
 
-    init(
-        initialDomainState: DomainState,
-        initialViewState: @autoclosure () -> ViewState,
-        interactor: AnyInteractor<DomainState, Action>,
-        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    ) {
-        self.domainState = initialDomainState
-        self.interactor = interactor
-        self.viewStateReducer = viewStateReducer
-        self.areStatesEqual = areStatesEqual
-
-        var viewState = initialViewState()
-        viewStateReducer.reduce(initialDomainState, into: &viewState)
-        self._viewState = viewState
-    }
-
-    convenience init<I, R>(
-        initialDomainState: DomainState,
-        interactor: I,
-        viewStateReducer: R,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
-        let initialViewState = viewStateReducer.initialViewState(for: initialDomainState)
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: initialViewState,
-            interactor: interactor.eraseToAnyInteractor(),
-            viewStateReducer: viewStateReducer.eraseToAnyReducer(),
-            areStatesEqual: areStatesEqual
-        )
-    }
-
-    init(
-        initialState: ViewState,
-        interactor: AnyInteractor<ViewState, Action>,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    ) where DomainState == ViewState {
-        self.domainState = initialState
-        self.interactor = interactor
-        self.viewStateReducer = BuildViewState<ViewState, ViewState> { domainState, viewState in
-            viewState = domainState
-        }.eraseToAnyReducer()
-        self._viewState = initialState
-        self.areStatesEqual = areStatesEqual
-    }
-
-    public private(set) var viewState: ViewState {
-        get {
-            _$observationRegistrar.access(self, keyPath: \.viewState)
-            return _viewState
-        }
-        set {
-            if _viewState._$id == newValue._$id {
-                _viewState = newValue
-            } else {
-                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {
-                    _viewState = newValue
+        // The root effects handle: combinators derive child handles (extending the
+        // GraphPath and lens chain) from it during `interact`.
+        let rootEffects = _makeEffectsHandles(core: core, lens: .identity, path: GraphPath())
+        core.mount(
+            interact: { state, action in
+                interactor.interact(state: &state, action: action, effects: rootEffects)
+            },
+            onCommit: { [registrar] old, new in
+                registrar.commit {
+                    State._commit(old: old, new: new, registrar: registrar, key: ProjectionKey())
                 }
             }
-        }
+        )
     }
 
-    public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
-        self.viewState[keyPath: keyPath]
+    /// Creates a ViewModel from a ``Feature`` bundle.
+    ///
+    /// - Parameters:
+    ///   - initialState: The initial domain state value.
+    ///   - feature: The feature bundle pairing the state type with an erased interactor.
+    public convenience init<F: FeatureProtocol>(initialState: State, feature: F)
+    where F.State == State, F.Action == Action {
+        self.init(initialState: initialState, interactor: feature.interactor)
     }
 
-    /// Sends an action to the interactor and returns a handle for the root send scope.
+    /// The view read surface over the core's committed state.
+    var projection: FeatureProjection<State> {
+        FeatureProjection(
+            read: { [core] in core.currentState },
+            registrar: registrar,
+            key: ProjectionKey()
+        )
+    }
+
+    /// Coarse whole-state read for case bindings: registers the root observation slot
+    /// (poked whenever a commit changed anything visible) and reads committed state.
+    var _observedState: State {
+        registrar.access(ProjectionKey())
+        return core.currentState
+    }
+
+    // Root dynamic-member lookups mirror FeatureProjection's overload set
+    // (leaf / child / optional child / collection) and delegate to it.
+
+    @_disfavoredOverload
+    public subscript<Value: Equatable>(
+        dynamicMember member: KeyPath<State._ViewMembers, Value>
+    ) -> Value {
+        projection[dynamicMember: member]
+    }
+
+    public subscript<Child: FeatureStateProtocol>(
+        dynamicMember member: KeyPath<State._ViewMembers, Child>
+    ) -> FeatureProjection<Child> {
+        projection[dynamicMember: member]
+    }
+
+    public subscript<Child: FeatureStateProtocol>(
+        dynamicMember member: KeyPath<State._ViewMembers, Child?>
+    ) -> FeatureProjection<Child>? {
+        projection[dynamicMember: member]
+    }
+
+    public subscript<Element>(
+        dynamicMember member: KeyPath<State._ViewMembers, IdentifiedArrayOf<Element>>
+    ) -> CollectionProjection<Element>
+    where Element: FeatureStateProtocol & Identifiable & Equatable {
+        projection[dynamicMember: member]
+    }
+
+    /// Sends an action to the interactor and returns a handle over the effects the update
+    /// launched directly.
+    ///
+    /// The update phase — and every mutation commit it produces — completes synchronously
+    /// before this method returns.
     ///
     /// - Parameter event: The action to send.
-    /// - Returns: An ``EventTask`` whose `finish()` waits for recursively emitted child work
-    ///   started from this send, and whose `cancel()` cancels the currently tracked work in
-    ///   that scope.
+    /// - Returns: An ``EventTask`` whose `finish()` awaits the effects this send launched
+    ///   directly, and whose `cancel()` cancels them.
     @discardableResult
     public func sendViewEvent(_ event: Action) -> EventTask {
-        let rootScopeID = SendScopeID()
-        enqueue(event, source: .sent, rootScopeID: rootScopeID)
-        drainBufferedActionsIfNeeded()
-        return makeEventTask(for: rootScopeID)
-    }
-
-    deinit {
-        taskRegistry.cancelAll()
-        cancellationRegistry.cancelAll()
-    }
-
-    private func enqueue(
-        _ action: Action,
-        source: ActionSource,
-        rootScopeID: SendScopeID
-    ) {
-        bufferedActions.append(
-            .init(
-                action: action,
-                source: source,
-                rootScopeID: rootScopeID
-            )
-        )
-
-        var rootScope = rootScopes[rootScopeID] ?? .init()
-        rootScope.bufferedActionCount += 1
-        rootScopes[rootScopeID] = rootScope
-    }
-
-    private func drainBufferedActionsIfNeeded() {
-        guard !isSending else { return }
-
-        isSending = true
-        defer { isSending = false }
-
-        while let bufferedAction = bufferedActions.popFirst() {
-            guard var rootScope = rootScopes[bufferedAction.rootScopeID] else {
-                continue
-            }
-
-            rootScope.bufferedActionCount -= 1
-            rootScopes[bufferedAction.rootScopeID] = rootScope
-
-            var workingState = domainState
-            let transition = ActionTransition.apply(
-                bufferedAction.action,
-                source: bufferedAction.source,
-                rootScopeID: bufferedAction.rootScopeID,
-                to: &workingState,
-                using: interactor
-            )
-
-            commitProductionTransition(transition)
-            spawnEffects(
-                from: transition.emission,
-                rootScopeID: bufferedAction.rootScopeID
-            )
-            pruneRootScopeIfQuiescent(bufferedAction.rootScopeID)
-        }
-    }
-
-    private func commitProductionTransition(
-        _ transition: ActionTransition<DomainState, Action>
-    ) {
-        domainState = transition.currentState
-
-        let shouldReduceViewState =
-            transition.source == .emitted
-            || !areStatesEqual(transition.previousState, transition.currentState)
-
-        guard shouldReduceViewState else { return }
-
-        // The reducer must never run while a formal access on `_viewState` is open: an
-        // `@ObservableState` field mutation fires `willSet` to synchronous observers (e.g. SwiftUI
-        // body re-evaluation) mid-reduce, and if one re-reads `viewState` the getter opens a
-        // conflicting read against an open write — a Swift exclusivity trap
-        // (see `ViewModelReentrancyTests`). Reducing into a local working copy avoids the
-        // trap: `@ObservableState` registrars are reference types, so the copy shares the same
-        // registrar tree and per-field notifications/identity are unaffected. The coarse
-        // `\.viewState` fire stays gated on a root `_$id` change and moves after the single commit
-        // store, preserving today's ordering.
-        var workingViewState = _viewState
-        viewStateReducer.reduce(transition.currentState, into: &workingViewState)
-        let oldID = _viewState._$id
-        _viewState = workingViewState
-        if _viewState._$id != oldID {
-            _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
-        }
-    }
-
-    private func spawnEffects(
-        from emission: Emission<Action>,
-        rootScopeID: SendScopeID
-    ) {
-        let spawnedTasks = EmissionExecution.spawnTasks(
-            from: emission,
-            rootScopeID: rootScopeID,
-            cancellationRegistry: cancellationRegistry,
-            makeEffectID: { LegacyEffectID() },
-            effectDidStart: { [weak self] effectID in
-                self?.enrollEffect(effectID, rootScopeID: rootScopeID)
-            },
-            effectDidComplete: { [weak self] effectID in
-                self?.completeEffect(effectID, rootScopeID: rootScopeID)
-            },
-            effectDidCancel: { [weak self] effectID in
-                self?.cancelEffect(effectID, rootScopeID: rootScopeID)
-            },
-            enqueueEmittedAction: { [weak self] action, rootScopeID in
-                guard let self else { return }
-                self.enqueue(action, source: .emitted, rootScopeID: rootScopeID)
-                self.drainBufferedActionsIfNeeded()
-            }
-        )
-
-        for (effectID, task) in spawnedTasks {
-            effectTasks[effectID] = task
-        }
-        taskRegistry.insert(spawnedTasks)
-    }
-
-    private func enrollEffect(
-        _ effectID: LegacyEffectID,
-        rootScopeID: SendScopeID
-    ) {
-        var rootScope = rootScopes[rootScopeID] ?? .init()
-        rootScope.inFlightEffectIDs.insert(effectID)
-        rootScopes[rootScopeID] = rootScope
-    }
-
-    private func completeEffect(
-        _ effectID: LegacyEffectID,
-        rootScopeID: SendScopeID
-    ) {
-        effectTasks[effectID] = nil
-        taskRegistry.remove([effectID])
-
-        guard var rootScope = rootScopes[rootScopeID] else { return }
-        rootScope.inFlightEffectIDs.remove(effectID)
-        rootScopes[rootScopeID] = rootScope
-
-        pruneRootScopeIfQuiescent(rootScopeID)
-    }
-
-    private func cancelEffect(
-        _ effectID: LegacyEffectID,
-        rootScopeID: SendScopeID
-    ) {
-        completeEffect(effectID, rootScopeID: rootScopeID)
-    }
-
-    private func makeEventTask(for rootScopeID: SendScopeID) -> EventTask {
-        guard rootScopes[rootScopeID] != nil else {
-            return EventTask(rawValue: nil)
-        }
-
-        return EventTask(
-            rawValue: RootScopeTasks.makeTask(
-                rootScopeID: rootScopeID,
-                isQuiescent: { [weak self] rootScopeID in
-                    self?.isRootScopeQuiescent(rootScopeID) ?? true
-                },
-                cancelScope: { [weak self] rootScopeID in
-                    self?.cancelRootScope(rootScopeID)
-                }
-            )
-        )
-    }
-
-    private func isRootScopeQuiescent(_ rootScopeID: SendScopeID) -> Bool {
-        rootScopes[rootScopeID]?.isQuiescent ?? true
-    }
-
-    private func cancelRootScope(_ rootScopeID: SendScopeID) {
-        guard let rootScope = rootScopes[rootScopeID] else { return }
-
-        for effectID in rootScope.inFlightEffectIDs {
-            effectTasks[effectID]?.cancel()
-        }
-    }
-
-    private func pruneRootScopeIfQuiescent(_ rootScopeID: SendScopeID) {
-        guard rootScopes[rootScopeID]?.isQuiescent == true else { return }
-        rootScopes[rootScopeID] = nil
-    }
-}
-
-extension ViewModel where DomainState: Equatable {
-    convenience init(
-        initialDomainState: DomainState,
-        initialViewState: @autoclosure () -> ViewState,
-        interactor: AnyInteractor<DomainState, Action>,
-        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
-    ) {
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: initialViewState(),
-            interactor: interactor,
-            viewStateReducer: viewStateReducer,
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
-    }
-
-    convenience init<I, R>(
-        initialDomainState: DomainState,
-        interactor: I,
-        viewStateReducer: R
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
-        self.init(
-            initialDomainState: initialDomainState,
-            interactor: interactor,
-            viewStateReducer: viewStateReducer,
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
-    }
-
-    convenience init(
-        initialState: ViewState,
-        interactor: AnyInteractor<ViewState, Action>
-    ) where DomainState == ViewState {
-        self.init(
-            initialDomainState: initialState,
-            initialViewState: initialState,
-            interactor: interactor,
-            viewStateReducer: BuildViewState<ViewState, ViewState> { domainState, viewState in
-                viewState = domainState
-            }.eraseToAnyReducer(),
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
+        EventTask(rawValue: (try? core.send(event)) ?? nil)
     }
 }

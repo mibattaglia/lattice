@@ -1,12 +1,14 @@
 import Foundation
 
-/// A handle to the root send scope started by a single `sendViewEvent` call.
+/// A handle to the effects launched by a single `sendViewEvent` call.
 ///
-/// Use `EventTask` to await transitive effect completion or cancel the in-flight work owned by that send.
+/// Use `EventTask` to await effect completion or cancel the in-flight work launched by
+/// that send.
 ///
-/// `EventTask` tracks a root send scope, not only the first generation of tasks created by an
-/// action. If an effect emits more actions and those actions start more work, that downstream work
-/// remains part of the same scope.
+/// `EventTask` covers the effects the send launched directly. If an effect re-enters the
+/// interactor with `effectState.send`, the work that update launches is an independent unit with
+/// its own task (returned by `effectState.send`); it does not extend this handle. Direct state
+/// mutation via `effectState.modify` commits synchronously and spawns no work.
 ///
 /// ## Usage
 ///
@@ -48,12 +50,20 @@ public struct EventTask: Sendable {
         self.rawValue = rawValue
     }
 
-    /// Cancels all currently in-flight effects owned by this event's root send scope.
+    /// Cancels the in-flight effects launched by this send.
+    ///
+    /// Cancellation propagates to each directly launched effect task; effects observe it
+    /// cooperatively (`modify` throws, `Task.isCancelled`), and ``finish()`` returns once
+    /// they have wound down.
     public func cancel() {
         rawValue?.cancel()
     }
 
-    /// Awaits quiescence of this event's root send scope, including recursively emitted child effects.
+    /// Awaits completion of every effect this send launched directly.
+    ///
+    /// Effects cancelled along the way (auto-replacement by a later send at the same call
+    /// site, case-exit transition detection, host teardown) complete as they wind down, so
+    /// `finish()` always returns.
     public func finish() async {
         await rawValue?.value
     }
@@ -64,6 +74,9 @@ public struct EventTask: Sendable {
     }
 
     /// Whether this event spawned any effects.
+    ///
+    /// `false` iff the update launched no effects (a no-effect send yields an immediate
+    /// ``finish()``). An effect that completes synchronously still counts as launched.
     public var hasEffects: Bool {
         rawValue != nil
     }
