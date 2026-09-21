@@ -43,7 +43,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/pointfreeco/xctest-dynamic-overlay",
-            from: "1.0.0"
+            from: "1.10.0"
         ),
         .package(url: "https://github.com/apple/swift-collections", from: "1.1.0"),
         .package(url: "https://github.com/pointfreeco/swift-identified-collections", from: "1.1.0"),
