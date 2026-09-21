@@ -15,7 +15,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/apple/swift-async-algorithms",
-            .upToNextMajor(from: "1.0.0")
+            .upToNextMajor(from: "1.1.4")
         ),
         .package(
             url: "https://github.com/pointfreeco/combine-schedulers",
