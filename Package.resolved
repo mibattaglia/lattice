@@ -1,5 +1,5 @@
 {
-  "originHash" : "4adcb873a4c9cafb4f5437a7a9e88a959d6c3f08e7ec1abb5da947dec6e705c1",
+  "originHash" : "74704b5f282dc8deabd2c659ef76e6ca8f905be5355b3df646d55d566ed8bfbe",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -74,6 +74,15 @@
       }
     },
     {
+      "identity" : "swift-issue-reporting",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-issue-reporting",
+      "state" : {
+        "revision" : "71c7c9a761d1ca6ed4ccb6ced040fe1c1a39e8e7",
+        "version" : "2.1.0"
+      }
+    },
+    {
       "identity" : "swift-macro-testing",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-macro-testing",
@@ -105,8 +114,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
       "state" : {
-        "revision" : "39de59b2d47f7ef3ca88a039dff3084688fe27f4",
-        "version" : "1.5.2"
+        "revision" : "d9308ad679143c26a30dec52daefe82f54af2b82",
+        "version" : "1.13.1"
       }
     }
   ],
