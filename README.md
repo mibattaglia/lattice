@@ -1,5 +1,7 @@
 # Lattice
 
+Standalone `@FeatureState`/`@Domain` machinery is additive; the current ViewModel/reducer API remains unchanged. See [Feature State](specs/feature-state.md) for its contract and validation status.
+
 Lattice is a Swift 6 library for building features with MVVM + unidirectional data flow.
 It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10+.
 

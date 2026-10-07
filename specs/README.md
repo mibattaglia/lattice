@@ -13,6 +13,8 @@ The docs in this directory are source-driven descriptions of how those pieces fi
 
 ## Contents
 
+- [Feature State — standalone machinery](./feature-state.md): additive `@FeatureState`/`@Domain` descriptors, projections, diffing, and Observation; existing hosts/reducers below remain active until a separate integration PR.
+
 - [ViewModel](./view-model.md): lifecycle, initialization, feature wiring, `viewState` publication, and SwiftUI bindings. ✅ Implemented
 - [ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md): buffered action draining, root send scopes, effect scheduling, append/merge behavior, and cancellation. ✅ Implemented
 - [ViewStateReducer](./view-state-reducer.md): synchronous projection from domain state to render state, initial view-state rules, and `BuildViewState`. ✅ Implemented
