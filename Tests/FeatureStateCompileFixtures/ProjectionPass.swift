@@ -1,5 +1,17 @@
 import Lattice
 
+// Ordinary generic metadata access must not require a MainActor consumer.
+func genericMetadataPass<Value: Equatable>(_: Value.Type) {
+    let _: ProjectionValueMember<FixtureRoot<Value>, Value> = FixtureRoot<Value>._viewMembers.value
+    let _: ProjectionChildMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.child
+    let _: ProjectionOptionalMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.computedOptional
+    let _: ProjectionCollectionMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.computedRows
+}
+
+func protocolMetadataPass<State: FeatureStateProtocol>(_: State.Type) -> State._ViewMembers {
+    State._viewMembers
+}
+
 @MainActor
 func projectionPass(_ projection: FeatureProjection<FixtureRoot<Int>>) {
     let _: Int = projection.value

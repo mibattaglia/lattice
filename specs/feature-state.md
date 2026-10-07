@@ -22,7 +22,7 @@ Instance stored properties (including ordinary willSet/didSet observers) and syn
 
 Generated getters retain their declared access: a public state does not promote an internal getter, package getters retain their boundary, and `public private(set)` remains readable publicly. `@Domain` only filters presentation; it does not restrict ordinary Swift access to raw domain state.
 
-`_ViewMembers` fields are typed descriptors, not raw state values. The ordinary nonisolated factory selects a leaf, feature child, optional child, or identified feature collection once at declaration time. Only reading `_viewMembers` and committing are MainActor-isolated. Generic Equatable equality is captured in a typed closure in that ordinary context, avoiding a conformance transfer into MainActor metadata. Reads and generated commits use the same category. There is no erased namespace key-path map or raw Equatable-child fallback.
+`_ViewMembers` fields are typed descriptors, not raw state values. The ordinary nonisolated factory selects a leaf, feature child, optional child, or identified feature collection once at declaration time. The computed `_viewMembers` accessor creates fresh metadata in an ordinary nonisolated context; it does not read state, register observation, or access live caches. Generic Equatable equality is captured in a typed closure there. Projections, the registrar, and generated commits remain MainActor-isolated because they access live presentation storage. Reads and generated commits use the same category. There is no erased namespace key-path map or raw Equatable-child fallback.
 
 Explicit paths identify one namespace member. Descendants use projection chaining (`projection.child.title`), not composed raw-child namespace paths. Descriptor state key paths are internal. Hidden reads and raw child coercions fail at compile time.
 
@@ -55,7 +55,7 @@ Fresh absent optional/case/row reads return nil. Held projections use their crea
 
 On Apple Swift 6.4 (`swiftlang-6.4.0.34.1`), Swift language mode 6, Xcode 27.0/macOS SDK 27.0:
 
-- Real macro metadata gate: generic scalar and structural descriptors, inline/bound reads, hidden/raw/composed-path rejection, public/internal/package/private(set) access. Positive ordinary-import clients are diagnostic-free; no generic isolated-conformance warning.
+- Real macro metadata gate: ordinary nonisolated generic metadata access through generated types and FeatureStateProtocol, generic scalar and structural descriptors, inline/bound reads, hidden/raw/composed-path rejection, public/internal/package/private(set) access. Positive ordinary-import clients are diagnostic-free; no generic isolated-conformance warning.
 - `scripts/test-feature-state-compile-fixtures.sh`: one runner, isolated module names/package boundaries, positive clients and intended-diagnostic negative fixtures. Negative sources are outside automatically built test targets.
 - FeatureStateMacroTests: expansion and diagnostics. FeatureStateRuntimeTests: actual withObservationTracking, publication coherence, caching/equality/getter counts, stored granularity, coarse computed structures, retained absent/reappearing snapshots and row pruning.
 - Baseline and changed full suites exercised using both unchanged manifest paths in isolated copies, on Swift 6.4. Macro artifact rebuilt with the existing script.

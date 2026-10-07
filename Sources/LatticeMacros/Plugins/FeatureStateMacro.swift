@@ -224,7 +224,6 @@ public struct FeatureStateMacro: MemberMacro, ExtensionMacro {
             }
             """,
             """
-            @MainActor
             \(raw: access)static var _viewMembers: _ViewMembers { _ViewMembers() }
             """,
             """

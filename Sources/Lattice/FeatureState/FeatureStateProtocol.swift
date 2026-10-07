@@ -5,7 +5,7 @@
 public protocol FeatureStateProtocol {
     associatedtype _ViewMembers
 
-    @MainActor
+    /// Fresh descriptor metadata; reading it does not access live presentation storage.
     static var _viewMembers: _ViewMembers { get }
 
     @MainActor

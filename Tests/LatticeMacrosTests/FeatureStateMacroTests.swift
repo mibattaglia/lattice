@@ -47,7 +47,6 @@
                         public let readOnly = Lattice._projectionMember(\\State<Value>.readOnly)
                     }
 
-                    @MainActor
                     public static var _viewMembers: _ViewMembers {
                         _ViewMembers()
                     }
@@ -141,7 +140,6 @@
                         let label = Lattice._derivedProjectionMember(\\State.label)
                     }
 
-                    @MainActor
                     static var _viewMembers: _ViewMembers {
                         _ViewMembers()
                     }
@@ -182,7 +180,6 @@
                         let ready = Lattice._projectionMember(\\Phase.ready)
                     }
 
-                    @MainActor
                     static var _viewMembers: _ViewMembers {
                         _ViewMembers()
                     }
