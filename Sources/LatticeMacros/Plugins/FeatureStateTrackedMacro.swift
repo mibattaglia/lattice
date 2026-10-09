@@ -17,54 +17,6 @@ public struct FeatureStateTrackedMacro: AccessorMacro, PeerMacro {
             let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier
         else { return [] }
         let storage = storageName(identifier)
-        let observers: AccessorDeclListSyntax
-        if let block = binding.accessorBlock, case .accessors(let accessors) = block.accessors {
-            observers = accessors
-        } else {
-            observers = []
-        }
-        func observer(_ keyword: Keyword, argument: String, defaultName: String) -> String {
-            guard let accessor = observers.first(where: { $0.accessorSpecifier.tokenKind == .keyword(keyword) }),
-                let body = accessor.body
-            else { return "" }
-            let parameter = accessor.parameters?.name.text ?? defaultName
-            return "({ \(parameter) in \(body.statements.trimmedDescription) })(\(argument))"
-        }
-        let willSet = observer(.willSet, argument: "newValue", defaultName: "newValue")
-        let didSet = observer(.didSet, argument: "oldValue", defaultName: "oldValue")
-        let captureOldValue = didSet.isEmpty ? "" : "let oldValue = \(storage)._untrackedValue"
-        let setter: AccessorDeclSyntax
-        let modify: AccessorDeclSyntax
-        if observers.isEmpty {
-            setter = "set { \(raw: storage).value = newValue }"
-            modify = "_modify { yield &\(raw: storage).value }"
-        } else {
-            // Swift accepts attached get/set accessors on an observed property,
-            // but does not compose its original observers into those accessors.
-            // A temporary wrapper preserves native _modify notifications while
-            // willSet/didSet still see the property's old/new stored values.
-            setter = """
-                set {
-                    \(raw: willSet)
-                    \(raw: captureOldValue)
-                    \(raw: storage).value = newValue
-                    \(raw: didSet)
-                }
-                """
-            let modifyWillSet = observer(.willSet, argument: "temporary._untrackedValue", defaultName: "newValue")
-            modify = """
-                _modify {
-                    var temporary = \(raw: storage)
-                    defer {
-                        \(raw: modifyWillSet)
-                        \(raw: captureOldValue)
-                        \(raw: storage)._untrackedValue = temporary._untrackedValue
-                        \(raw: didSet)
-                    }
-                    yield &temporary.value
-                }
-                """
-        }
         return [
             """
             @storageRestrictions(initializes: \(raw: storage))
@@ -75,8 +27,8 @@ public struct FeatureStateTrackedMacro: AccessorMacro, PeerMacro {
             """
             get { \(raw: storage).value }
             """,
-            setter,
-            modify,
+            "set { \(raw: storage).value = newValue }",
+            "_modify { yield &\(raw: storage).value }",
         ]
     }
 
@@ -88,8 +40,37 @@ public struct FeatureStateTrackedMacro: AccessorMacro, PeerMacro {
             let binding = property.bindings.first,
             let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier
         else { return [] }
-        let type = binding.typeAnnotation.map { ": Lattice._FeatureStateTracked<\($0.type.trimmedDescription)>" } ?? ""
-        let initial = binding.initializer.map { " = Lattice._FeatureStateTracked(\($0.value.trimmedDescription))" } ?? ""
-        return ["private var \(raw: storageName(identifier))\(raw: type)\(raw: initial)"]
+        var storage = property
+        storage.attributes = []
+        storage.modifiers = property.modifiers.privatePrefixed("_feature_")
+        var storedBinding = binding
+        storedBinding.pattern = PatternSyntax(IdentifierPatternSyntax(identifier: .identifier(storageName(identifier))))
+        storedBinding.typeAnnotation = binding.typeAnnotation.map {
+            $0.with(\.type, "Lattice._FeatureStateTracked<\($0.type.trimmed)>")
+        }
+        storedBinding.initializer = binding.initializer.map {
+            $0.with(\.value, "Lattice._FeatureStateTracked(\($0.value.trimmed))")
+        }
+        // Like ObservationStateTracked, leave observers on the stored peer.
+        // References to the public property still use its accessors; their Swift
+        // bodies are not rewritten to emulate unannotated stored-property access.
+        if var block = binding.accessorBlock, case .accessors(let accessors) = block.accessors {
+            block.accessors = .accessors(AccessorDeclListSyntax(accessors.map { accessor in
+                guard let body = accessor.body else { return accessor }
+                let parameter = accessor.parameters?.name ?? .identifier(
+                    accessor.accessorSpecifier.tokenKind == .keyword(.willSet) ? "newValue" : "oldValue"
+                )
+                return accessor.with(\.body, """
+                    {
+                        let \(parameter) = \(parameter)._untrackedValue
+                        _ = \(parameter)
+                        do \(body.trimmed)
+                    }
+                    """)
+            }))
+            storedBinding.accessorBlock = block
+        }
+        storage.bindings = [storedBinding]
+        return [DeclSyntax(storage)]
     }
 }

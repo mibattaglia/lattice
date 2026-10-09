@@ -6,6 +6,17 @@
 /// tracked enum payloads use explicit scopes. Single scalar enum payloads are
 /// optional leaf reads; their enum boundary observes value and case changes.
 /// Attached macros cannot discover unrelated extension members.
+///
+/// Stored `willSet`/`didSet` observers run on the generated backing property,
+/// with the original value types for their parameters. A notifying setter signals
+/// before those observers. Scalar `_modify` signals before yielding; tracked
+/// aggregate replacement signals after yielding, before the stored observers.
+/// Equal scalar setters still run property observers without notifying.
+///
+/// Like TCA26's value-observation accessors, this is not full unannotated Swift
+/// stored-property semantics: assigning the public property inside its own
+/// `didSet` re-enters its accessors and can invoke `didSet` again. Observer bodies
+/// retain their name lookup; they are not rewritten to bypass those accessors.
 @attached(member, names: named(_ViewMembers), named(_viewMembers), named(_featureStateIdentity), named(_featureStateLocation))
 @attached(memberAttribute)
 @attached(extension, conformances: FeatureStateProtocol)

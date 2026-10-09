@@ -26,6 +26,23 @@ private struct ConformanceRuntime {
         precondition(!equal(lhs, FixtureNominalEquality(value: 2)))
         precondition(lhs.probe.count == 3)
 
+        let observerSnapshot = FixtureObservedValue()
+        var observerSetter = observerSnapshot
+        observerSetter.value = -1
+        precondition(observerSetter.value == 0 && observerSetter.oldValues == [0, -1])
+        var observerModify = observerSnapshot
+        func assign(_ value: inout Int, _ replacement: Int) { value = replacement }
+        assign(&observerModify.value, -1)
+        precondition(observerModify.value == 0 && observerModify.oldValues == [0, -1])
+        precondition(observerSnapshot.value == 0 && observerSnapshot.oldValues.isEmpty)
+        for modify in [false, true] {
+            var observer = observerSnapshot
+            observer.reenterWillSet = true
+            if modify { assign(&observer.value, 2) } else { observer.value = 2 }
+            precondition(observer.value == 2 && observer.oldValues == [0, 0])
+        }
+        print("PASS: stored observer raw parameters/shadowing; outer oldValue before reentrant willSet; reference-compatible normalization calls=2 (not native equivalence)")
+
         let payload = FixtureChild()
         let equalPayload = FixtureChild()
         precondition(equal(payload, equalPayload))

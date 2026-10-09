@@ -187,6 +187,29 @@ public struct OpaqueLeafRoot: Sendable {
 }
 
 @FeatureState
+public struct FixtureObservedValue: Sendable {
+    @Domain public var oldValues: [Int] = []
+    @Domain public var reenterWillSet: Bool = false
+    public var value: Int = 0 {
+        willSet(incoming) {
+            if reenterWillSet && incoming == 2 {
+                reenterWillSet = false
+                changeThroughHelper()
+            }
+            // A user local can shadow the original observer parameter.
+            let incoming = "local"
+            _ = incoming
+        }
+        didSet(previous) {
+            oldValues.append(previous)
+            if value < 0 { self.value = 0 }
+        }
+    }
+    public init() {}
+    private mutating func changeThroughHelper() { value = 1 }
+}
+
+@FeatureState
 public struct WhereFixture<Value>: Sendable where Value: Equatable & Sendable {
     public var value: Value
 }

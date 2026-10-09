@@ -10,6 +10,58 @@
             }
         }
 
+        func testTrackedObserversRemainOnStoredPeerWithRawParameters() {
+            assertMacro {
+                """
+                @FeatureStateTracked
+                public private(set) var value: Int = 0 {
+                    willSet(incoming) { record(incoming) }
+                    didSet { record(oldValue) }
+                }
+                """
+            } expansion: {
+                """
+                public private(set) var value: Int {
+                    willSet(incoming) { record(incoming) }
+                    didSet { record(oldValue) }
+                    @storageRestrictions(initializes: _feature_value)
+                    init(initialValue) {
+                        _feature_value = Lattice._FeatureStateTracked(initialValue)
+                    }
+
+                    get {
+                        _feature_value.value
+                    }
+
+                    set {
+                        _feature_value.value = newValue
+                    }
+
+                    _modify {
+                        yield &_feature_value.value
+                    }
+                }
+
+                private var _feature_value: Lattice._FeatureStateTracked<Int> = Lattice._FeatureStateTracked(0) {
+                    willSet(incoming) {
+                    let incoming = incoming._untrackedValue
+                    _ = incoming
+                    do {
+                        record(incoming)
+                    }
+                    }
+                    didSet {
+                    let oldValue = oldValue._untrackedValue
+                    _ = oldValue
+                    do {
+                        record(oldValue)
+                    }
+                    }
+                }
+                """
+            }
+        }
+
         func testEnumPayloadExtractionStaysInsideFilteredMetadata() {
             assertMacro {
                 """

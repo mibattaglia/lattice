@@ -28,7 +28,7 @@ public struct _FeatureStateTracked<Value> {
         }
     }
 
-    /// Non-observing extraction is used only by generated structural descriptors.
+    /// Non-observing access for generated structural descriptors and observer parameters.
     public var _untrackedValue: Value {
         get { box?.value ?? inline! }
         set {

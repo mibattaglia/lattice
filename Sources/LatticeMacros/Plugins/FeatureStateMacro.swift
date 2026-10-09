@@ -30,15 +30,6 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
         }
     }
 
-    private static func isComputed(_ binding: PatternBindingSyntax) -> Bool {
-        guard let block = binding.accessorBlock else { return false }
-        switch block.accessors {
-        case .getter: return true
-        case .accessors(let accessors):
-            return accessors.contains { $0.accessorSpecifier.tokenKind == .keyword(.get) }
-        }
-    }
-
     private static func hasConditionalStateMembers(_ conditional: IfConfigDeclSyntax) -> Bool {
         for clause in conditional.clauses {
             guard case .decls(let members) = clause.elements else { continue }
@@ -66,7 +57,7 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
             guard variable.bindings.count == 1, let binding = variable.bindings.first,
                 let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier
             else { throw MacroExpansionErrorMessage("'@FeatureState' requires one named property per declaration") }
-            let computed = isComputed(binding)
+            let computed = variable.isComputed
             if !computed || visible {
                 guard variable.attributes.allSatisfy({ element in
                     guard let attribute = element.as(AttributeSyntax.self) else { return false }
@@ -104,9 +95,8 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
         providingAttributesFor member: some DeclSyntaxProtocol, in context: some MacroExpansionContext
     ) throws -> [AttributeSyntax] {
         guard declaration.isStruct, let variable = member.as(VariableDeclSyntax.self),
-            variable.isInstance, !variable.isImmutable, variable.bindings.count == 1,
-            let binding = variable.bindings.first, !isComputed(binding),
-            let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
+            variable.isValidForObservation, variable.bindings.count == 1,
+            let identifier = variable.identifier,
             !identifier.text.hasPrefix("_feature_"), identifier.text != "_featureStateLocation"
         else { return [] }
         // Validation is owned by the member expansion so hidden properties are
