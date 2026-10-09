@@ -1,76 +1,81 @@
 import Lattice
+import SwiftUI
 
-// Ordinary generic metadata access must not require a MainActor consumer.
-func genericMetadataPass<Value: Equatable>(_: Value.Type) {
-    let _: ProjectionValueMember<FixtureRoot<Value>, Value> = FixtureRoot<Value>._viewMembers.value
-    let _: ProjectionChildMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.child
-    let _: ProjectionOptionalMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.computedOptional
-    let _: ProjectionCollectionMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.computedRows
+// Ordinary metadata access stays nonisolated; these are descriptors, not raw values.
+nonisolated func genericMetadataPass<Value: Equatable & Sendable>(_: Value.Type) {
+    let _: FeatureStateValueMember<FixtureRoot<Value>, Value> = FixtureRoot<Value>._viewMembers.value
+    let _: FeatureStateChildMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.child
+    let _: FeatureStateOptionalMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.optional
+    let _: FeatureStateRowsMember<GenericStructures<Value>, GenericRow<Value>> = GenericStructures<Value>._viewMembers.computedRows
 }
 
-func protocolMetadataPass<State: FeatureStateProtocol>(_: State.Type) -> State._ViewMembers {
-    State._viewMembers
-}
+nonisolated func protocolMetadataPass<State: FeatureStateProtocol>(_: State.Type) -> State._ViewMembers { State._viewMembers }
 
 @MainActor
-func projectionPass(_ projection: FeatureProjection<FixtureRoot<Int>>) {
-    let _: Int = projection.value
-    let _: String = projection.child.title
-    let child: FeatureProjection<FixtureChild> = projection.child
+func modelPass(_ model: FixtureModel) {
+    let _: Int = model.value
+    let _: String = model.label
+    let child = model.scope(state: \.child, action: \.child)
     let _: String = child.title
-    let _: String = projection.moduleOnly
-    let _: String = projection.packageOnly
-    let _: Int = projection.readOnly
+    let _: String = model.moduleOnly
+    let _: String = model.packageOnly
+    let _: Int = model.readOnly
+    let _: String? = model.scopeIfPresent(state: \.optional)?.scope(state: \.child).title
+    let _: String? = model.scope(state: \.phase).scopeIfPresent(state: \.ready)?.title
+    let _: String? = model.filteredRows.first?.title
+    let _: Int? = model.filteredRows.first?.packageOnly
+    let _: String? = model.filteredRows.first?.scope(state: \.child).label
+    let _: Int = model.identifiedRows.count
+    let _: Binding<String> = model.binding(\.query, sending: \.query)
+    let _: Binding<String> = child.binding(\.title, sending: \.title)
+    let _: Binding<String> = Bindable(model).query.sending(\.query)
+    let binding = Binding(get: { model }, set: { _ in })
+    let _: Binding<String> = binding.query.sending(\.query)
+    let _: ScopedViewModel<FixtureChild, FixtureChildAction> = model.scope(state: \.child, action: { .child($0) })
 }
 
 @MainActor
-func genericPass<Value: Equatable>(_ projection: FeatureProjection<FixtureRoot<Value>>) -> Value {
-    projection.value
+struct OrdinaryRowsClient: View {
+    let model: FixtureModel
+    var body: some View {
+        ForEach(model.filteredRows) { row in
+            OrdinaryRowClient(row: row, onEvent: { model.sendViewEvent(.row(row.id, $0)) })
+        }
+    }
 }
 
 @MainActor
-func structuredPass(_ projection: FeatureProjection<FixtureRoot<Int>>) {
-    let _: String? = projection.optional?.title
-    let _: String? = projection.phase.ready?.title
-    let _: String? = projection.rows[id: 1]?.title
-    let _: Int = projection.rows.count
+struct OrdinaryRowClient: View {
+    let row: ScopedRowViewModel<FixtureRow>
+    let onEvent: (FixtureChildAction) -> Void
+    var body: some View {
+        TextField("Title", text: Binding(get: { row.title }, set: { onEvent(.title($0)) }))
+    }
 }
 
 @MainActor
-func nestedPass<Value: Equatable>(
-    _ nested: FeatureProjection<FixtureOuter<Value>.Inner>,
-    _ selfState: FeatureProjection<SelfFixture>
+func genericStructuresPass<Value: Equatable & Sendable>(_ model: ScopedViewModel<GenericStructures<Value>, Never>) {
+    let _: Value = model.scope(state: \.child).value
+    let _: Value? = model.scopeIfPresent(state: \.optional)?.value
+    let _: Value? = model.rows.first?.value
+    let _: Value? = model.computedRows.first?.value
+}
+
+@MainActor
+func moreSyntaxPass<Value: Equatable & Sendable>(
+    _ nested: ScopedViewModel<FixtureOuter<Value>.Inner, Never>,
+    _ opaque: ScopedViewModel<OpaqueLeafRoot, Never>,
+    _ generic: ScopedViewModel<WhereFixture<Value>, Never>,
+    _ escaped: ScopedViewModel<EscapedFixture, Never>,
+    _ outer: ScopedViewModel<OuterNestedFixture, Never>
 ) {
     let _: Value = nested.value
     let _: Int = nested.default
     let _: String = nested.label
-    let _: Int = selfState.copy.value
-}
-
-@MainActor
-func genericStructuresPass<Value: Equatable>(_ projection: FeatureProjection<GenericStructures<Value>>) {
-    let _: Value = projection.child.value
-    let _: Value? = projection.optional?.value
-    let _: Value? = projection.rows[id: 1]?.value
-    let _: Value = projection.computedChild.value
-    let _: Value? = projection.computedOptional?.value
-    let _: Value? = projection.computedRows[id: 1]?.value
-}
-
-@MainActor
-func opaqueLeafPass(_ projection: FeatureProjection<OpaqueLeafRoot>) {
-    let _: Int = projection.value.wholeValue
-    let _: [Int] = projection.primitives
-    let _: Int? = projection.optionalValue
-}
-
-@MainActor
-func moreSyntaxPass<Value: Equatable>(
-    _ generic: FeatureProjection<WhereFixture<Value>>,
-    _ escaped: FeatureProjection<EscapedFixture>,
-    _ nested: FeatureProjection<OuterNestedFixture>
-) {
+    let _: Int = opaque.value.wholeValue
+    let _: [Int] = opaque.primitives
+    let _: Int? = opaque.optionalValue
     let _: Value = generic.value
-    let _: String? = escaped.default?.title
-    let _: Int = nested.child.value
+    let _: String? = escaped.scopeIfPresent(state: \.default)?.title
+    let _: Int = outer.scope(state: \.child).value
 }

@@ -1,251 +1,558 @@
-@testable import Lattice
+import Foundation
+import Observation
 import Testing
-
-@FeatureState
-private struct DescriptorGateChild: Equatable {
-    var title: String = "Visible"
-    @Domain var secret: Int = 7
-}
-
-@FeatureState
-private struct DescriptorGateRoot<Value: Equatable> {
-    var value: Value
-    var child: DescriptorGateChild = DescriptorGateChild()
-}
+@testable import Lattice
 
 @Suite
 @MainActor
 struct FeatureStateRuntimeTests {
     @Test
-    func descriptorReadsFollowCurrentState() {
-        var state = DescriptorGateRoot(value: 42)
-        let projection = FeatureProjection(read: { state })
-        let child: FeatureProjection<DescriptorGateChild> = projection.child
-        #expect(projection.value == 42)
-        #expect(DescriptorGateRoot<Int>._viewMembers.value.areEqual(42, 42))
-        #expect(!DescriptorGateRoot<Int>._viewMembers.value.areEqual(42, 43))
-        #expect(projection.child.title == "Visible")
-        #expect(child.title == "Visible")
-        state.value = 43
-        state.child.title = "Updated"
-        #expect(projection.value == 43)
-        #expect(child.title == "Updated")
+    func hiddenDependenciesAreNativeAndGettersAreNotMemoized() {
+        let state = MutationState()
+        let model = mutationModel(state)
+        let changes = MutationProbe()
+        observe({ _ = model.label }, changes)
+        #expect(model.label == "0 items")
+        #expect(state.probe.count("label") == 2)
+        model.sendViewEvent(.noise)
+        #expect(changes.count() == 0)
+        model.sendViewEvent(.count(1)) // Equal output still invalidates the dependency.
+        #expect(changes.count() == 1)
+        #expect(model.label == "0 items")
+        observe({ _ = model.label }, changes)
+        model.sendViewEvent(.count(1))
+        #expect(changes.count() == 1)
+        model.sendViewEvent(.addZero)
+        #expect(changes.count() == 2)
+        model.sendViewEvent(.useAlternate(true))
+        observe({ _ = model.label }, changes)
+        model.sendViewEvent(.count(8))
+        #expect(changes.count() == 2)
+        model.sendViewEvent(.alternate(12))
+        #expect(changes.count() == 3)
+        #expect(model.label == "6 items")
+        #expect(state.probe.count("rootEquality") == 0)
+    }
+
+    @Test
+    func equatableRowsHaveIndependentLeafChannels() async throws {
+        let state = MutationState()
+        let model = mutationModel(state)
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        let title = MutationProbe()
+        let list = MutationProbe()
+        observe({ _ = a.title }, title)
+        observe({ _ = model.filteredRows }, list)
+        model.sendViewEvent(.row(1, .sibling))
+        #expect(title.count() == 0)
+        #expect(list.count() == 1) // Raw-array/filter reads are legitimately broad.
+        model.sendViewEvent(.row(2, .title("Bagels")))
+        await model.sendViewEvent(.emitted(.row(2, .sibling))).finish()
+        #expect(title.count() == 0)
+        model.sendViewEvent(.row(1, .title("Cream")))
+        #expect(title.count() == 1)
+        #expect(a.title == "Cream")
+        #expect(state.rows.allSatisfy { $0.probe.count("rowEquality") == 0 })
+    }
+
+    @Test
+    func selectedRowsRefreshAtEverySentAndEmittedCommitWithoutReads() async throws {
+        let state = MutationState()
+        let model = mutationModel(state)
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        #expect(state.probe.count("rows") == 1)
+        model.sendViewEvent(.noise)
+        #expect(state.probe.count("rows") == 2)
+        model.sendViewEvent(.row(1, .title("Cream")))
+        await model.sendViewEvent(.emitted(.row(1, .title("Oat milk")))).finish()
+        // No row or result read between commits and disappearance.
+        model.sendViewEvent(.row(1, .remove))
+        #expect(a.title == "Oat milk")
+        #expect(state.probe.count("rows") == 6) // normal read + five commits
+        _ = model.filteredRows
+        #expect(state.probe.count("rows") == 7)
+    }
+
+    @Test
+    func omissionRetainsMilkAndSameLocationReinclusionReusesHeldHandle() throws {
+        let model = mutationModel()
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        let identity = a.handleIdentity
+        model.sendViewEvent(.excludeAfterRename(1, "Oat milk"))
+        #expect(a.title == "Milk")
+        model.sendViewEvent(.row(1, .title("Hidden edit")))
+        #expect(a.title == "Milk")
+        let changes = MutationProbe()
+        observe({ _ = a.title }, changes)
+        model.sendViewEvent(.row(1, .eligible(true))) // No title mutation in this commit.
+        #expect(changes.count() == 1)
+        #expect(a.title == "Hidden edit")
+        let reconnected = try #require(model.filteredRows.first { $0.id == 1 })
+        #expect(reconnected.handleIdentity == identity)
+        observe({ _ = a.title }, changes)
+        model.sendViewEvent(.row(1, .title("Current")))
+        #expect(changes.count() == 2)
+        #expect(a.title == "Current")
+    }
+
+    @Test
+    func freshEqualRowReplacementSwitchesChannelsWithoutRowEquality() throws {
+        let model = mutationModel()
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        let changes = MutationProbe()
+        observe({ _ = a.title }, changes)
+        let fresh = MutationRow(id: 1, title: "Milk")
+        model.sendViewEvent(.replaceRows([fresh]))
+        #expect(changes.count() == 1)
+        #expect(fresh.probe.count("rowEquality") == 0)
+        observe({ _ = a.title }, changes)
+        model.sendViewEvent(.row(1, .sibling))
+        #expect(changes.count() == 1)
+        model.sendViewEvent(.row(1, .title("New channel")))
+        #expect(changes.count() == 2)
+        #expect(a.title == "New channel")
+    }
+
+    @Test
+    func optionalParentAndOrdinaryDescendantsRetainApplicableCommits() async throws {
+        let state = MutationState()
+        let model = mutationModel(state)
+        let parent = try #require(model.scopeIfPresent(state: \.parent, action: \.parent))
+        let detail = parent.scope(state: \.detail, action: { $0 })
+        model.sendViewEvent(.parent(.title("Sent")))
+        await model.sendViewEvent(.emitted(.parent(.title("Emitted")))).finish()
+        model.sendViewEvent(.parent(.secret(7)))
+        model.sendViewEvent(.removeParentAfterEdit)
+        #expect(model.scopeIfPresent(state: \.parent) == nil)
+        #expect(detail.title == "Emitted")
+        #expect(detail.label == "Emitted:7")
+        let createdAfterAbsence = parent.scope(state: \.detail)
+        #expect(createdAfterAbsence.label == "Emitted:7")
+        let nestedRows = parent.filteredRows
+        #expect(nestedRows.first?.title == "Nested")
+        detail.binding(\.title, sending: \.title).wrappedValue = "While absent"
+        #expect(state.probe.count("parentActions") == 4)
+        #expect(detail.title == "Emitted")
+        var restored = state.parent!
+        restored.detail.title = "Reconnected"
+        let changes = MutationProbe()
+        observe({ _ = createdAfterAbsence.title }, changes)
+        model.sendViewEvent(.restoreParent(restored))
+        #expect(changes.count() == 1)
+        #expect(detail.title == "Reconnected")
+        #expect(createdAfterAbsence.title == "Reconnected")
+    }
+
+    @Test
+    func nestedResultDescendantsNeverFollowExcludedSource() throws {
+        let model = mutationModel()
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        let child = a.scope(state: \.detail)
+        model.sendViewEvent(.row(1, .eligible(false)))
+        let firstReadAfterOmission = a.scope(state: \.detail)
+        #expect(firstReadAfterOmission.title == "Detail")
+        var replacement = MutationRow(id: 1, title: "Hidden", eligible: false)
+        replacement.detail.title = "Hidden detail"
+        model.sendViewEvent(.replaceRows([replacement]))
+        #expect(child.title == "Detail")
+        #expect(firstReadAfterOmission.title == "Detail")
+        model.sendViewEvent(.row(1, .eligible(true)))
+        #expect(child.title == "Hidden detail")
+        #expect(firstReadAfterOmission.title == "Hidden detail")
+    }
+
+    @Test
+    func callbacksReadOldWorkingCopyCommitAndObserverSendsAreFIFO() {
+        let model = mutationModel()
+        let callbacks = MutationProbe()
+        // Mutation is synchronously driven here on MainActor. This actor
+        // assumption is test-only and is never used for background copy tests.
+        withObservationTracking { _ = model.label } onChange: {
+            MainActor.assumeIsolated {
+                callbacks.append("label:\(model.label),ticket:\(model.ticket)")
+                model.sendViewEvent(.ticket(99))
+                callbacks.append("buffered:\(model.ticket)")
+            }
+        }
+        withObservationTracking { _ = model.ticket } onChange: {
+            MainActor.assumeIsolated { callbacks.append("ticket:\(model.ticket)") }
+        }
+        model.sendViewEvent(.pair(6, 3))
+        #expect(callbacks.log == ["label:0 items,ticket:0", "buffered:0", "ticket:0"])
+        #expect(model.label == "3 items")
+        #expect(model.ticket == 99)
+        let changes = MutationProbe()
+        observe({ _ = model.label }, changes)
+        model.sendViewEvent(.count(8))
+        #expect(changes.count() == 1)
+    }
+
+    @Test
+    func structuralCallbacksSeeAllStagedSlotsAndCanRegisterAndSend() throws {
+        let model = mutationModel()
+        let a = try #require(model.filteredRows.first { $0.id == 1 })
+        let parent = try #require(model.scopeIfPresent(state: \.parent))
+        let detail = parent.scope(state: \.detail)
+        let callbacks = MutationProbe()
+        withObservationTracking { _ = a.title } onChange: {
+            MainActor.assumeIsolated {
+                callbacks.append("\(a.title)/\(detail.title)/\(model.label)")
+                let newScope = model.scope(state: \.child)
+                callbacks.append(newScope.title)
+                model.sendViewEvent(.ticket(44))
+            }
+        }
+        var replacement = MutationState(count: 10)
+        replacement.rows = [MutationRow(id: 1, title: "Replacement")]
+        replacement.parent?.detail.title = "New parent"
+        replacement.child.title = "New child"
+        model.sendViewEvent(.reset(replacement))
+        #expect(callbacks.log == ["Replacement/New parent/5 items", "New child"])
+        #expect(model.ticket == 44)
+        let changes = MutationProbe()
+        observe({ _ = detail.title }, changes)
+        model.sendViewEvent(.parent(.title("Next")))
+        #expect(changes.count() == 1)
+    }
+
+    @Test
+    func callbackTimeMaterializationEnrollsBeforeTheCommit() {
+        let state = MutationState()
+        let model = mutationModel(state)
+        let capture = CapturedScopes()
+        withObservationTracking { _ = model.label } onChange: {
+            MainActor.assumeIsolated {
+                capture.parent = model.scopeIfPresent(state: \.parent)
+                capture.row = model.filteredRows.first { $0.id == 1 }
+            }
+        }
+        var next = state
+        next.parent?.detail.title = "Committed"
+        // Same-channel callback occurs before this copy is installed.
+        next.count = 2
+        model.sendViewEvent(.reset(next))
+        model.sendViewEvent(.removeParentAfterEdit)
+        #expect(capture.parent?.scope(state: \.detail).title == "Committed")
+        #expect(capture.row?.title == "Milk")
+    }
+
+    @Test
+    func sameLocationDelayedCopyAssignmentDoesNotReplayNotifications() {
+        let original = MutationState()
+        let model = mutationModel(original)
+        let child = model.scope(state: \.child)
+        let changes = MutationProbe()
+        observe({ _ = child.title }, changes)
+        var detached = original
+        detached.child.title = "Detached"
+        #expect(changes.count() == 1)
+        #expect(child.title == "Detail")
+        observe({ _ = child.title }, changes)
+        model.sendViewEvent(.reset(detached))
+        #expect(changes.count() == 1)
+        #expect(child.title == "Detached")
+    }
+
+    @Test
+    func materializedScopesAndResultsAreARCAndBounded() throws {
+        var model: MutationModel? = mutationModel()
+        let weakModel = WeakMutationModel(model)
+        var held: ScopedRowViewModel<MutationRow>? = model?.filteredRows.first
+        for _ in 0..<100 {
+            _ = model?.scope(state: \.child)
+            _ = model?.scopeIfPresent(state: \.parent)?.scope(state: \.detail)
+        }
+        model?.sendViewEvent(.noise)
+        #expect(model!.featureStateRegistrationCount == 1) // materialized root result only
+        model?.sendViewEvent(.replaceRows([]))
+        #expect(model?.filteredRows.isEmpty == true)
+        model = nil
+        #expect(weakModel.value != nil)
+        #expect(held?.title != nil)
+        held = nil
+        #expect(weakModel.value == nil)
+    }
+
+    @Test
+    func backgroundCopyNotifiesHeldRowOffActorWithoutReconcilingTheModel() async throws {
+        let original = MutationState()
+        let model = mutationModel(original)
+        let row = try #require(model.filteredRows.first { $0.id == 1 })
+        let probe = MutationProbe()
+        let hopped = CancellationProbe()
+        withObservationTracking { _ = row.title } onChange: {
+            probe.increment(Thread.isMainThread ? "main" : "background")
+            Task { @MainActor in
+                probe.append(row.title)
+                await hopped.markStarted()
+            }
+        }
+        let mutated = await Task.detached {
+            var copy = original
+            copy.rows[0].title = "Background"
+            return copy
+        }.value
+        await hopped.waitUntilStarted()
+        #expect(probe.count("background") == 1)
+        #expect(probe.count("main") == 0)
+        #expect(probe.log == ["Milk"])
+        #expect(row.title == "Milk")
+        #expect(mutated.rows[0].title == "Background")
+        #expect(original.probe.count("rows") == 1)
+    }
+
+    @Test
+    func twoModelsShareChannelsButNotCommittedValues() {
+        let state = MutationState()
+        let first = mutationModel(state)
+        let second = mutationModel(state)
+        let firstChanges = MutationProbe()
+        let secondChanges = MutationProbe()
+        observe({ _ = first.label }, firstChanges)
+        observe({ _ = second.label }, secondChanges)
+        first.sendViewEvent(.count(6))
+        #expect(firstChanges.count() == 1)
+        #expect(secondChanges.count() == 1)
+        #expect(first.label == "3 items")
+        #expect(second.label == "0 items")
+    }
+
+    @Test
+    func testViewModelAssertionCopiesDoNotCorruptPreviousOrActualState() async {
+        let original = MutationState()
+        let model = TestViewModel(
+            initialDomainState: original,
+            feature: Feature<MutationAction, MutationState, _FeatureStatePresentation>(
+                interactor: MutationInteractor(probe: original.probe)
+            )
+        )
+        await model.send(.child(.title("Asserted"))) { $0.child.title = "Asserted" }
+        let previous = model.domainState
+        await model.send(.child(.sibling)) { $0.child.sibling = 1 }
+        #expect(model.domainState.child.title == "Asserted")
+        #expect(model.domainState.child.sibling == 1)
+        #expect(previous.child.sibling == 0)
+        #expect(original.child.title == "Detail")
+        await model.finish()
+    }
+
+    @Test
+    func observerSendIsBufferedThroughEffectEnrollmentAndHasItsOwnEventTask() async throws {
+        let rootProbe = CancellationProbe()
+        let observerProbe = CancellationProbe()
+        let log = MutationProbe()
+        let capture = CapturedLoopModel()
+        let interactor = Interact<MutationState, LoopAction> { state, action in
+            switch action {
+            case .root:
+                state.count = 2
+                return suspendedEmission(rootProbe)
+            case .observer:
+                // The action is reached only through this MainActor-owned model.
+                MainActor.assumeIsolated {
+                    let effects = Mirror(reflecting: capture.model!).children.first { $0.label == "effectTasks" }?.value
+                    log.append("enrolled:\(effects.map { Mirror(reflecting: $0).children.count } ?? -1)")
+                }
+                state.ticket = 1
+                return suspendedEmission(observerProbe)
+            }
+        }
+        let model = ViewModel(initialDomainState: MutationState(), feature: Feature(interactor: interactor))
+        capture.model = model
+        withObservationTracking { _ = model.label } onChange: {
+            MainActor.assumeIsolated {
+                log.append(model.label)
+                capture.observerTask = model.sendViewEvent(.observer)
+                log.append("buffered:\(model.ticket)")
+            }
+        }
+        let rootTask = model.sendViewEvent(.root)
+        let observerTask = try #require(capture.observerTask)
+        #expect(log.log == ["0 items", "buffered:0", "enrolled:1"])
+        #expect(model.ticket == 1)
+        await rootProbe.waitUntilStarted()
+        await observerProbe.waitUntilStarted()
+        rootTask.cancel()
+        await rootTask.finish()
+        #expect(await rootProbe.cancelled())
+        #expect(await observerProbe.cancelled() == false)
+        observerTask.cancel()
+        await observerTask.finish()
+        #expect(await observerProbe.cancelled())
+    }
+
+    @Test
+    func realEventTaskStillWaitsForTransitiveEmissions() async {
+        let model = mutationModel()
+        await model.sendViewEvent(.chain).finish()
+        #expect(model.label == "11 items")
     }
 }
 
-extension FeatureStateRuntimeTests {
-    @Test
-    func derivedCachingEqualityAndEverAccessedMaintenance() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let counts = host.state.counts
-        host.update { $0.input = 1 }
-        #expect(counts.label == 0)
-        #expect(view.label == "0")
-        #expect(view.label == "0")
-        #expect(counts.label == 1)
-        let changes = ChangeCount()
-        track({ _ = view.label }, changes)
-        host.update { $0.input = 2 }
-        #expect(changes.value == 1)
-        #expect(counts.label == 2)
-        host.update { $0.input = 3 }
-        #expect(changes.value == 1) // Observation tracking is one-shot, cache is not.
-        #expect(counts.label == 3)
-        #expect(view.label == "1")
-        track({ _ = view.label }, changes)
-        host.update { $0.input = 4 }
-        #expect(changes.value == 2)
-    }
+@MainActor
+private final class WeakMutationModel {
+    weak var value: MutationModel?
+    init(_ value: MutationModel?) { self.value = value }
+}
 
-    @Test
-    func nilCachingAndOrdinaryCrossGetterCalls() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let counts = host.state.counts
-        #expect(view.nilValue == nil)
-        #expect(view.nilValue == nil)
-        #expect(counts.nilValue == 1)
-        #expect(view.combined == "0other 0")
-        #expect(counts.combined == 1)
-        #expect(counts.label == 1)
-        #expect(view.label == "0") // Raw call from combined did not cache label.
-        #expect(counts.label == 2)
-        host.update { $0.input = 2 }
-        #expect(counts.nilValue == 2)
-        #expect(counts.combined == 2)
-        #expect(counts.label == 4) // One direct slot, one ordinary combined call.
-    }
+private enum LoopAction: Sendable { case root, observer }
 
-    @Test
-    func callbacksSeePublishedStoredAndAllDerivedOutputs() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let changes = ChangeCount()
-        withObservationTracking {
-            _ = view.stored
-            _ = view.label
-            _ = view.other
-        } onChange: {
-            MainActor.assumeIsolated {
-                changes.value += 1
-                #expect(view.stored == 9)
-                #expect(view.label == "2")
-                #expect(view.other == "other 4")
-            }
+@MainActor
+private final class CapturedLoopModel {
+    weak var model: ViewModel<Feature<LoopAction, MutationState, _FeatureStatePresentation>>?
+    var observerTask: EventTask?
+}
+
+private func suspendedEmission(_ probe: CancellationProbe) -> Emission<LoopAction> {
+    .perform {
+        await probe.markStarted()
+        await withTaskCancellationHandler {
+            await probe.suspendUntilCancelled()
+        } onCancel: {
+            Task { await probe.cancel() }
         }
-        host.update { $0.stored = 9; $0.input = 4 }
-        #expect(changes.value == 1)
-        #expect(host.state.counts.label == 2)
-        #expect(host.state.counts.other == 2)
-    }
-
-    @Test
-    func inlineStoredChildIsGranularAndUsesDerivedCache() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let changes = ChangeCount()
-        track({ _ = view.child.label }, changes)
-        #expect(view.child.label == "0")
-        #expect(host.state.child.counts.label == 1)
-        host.update { $0.child.title = "Unrelated" }
-        #expect(changes.value == 0)
-        host.update { $0.child.input = 1 }
-        #expect(changes.value == 1)
-        #expect(view.child.label == "1")
-    }
-
-    @Test
-    func computedStructuresAreCoarseAndCoherent() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let child = view.computedChild
-        let optional = view.computedOptional!
-        let rows = view.computedRows
-        let changes = ChangeCount()
-        withObservationTracking {
-            _ = child.label
-            _ = optional.title
-            _ = rows.ids
-        } onChange: {
-            MainActor.assumeIsolated {
-                changes.value += 1
-                #expect(child.label == "2")
-                #expect(optional.title == "2")
-                #expect(Array(rows.ids) == [2])
-            }
-        }
-        host.update { $0.input = 2 }
-        #expect(changes.value == 1)
-        #expect(host.state.counts.child == 2)
-        #expect(host.state.counts.optional == 2)
-        #expect(host.state.counts.rows == 2)
-        host.update { $0.show = false }
-        #expect(view.computedOptional == nil)
-        #expect(rows.isEmpty)
-    }
-
-    @Test
-    func heldOptionalUsesCreationSnapshotWithoutPoisoningLiveCache() {
-        let host = FeatureStateHost(ObservedState())
-        let view = host.projection
-        let held = view.optional!
-        #expect(held.label == "0")
-        host.update { $0.optional?.input = 2 }
-        #expect(held.label == "2")
-        host.update { $0.optional = nil }
-        #expect(view.optional == nil)
-        #expect(held.label == "0")
-        host.update { $0.optional = ObservedChild(input: 7) }
-        #expect(held.label == "7")
-        #expect(view.optional?.label == "7")
-    }
-
-    @Test
-    func identifiedRowsPruneAndReappearWithoutStaleOutputs() {
-        let host = FeatureStateHost(ObservedState(rows: [ObservedRow(id: 1, title: "One"), ObservedRow(id: 2, title: "Two")]))
-        let rows = host.projection.rows
-        let held = rows[id: 1]!
-        let rowChanges = ChangeCount()
-        let structureChanges = ChangeCount()
-        track({ _ = held.label }, rowChanges)
-        track({ _ = rows.ids }, structureChanges)
-        host.update { $0.rows[id: 2]?.input = 2 }
-        #expect(rowChanges.value == 0)
-        #expect(structureChanges.value == 0)
-        host.update { $0.rows.reverse() }
-        #expect(structureChanges.value == 1)
-        #expect(rowChanges.value == 0)
-        host.update { $0.rows.remove(id: 1) }
-        #expect(rowChanges.value == 1)
-        #expect(rows[id: 1] == nil)
-        #expect(held.label == "0")
-        host.update { $0.rows.append(ObservedRow(id: 1, title: "New", input: 9)) }
-        #expect(held.label == "9")
-        #expect(rows[id: 1]?.label == "9")
-    }
-
-    @Test
-    func absentReadersTrackReappearanceAndNestedSnapshotsStayDetached() {
-        let host = FeatureStateHost(ObservedState(rows: [ObservedRow(id: 1, title: "Initial")]))
-        let view = host.projection
-        let row = view.rows[id: 1]!
-        host.update { $0.rows.remove(id: 1) }
-        let changes = ChangeCount()
-        track({ _ = row.label }, changes)
-        host.update { $0.rows.append(ObservedRow(id: 1, title: "New", input: 8)) }
-        #expect(changes.value == 1)
-        #expect(row.label == "8")
-
-        let phase = FeatureStateHost(ObservedPhase.nested(.ready(CoarseChild(title: "Initial", input: 1))))
-        let heldParent = phase.projection.nested!
-        phase.update { $0 = .idle }
-        let heldChild = heldParent.ready! // Created from a detached parent snapshot.
-        #expect(heldChild.label == "1")
-        phase.update { $0 = .nested(.ready(CoarseChild(title: "Current", input: 9))) }
-        #expect(heldChild.label == "9")
-    }
-
-    @Test
-    func computedOptionalNilIsCachedAndStoredOptionalShapeIsObserved() {
-        let host = FeatureStateHost(ObservedState(show: false, optional: nil))
-        let view = host.projection
-        #expect(view.computedOptional == nil)
-        #expect(view.computedOptional == nil)
-        #expect(host.state.counts.optional == 1)
-        let changes = ChangeCount()
-        track({ _ = view.optional }, changes)
-        host.update { $0.optional = ObservedChild(input: 3) }
-        #expect(changes.value == 1)
-        #expect(host.state.counts.optional == 2)
-        #expect(view.optional?.label == "3")
-        host.update { $0.show = true }
-        #expect(view.computedOptional?.title == "0")
-    }
-
-    @Test
-    func enumCaseAndNestedHeldSnapshot() {
-        let host = FeatureStateHost(ObservedPhase.nested(.ready(CoarseChild(title: "Initial"))))
-        let held = host.projection.nested!.ready!
-        let changes = ChangeCount()
-        track({ _ = held.title }, changes)
-        host.update { $0 = .idle }
-        #expect(changes.value == 1)
-        #expect(host.projection.nested == nil)
-        #expect(held.title == "Initial")
-        host.update { $0 = .nested(.ready(CoarseChild(title: "Current"))) }
-        #expect(held.title == "Current")
+        return nil
     }
 }
 
-import Observation
+@MainActor
+private final class CapturedScopes {
+    var parent: ScopedViewModel<MutationParent, Never>?
+    var row: ScopedRowViewModel<MutationRow>?
+}
 
 @MainActor
-private final class ChangeCount { var value = 0 }
+private func observe(_ read: () -> Void, _ probe: MutationProbe) {
+    withObservationTracking(read) { probe.increment() }
+}
 
-@MainActor
-private func track(_ read: () -> Void, _ changes: ChangeCount) {
-    withObservationTracking(read) {
-        MainActor.assumeIsolated { changes.value += 1 }
+@Suite
+struct FeatureStateCopyTests {
+    @Test
+    func generatedRootRowOptionalAndGenericStorageShareThenDetach() {
+        let original = MutationState()
+        var copy = original
+        #expect(storageID(original, "child", MutationDetail.self) == storageID(copy, "child", MutationDetail.self))
+        #expect(storageID(original, "parent", MutationParent?.self) == storageID(copy, "parent", MutationParent?.self))
+        let changes = MutationProbe()
+        withObservationTracking { _ = original.child.title } onChange: { changes.increment() }
+        copy.child.title = "Copy"
+        #expect(copy.child.title == "Copy")
+        #expect(original.child.title == "Detail")
+        #expect(changes.count() == 1)
+        #expect(original._featureStateIdentity == copy._featureStateIdentity)
+        #expect(original.child._featureStateIdentity == copy.child._featureStateIdentity)
+        #expect(storageID(original, "child", MutationDetail.self) != storageID(copy, "child", MutationDetail.self))
+        copy.parent?.detail.sibling += 1
+        #expect(original.parent?.detail.sibling == 0)
+        #expect(copy.parent?.detail.sibling == 1)
+        #expect(storageID(original, "parent", MutationParent?.self) != storageID(copy, "parent", MutationParent?.self))
+        var setterCopy = original
+        setterCopy.parent = original.parent // Equal setter still detaches shared storage.
+        #expect(storageID(original, "parent", MutationParent?.self) != storageID(setterCopy, "parent", MutationParent?.self))
+        setterCopy.child = MutationDetail(title: "Replacement")
+        #expect(original.child.title == "Detail")
+        var row = original.rows[0]
+        let rowCopy = row
+        #expect(storageID(row, "detail", MutationDetail.self) == storageID(rowCopy, "detail", MutationDetail.self))
+        row.detail.title = "Changed row"
+        #expect(rowCopy.detail.title == "Detail")
+        #expect(storageID(row, "detail", MutationDetail.self) != storageID(rowCopy, "detail", MutationDetail.self))
+        let generic = MutationGeneric(value: MutationDetail(), optional: MutationDetail())
+        var genericCopy = generic
+        #expect(storageID(generic, "value", MutationDetail.self) == storageID(genericCopy, "value", MutationDetail.self))
+        genericCopy.value.sibling += 1
+        genericCopy.optional?.title = "Generic"
+        #expect(generic.value.sibling == 0)
+        #expect(generic.optional?.title == "Detail")
+        #expect(storageID(generic, "value", MutationDetail.self) != storageID(genericCopy, "value", MutationDetail.self))
+    }
+
+    @Test
+    func uniqueStorageMutatesInPlaceAndEquatableAggregateSiblingsStayQuiet() {
+        var state = MutationState()
+        let initialBox = storageID(state, "child", MutationDetail.self)
+        let changes = MutationProbe()
+        withObservationTracking { _ = state.child.title } onChange: { changes.increment() }
+        state.child.sibling += 1
+        #expect(changes.count() == 0)
+        #expect(storageID(state, "child", MutationDetail.self) == initialBox)
+        state.child = MutationDetail(sibling: 1) // Fresh, content-equal aggregate.
+        #expect(changes.count() == 1)
+        withObservationTracking { _ = state.child.title } onChange: { changes.increment() }
+        state.child.title = "New tree"
+        #expect(changes.count() == 2)
+        #expect(storageID(state, "count", Int.self) == nil)
+    }
+
+    @Test
+    func backgroundCopiesNotifyOnMutatingExecutorWithoutChangingCommittedValues() async {
+        let state = MutationState()
+        let probe = MutationProbe()
+        withObservationTracking { _ = state.child.title } onChange: {
+            probe.increment(Thread.isMainThread ? "main" : "background")
+        }
+        let copy = await Task.detached {
+            var copy = state
+            copy.child.title = "Background"
+            return copy
+        }.value
+        #expect(probe.count("background") == 1)
+        #expect(probe.count("main") == 0)
+        #expect(state.child.title == "Detail")
+        #expect(copy.child.title == "Background")
+    }
+
+    @Test
+    func concurrentSeparateCopiesKeepValuesIndependent() async {
+        let state = MutationState()
+        let values = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
+            for number in 0..<64 {
+                group.addTask {
+                    var copy = state
+                    copy.parent?.detail.sibling = number
+                    copy.rows[0].detail.sibling += number
+                    return copy.parent!.detail.sibling + copy.rows[0].detail.sibling
+                }
+            }
+            var results: [Int] = []
+            for await value in group { results.append(value) }
+            return results.sorted()
+        }
+        #expect(values == (0..<64).map { $0 * 2 })
+        #expect(state.parent?.detail.sibling == 0)
+        #expect(state.rows[0].detail.sibling == 0)
+    }
+}
+
+private func storageID<Value>(_ state: Any, _ field: String, _: Value.Type) -> ObjectIdentifier? {
+    let wrapper = Mirror(reflecting: state).children.first { $0.label == "_feature_\(field)" }?.value
+    return (wrapper as? _FeatureStateTracked<Value>)?.storageIdentity
+}
+
+@FeatureState
+private struct MutationObserverState: Sendable {
+    @Domain var probe: MutationProbe
+    var child: MutationDetail = MutationDetail() {
+        willSet { probe.append("will:\(child.title)") }
+        didSet { probe.append("did:\(child.title)") }
+    }
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func propertyObserversStillRunForEqualAssignmentAndModifyOnCopiedStorage() {
+        let probe = MutationProbe()
+        let original = MutationObserverState(probe: probe)
+        var copy = original
+        let changes = MutationProbe()
+        withObservationTracking { _ = original.child.title } onChange: { changes.increment() }
+        copy.child = original.child
+        #expect(changes.count() == 0)
+        copy.child.title = "Copy"
+        #expect(changes.count() == 1)
+        #expect(original.child.title == "Detail")
+        #expect(copy.child.title == "Copy")
+        #expect(probe.log == ["will:Detail", "did:Detail", "will:Detail", "did:Copy"])
     }
 }

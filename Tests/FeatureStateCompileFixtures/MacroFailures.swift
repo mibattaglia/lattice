@@ -36,15 +36,25 @@ import IdentifiedCollections
 @Domain var invalid: Int = 0
 #elseif DOMAIN_STATIC
 @FeatureState struct Invalid { @Domain static var value: Int = 1 }
-#elseif NON_EQUATABLE_LEAF
-struct Leaf {}
-@FeatureState struct Invalid { var value: Leaf = Leaf() }
 #elseif NON_EQUATABLE_COMPUTED_CHILD
 @FeatureState struct Child { var value: Int = 0 }
 @FeatureState struct Invalid { var value: Child { Child() } }
 #elseif NON_EQUATABLE_COMPUTED_OPTIONAL
 @FeatureState struct Child { var value: Int = 0 }
 @FeatureState struct Invalid { var value: Child? { Child() } }
+#elseif HIDDEN_LAZY
+@FeatureState struct Invalid { @Domain lazy var value: Int = 1 }
+#elseif HIDDEN_WRAPPER
+@propertyWrapper struct Wrapper { var wrappedValue: Int }
+@FeatureState struct Invalid { @Domain @Wrapper var value: Int = 1 }
+#elseif PLAIN_ENUM_PAYLOAD
+@FeatureState enum Invalid { case count(Int) }
+#elseif HIDDEN_CONDITIONAL
+@FeatureState struct Invalid {
+    #if os(macOS)
+    @Domain var value: Int = 1
+    #endif
+}
 #elseif DOMAIN_NESTED_OUTSIDE
 @FeatureState struct Outer {
     struct Inner { @Domain var value: Int = 0 }
@@ -52,6 +62,13 @@ struct Leaf {}
 #elseif NON_SENDABLE_DOMAIN
 final class Reference {}
 @FeatureState struct Invalid: Sendable { @Domain var reference: Reference = Reference() }
+#elseif HIDDEN_ROW_ID
+@FeatureState struct Row: Sendable, Identifiable { @Domain var id: Int = 0; var title: String = "" }
+@FeatureState struct Invalid { var rows: [Row] { [] } }
+#elseif TRACKED_ROW_ID
+@FeatureState struct ID: Hashable { @Domain var secret: Int = 0 }
+@FeatureState struct Row: Identifiable { var id: ID = ID(); var title: String = "" }
+@FeatureState struct Invalid { var rows: IdentifiedArrayOf<Row> { [] } }
 #elseif ARRAY_FEATURE
 @FeatureState struct Invalid { var value: [FixtureChild] = [] }
 #elseif OPTIONAL_ARRAY_FEATURE

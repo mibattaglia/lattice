@@ -3,7 +3,7 @@ import IdentifiedCollections
 /// Read-only, filtered access to a feature state's visible members.
 @MainActor
 @dynamicMemberLookup
-public struct FeatureProjection<State: FeatureStateProtocol> {
+public struct FeatureProjection<State: _LegacyFeatureProjectionState> {
     let read: () -> (value: State, isLive: Bool)
     let registrar: FeatureStateRegistrar
     let key: ProjectionKey
@@ -32,7 +32,7 @@ public struct FeatureProjection<State: FeatureStateProtocol> {
         return snapshot.value[keyPath: descriptor.keyPath]
     }
 
-    public subscript<Child: FeatureStateProtocol>(
+    public subscript<Child: _LegacyFeatureProjectionState>(
         dynamicMember member: KeyPath<State._ViewMembers, ProjectionChildMember<State, Child>>
     ) -> FeatureProjection<Child> {
         let descriptor = State._viewMembers[keyPath: member]
@@ -51,7 +51,7 @@ public struct FeatureProjection<State: FeatureStateProtocol> {
         return FeatureProjection<Child>(resolve: resolve, registrar: registrar, key: childKey)
     }
 
-    public subscript<Child: FeatureStateProtocol>(
+    public subscript<Child: _LegacyFeatureProjectionState>(
         dynamicMember member: KeyPath<State._ViewMembers, ProjectionOptionalMember<State, Child>>
     ) -> FeatureProjection<Child>? {
         let descriptor = State._viewMembers[keyPath: member]
@@ -75,7 +75,7 @@ public struct FeatureProjection<State: FeatureStateProtocol> {
         )
     }
 
-    public subscript<Element: FeatureStateProtocol & Identifiable & Equatable>(
+    public subscript<Element: _LegacyFeatureProjectionState & Identifiable & Equatable>(
         dynamicMember member: KeyPath<State._ViewMembers, ProjectionCollectionMember<State, Element>>
     ) -> CollectionProjection<Element> {
         let descriptor = State._viewMembers[keyPath: member]

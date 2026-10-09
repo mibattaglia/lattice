@@ -3,6 +3,10 @@ import Observation
 import OrderedCollections
 import SwiftUI
 
+#if canImport(CasePaths)
+    import CasePaths
+#endif
+
 @MainActor
 protocol _ViewModel {
     associatedtype ViewState: ObservableState
@@ -77,7 +81,7 @@ protocol _ViewModel {
 /// ```
 @dynamicMemberLookup
 @MainActor
-public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
+public final class ViewModel<F: FeatureProtocol>: Observable {
     public typealias Action = F.Action
     public typealias DomainState = F.DomainState
     public typealias ViewState = F.ViewState
@@ -96,7 +100,10 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     private nonisolated let taskRegistry = EffectTaskRegistry()
     private nonisolated let cancellationRegistry = EffectCancellationRegistry()
 
-    private let _$observationRegistrar = ObservationRegistrar()
+    private let rootSignal = _FeatureStateSignal()
+    private let featureStateRegistry = _FeatureStateRegistry()
+    private var featureStateContext: _FeatureStateContext<DomainState>?
+
 
     /// Creates a ViewModel for a concrete feature.
     ///
@@ -106,7 +113,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     public convenience init(
         initialDomainState: DomainState,
         feature: F
-    ) {
+    ) where ViewState: ObservableState {
         self.init(
             initialDomainState: initialDomainState,
             initialViewState: feature.makeInitialViewState(initialDomainState),
@@ -169,25 +176,20 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         self.areStatesEqual = areStatesEqual
     }
 
-    public private(set) var viewState: ViewState {
-        get {
-            _$observationRegistrar.access(self, keyPath: \.viewState)
-            return _viewState
-        }
-        set {
-            if _viewState._$id == newValue._$id {
-                _viewState = newValue
-            } else {
-                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {
-                    _viewState = newValue
-                }
-            }
-        }
+    public init(initialDomainState: DomainState, feature: F)
+    where DomainState: FeatureStateProtocol, ViewState == _FeatureStatePresentation {
+        domainState = initialDomainState
+        interactor = feature.interactor
+        viewStateReducer = feature.viewStateReducer
+        areStatesEqual = feature.areStatesEqual
+        _viewState = _FeatureStatePresentation()
+        // The empty T1 marker never runs a reducer or a production comparator.
+        featureStateContext = _FeatureStateContext(
+            registry: featureStateRegistry, signal: rootSignal,
+            value: { [unowned self] in domainState }, isLive: { true }
+        )
     }
 
-    public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
-        self.viewState[keyPath: keyPath]
-    }
 
     /// Sends an action to the interactor and returns a handle for the root send scope.
     ///
@@ -261,7 +263,20 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     private func commitProductionTransition(
         _ transition: ActionTransition<DomainState, Action>
     ) {
+        let oldIdentity = (domainState as? any FeatureStateProtocol)?._featureStateIdentity
         domainState = transition.currentState
+
+        if featureStateContext != nil {
+            // All live paths/result slots receive final committed values before
+            // any host replacement signal. Native field callbacks already ran
+            // against the independent working copy, often reading old state.
+            let signals = featureStateRegistry.stage()
+            for signal in signals { signal.notify() }
+            if oldIdentity != (domainState as? any FeatureStateProtocol)?._featureStateIdentity {
+                rootSignal.notify()
+            }
+            return
+        }
 
         let shouldReduceViewState =
             transition.source == .emitted
@@ -280,10 +295,10 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         // store, preserving today's ordering.
         var workingViewState = _viewState
         viewStateReducer.reduce(transition.currentState, into: &workingViewState)
-        let oldID = _viewState._$id
+        let oldID = (_viewState as? any ObservableState)?._$id
         _viewState = workingViewState
-        if _viewState._$id != oldID {
-            _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
+        if (_viewState as? any ObservableState)?._$id != oldID {
+            rootSignal.notify()
         }
     }
 
@@ -434,3 +449,112 @@ extension ViewModel where DomainState: Equatable {
         )
     }
 }
+
+extension ViewModel: _ViewModel where ViewState: ObservableState {}
+
+extension ViewModel where ViewState: ObservableState {
+    public private(set) var viewState: ViewState {
+        get {
+            rootSignal.access()
+            return _viewState
+        }
+        set {
+            if _viewState._$id == newValue._$id {
+                _viewState = newValue
+            } else {
+                _viewState = newValue
+                rootSignal.notify()
+            }
+        }
+    }
+
+    public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
+        self.viewState[keyPath: keyPath]
+    }
+
+}
+
+extension ViewModel where DomainState: FeatureStateProtocol, ViewState == _FeatureStatePresentation {
+
+    public subscript<Value>(
+        dynamicMember member: KeyPath<DomainState._ViewMembers, FeatureStateValueMember<DomainState, Value>>
+    ) -> Value {
+        featureStateContext!.read()[keyPath: DomainState._viewMembers[keyPath: member].keyPath]
+    }
+
+    public subscript<Row: FeatureStateProtocol & Identifiable>(
+        dynamicMember member: KeyPath<DomainState._ViewMembers, FeatureStateRowsMember<DomainState, Row>>
+    ) -> ScopedViewModelCollection<Row> {
+        let descriptor = DomainState._viewMembers[keyPath: member]
+        let context = featureStateContext!
+        return context.rows(key: member, values: descriptor.read(context.read()), read: descriptor.read, owner: self)
+    }
+
+    public func scope<Child: FeatureStateProtocol, ChildAction: Sendable>(
+        state member: KeyPath<DomainState._ViewMembers, FeatureStateChildMember<DomainState, Child>>,
+        action embed: @escaping @MainActor (ChildAction) -> Action
+    ) -> ScopedViewModel<Child, ChildAction> {
+        let descriptor = DomainState._viewMembers[keyPath: member]
+        let parent = featureStateContext!
+        let seed = parent.read()[keyPath: descriptor.keyPath]
+        let context = parent.child(key: member, seed: seed, read: descriptor.read)
+        return ScopedViewModel(context: context, owner: self, send: { [self] in sendViewEvent(embed($0)) })
+    }
+
+    public func scope<Child: FeatureStateProtocol>(
+        state member: KeyPath<DomainState._ViewMembers, FeatureStateChildMember<DomainState, Child>>
+    ) -> ScopedViewModel<Child, Never> {
+        scope(state: member, action: _uninhabitedFeatureAction)
+    }
+
+    public func scopeIfPresent<Child: FeatureStateProtocol, ChildAction: Sendable>(
+        state member: KeyPath<DomainState._ViewMembers, FeatureStateOptionalMember<DomainState, Child>>,
+        action embed: @escaping @MainActor (ChildAction) -> Action
+    ) -> ScopedViewModel<Child, ChildAction>? {
+        let descriptor = DomainState._viewMembers[keyPath: member]
+        let parent = featureStateContext!
+        guard let seed = parent.read()[keyPath: descriptor.keyPath] else { return nil }
+        let context = parent.child(key: member, seed: seed, read: descriptor.read)
+        return ScopedViewModel(context: context, owner: self, send: { [self] in sendViewEvent(embed($0)) })
+    }
+
+    public func scopeIfPresent<Child: FeatureStateProtocol>(
+        state member: KeyPath<DomainState._ViewMembers, FeatureStateOptionalMember<DomainState, Child>>
+    ) -> ScopedViewModel<Child, Never>? {
+        scopeIfPresent(state: member, action: _uninhabitedFeatureAction)
+    }
+
+    public func binding<Value>(
+        _ member: KeyPath<DomainState._ViewMembers, FeatureStateValueMember<DomainState, Value>>,
+        sending embed: @escaping @MainActor (Value) -> Action
+    ) -> Binding<Value> {
+        Binding(get: { self[dynamicMember: member] }, set: { self.sendViewEvent(embed($0)) })
+    }
+
+    var featureStateRegistrationCount: Int { featureStateRegistry.count }
+}
+
+#if canImport(CasePaths)
+    extension ViewModel where DomainState: FeatureStateProtocol, Action: CasePathable, ViewState == _FeatureStatePresentation {
+        public func scope<Child: FeatureStateProtocol, ChildEvent: Sendable>(
+            state member: KeyPath<DomainState._ViewMembers, FeatureStateChildMember<DomainState, Child>>,
+            action embed: CaseKeyPath<Action, ChildEvent>
+        ) -> ScopedViewModel<Child, ChildEvent> {
+            scope(state: member, action: { embed($0) })
+        }
+
+        public func scopeIfPresent<Child: FeatureStateProtocol, ChildEvent: Sendable>(
+            state member: KeyPath<DomainState._ViewMembers, FeatureStateOptionalMember<DomainState, Child>>,
+            action embed: CaseKeyPath<Action, ChildEvent>
+        ) -> ScopedViewModel<Child, ChildEvent>? {
+            scopeIfPresent(state: member, action: { embed($0) })
+        }
+
+        public func binding<Value>(
+            _ member: KeyPath<DomainState._ViewMembers, FeatureStateValueMember<DomainState, Value>>,
+            sending embed: CaseKeyPath<Action, Value>
+        ) -> Binding<Value> {
+            binding(member, sending: { embed($0) })
+        }
+    }
+#endif

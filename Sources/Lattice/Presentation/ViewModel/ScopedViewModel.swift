@@ -4,39 +4,17 @@ import SwiftUI
     import CasePaths
 #endif
 
-/// A stateless, fine-grained projection of a parent ``ViewModel`` onto a child slice of view
-/// state and a child action space.
-///
-/// Create a scope with ``ViewModel/scope(state:action:)``. Reads register on the parent's
-/// nested observation registrar, so a child view re-renders only when its own slice changes;
-/// ``sendViewEvent(_:)`` embeds child actions into the parent action and runs them on the
-/// parent's action loop.
-///
-/// ## Observe members, not the container
-///
-/// Read **members** through the scope (`model.title`, `model.badge.count`, or
-/// ``binding(_:sending:)``) so observation tracks the live getter chain and the view re-renders
-/// on in-place mutations. Reading the whole-slice ``viewState`` value registers only the
-/// container's identity and will **not** re-render on an in-place leaf mutation — exactly the
-/// same distinction as `viewModel.title` (fine-grained) versus `viewModel.viewState` (coarse).
-/// Member access at any depth stays fine-grained because each hop invokes a live
-/// `@ObservableState` getter; the rule is the chain of getters you actually read, not how deep
-/// the slice is. (`@ObservableState` shares its observation registrar across value copies, so
-/// reading members off a stored copy still tracks the live state — only reading the *whole*
-/// container value is coarse.)
-///
-/// `ScopedViewModel` is a value type that owns no state, effects, or lifecycle, so it is cheap
-/// to recreate on every render.
-///
-/// Create scopes inline in `body` and do not store them (e.g. in `@State` or any long-lived
-/// property): a scope strongly retains its parent ``ViewModel``, so storing one beyond the
-/// render that created it extends the parent's lifetime and delays the effect cancellation
-/// that runs in the parent's `deinit`.
+/// Filtered child reads and explicitly embedded actions owned by a ViewModel.
+/// Tracked scopes retain their last committed live-path value on disappearance
+/// and reconnect at the same logical path. ARC, not consumer disposal, owns them.
 @dynamicMemberLookup
 @MainActor
-public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable> {
+public final class ScopedViewModel<ChildState, ChildAction: Sendable> {
     private let _state: @MainActor () -> ChildState
     private let _send: @MainActor (ChildAction) -> EventTask
+    private var trackedContext: _FeatureStateContext<ChildState>?
+    private var owner: AnyObject?
+
 
     init(
         state: @escaping @MainActor () -> ChildState,
@@ -46,21 +24,14 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         self._send = send
     }
 
-    /// The current value of the whole child slice.
-    ///
-    /// This is the **coarse** read: it registers only the slice's identity (`_$id`), so like
-    /// ``ViewModel/viewState`` it re-renders only on a wholesale slice replacement and **not**
-    /// on an in-place leaf mutation. To observe leaf changes fine-grained, read members through
-    /// the scope instead (`model.title`), which is the common case.
-    public var viewState: ChildState { _state() }
-
-    /// Accesses a member of the child slice with fine-grained observation.
-    ///
-    /// This is the **fine-grained** read: `model.title` (or deeper, `model.badge.count`) walks
-    /// the live `@ObservableState` getter chain and re-renders the view on in-place mutations
-    /// of that member. Prefer this over ``viewState`` in views.
-    public subscript<Value>(dynamicMember keyPath: KeyPath<ChildState, Value>) -> Value {
-        _state()[keyPath: keyPath]
+    init(
+        context: _FeatureStateContext<ChildState>, owner: AnyObject,
+        send: @escaping @MainActor (ChildAction) -> EventTask
+    ) {
+        trackedContext = context
+        self.owner = owner
+        _state = { context.read() }
+        _send = send
     }
 
     /// Sends a child action, embedding it into the parent action and running it on the parent's
@@ -87,30 +58,11 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         _send(action)
     }
 
-    #if canImport(CasePaths)
-        /// Returns a binding whose getter reads the given key path with fine-grained
-        /// observation and whose setter sends the new value embedded as a child action.
-        ///
-        /// - Parameters:
-        ///   - keyPath: A key path into the child slice to read.
-        ///   - embed: A case key path that wraps the new value into a child action.
-        /// - Returns: A two-way binding over the child slice.
-        public func binding<Value>(
-            _ keyPath: KeyPath<ChildState, Value>,
-            sending embed: CaseKeyPath<ChildAction, Value>
-        ) -> Binding<Value> {
-            let state = self._state
-            let send = self._send
-            return Binding(
-                get: { state()[keyPath: keyPath] },
-                set: { newValue in _ = send(embed(newValue)) }
-            )
-        }
-    #endif
+
 }
 
 #if canImport(CasePaths)
-    extension ViewModel where Action: CasePathable {
+    extension ViewModel where ViewState: ObservableState, Action: CasePathable {
         /// Projects this view model onto a child slice of view state and a child action space.
         ///
         /// The child action is embedded into this feature's action with `actionCasePath`. This
@@ -131,7 +83,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         }
     }
 
-    extension ScopedViewModel {
+    extension ScopedViewModel where ChildState: ObservableState {
         /// Projects this scope onto a grandchild slice and action space, composing through the
         /// parent.
         ///
@@ -153,7 +105,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         }
     }
 
-    extension ViewModel where ViewState: CasePathable, Action: CasePathable {
+    extension ViewModel where ViewState: ObservableState & CasePathable, Action: CasePathable {
         /// Projects this view model onto the payload of an enum case of view state, if that case
         /// is currently active.
         ///
@@ -217,7 +169,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         }
     }
 
-    extension ScopedViewModel where ChildState: CasePathable {
+    extension ScopedViewModel where ChildState: ObservableState & CasePathable {
         /// Projects this scope onto the payload of an enum case of the child slice, if active.
         /// See ``ViewModel/scopeIfActive(state:action:)``.
         public func scopeIfActive<CaseState: ObservableState, CaseAction: Sendable>(
@@ -255,7 +207,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
     }
 #endif
 
-extension ViewModel {
+extension ViewModel where ViewState: ObservableState {
     /// Projects this view model onto a child slice of view state and a child action space,
     /// mapping child actions into parent actions with a closure.
     ///
@@ -292,3 +244,128 @@ extension ViewModel {
         )
     }
 }
+
+extension ScopedViewModel where ChildState: ObservableState {
+    /// The current value of the whole child slice.
+    ///
+    /// This is the **coarse** read: it registers only the slice's identity (`_$id`), so like
+    /// ``ViewModel/viewState`` it re-renders only on a wholesale slice replacement and **not**
+    /// on an in-place leaf mutation. To observe leaf changes fine-grained, read members through
+    /// the scope instead (`model.title`), which is the common case.
+    public var viewState: ChildState { _state() }
+
+    /// Accesses a member of the child slice with fine-grained observation.
+    ///
+    /// This is the **fine-grained** read: `model.title` (or deeper, `model.badge.count`) walks
+    /// the live `@ObservableState` getter chain and re-renders the view on in-place mutations
+    /// of that member. Prefer this over ``viewState`` in views.
+    public subscript<Value>(dynamicMember keyPath: KeyPath<ChildState, Value>) -> Value {
+        _state()[keyPath: keyPath]
+    }
+
+    #if canImport(CasePaths)
+        /// Returns a binding whose getter reads the given key path with fine-grained
+        /// observation and whose setter sends the new value embedded as a child action.
+        ///
+        /// - Parameters:
+        ///   - keyPath: A key path into the child slice to read.
+        ///   - embed: A case key path that wraps the new value into a child action.
+        /// - Returns: A two-way binding over the child slice.
+        public func binding<Value>(
+            _ keyPath: KeyPath<ChildState, Value>,
+            sending embed: CaseKeyPath<ChildAction, Value>
+        ) -> Binding<Value> {
+            let state = self._state
+            let send = self._send
+            return Binding(
+                get: { state()[keyPath: keyPath] },
+                set: { newValue in _ = send(embed(newValue)) }
+            )
+        }
+    #endif
+}
+
+extension ScopedViewModel where ChildState: FeatureStateProtocol {
+    public subscript<Value>(
+        dynamicMember member: KeyPath<ChildState._ViewMembers, FeatureStateValueMember<ChildState, Value>>
+    ) -> Value {
+        trackedContext!.read()[keyPath: ChildState._viewMembers[keyPath: member].keyPath]
+    }
+
+    public subscript<Row: FeatureStateProtocol & Identifiable>(
+        dynamicMember member: KeyPath<ChildState._ViewMembers, FeatureStateRowsMember<ChildState, Row>>
+    ) -> ScopedViewModelCollection<Row> {
+        let descriptor = ChildState._viewMembers[keyPath: member]
+        let context = trackedContext!
+        return context.rows(key: member, values: descriptor.read(context.read()), read: descriptor.read, owner: owner!)
+    }
+
+    public func scope<Grandchild: FeatureStateProtocol, GrandAction: Sendable>(
+        state member: KeyPath<ChildState._ViewMembers, FeatureStateChildMember<ChildState, Grandchild>>,
+        action embed: @escaping @MainActor (GrandAction) -> ChildAction
+    ) -> ScopedViewModel<Grandchild, GrandAction> {
+        let descriptor = ChildState._viewMembers[keyPath: member]
+        let parent = trackedContext!
+        let seed = parent.read()[keyPath: descriptor.keyPath]
+        let context = parent.child(key: member, seed: seed, read: descriptor.read)
+        return ScopedViewModel<Grandchild, GrandAction>(context: context, owner: owner!, send: { [self] in _send(embed($0)) })
+    }
+
+    public func scope<Grandchild: FeatureStateProtocol>(
+        state member: KeyPath<ChildState._ViewMembers, FeatureStateChildMember<ChildState, Grandchild>>
+    ) -> ScopedViewModel<Grandchild, Never> {
+        scope(state: member, action: _uninhabitedFeatureAction)
+    }
+
+    public func scopeIfPresent<Grandchild: FeatureStateProtocol, GrandAction: Sendable>(
+        state member: KeyPath<ChildState._ViewMembers, FeatureStateOptionalMember<ChildState, Grandchild>>,
+        action embed: @escaping @MainActor (GrandAction) -> ChildAction
+    ) -> ScopedViewModel<Grandchild, GrandAction>? {
+        let descriptor = ChildState._viewMembers[keyPath: member]
+        let parent = trackedContext!
+        guard let seed = parent.read()[keyPath: descriptor.keyPath] else { return nil }
+        let context = parent.child(key: member, seed: seed, read: descriptor.read)
+        return ScopedViewModel<Grandchild, GrandAction>(context: context, owner: owner!, send: { [self] in _send(embed($0)) })
+    }
+
+    public func scopeIfPresent<Grandchild: FeatureStateProtocol>(
+        state member: KeyPath<ChildState._ViewMembers, FeatureStateOptionalMember<ChildState, Grandchild>>
+    ) -> ScopedViewModel<Grandchild, Never>? {
+        scopeIfPresent(state: member, action: _uninhabitedFeatureAction)
+    }
+
+    public func binding<Value>(
+        _ member: KeyPath<ChildState._ViewMembers, FeatureStateValueMember<ChildState, Value>>,
+        sending embed: @escaping @MainActor (Value) -> ChildAction
+    ) -> Binding<Value> {
+        Binding(get: { self[dynamicMember: member] }, set: { _ = self._send(embed($0)) })
+    }
+}
+
+// A Never action cannot be constructed; no send or fabricated EventTask occurs.
+func _uninhabitedFeatureAction<Result>(_: Never) -> Result {}
+
+#if canImport(CasePaths)
+    extension ScopedViewModel where ChildState: FeatureStateProtocol, ChildAction: CasePathable {
+        public func scope<Child: FeatureStateProtocol, ChildEvent: Sendable>(
+            state member: KeyPath<ChildState._ViewMembers, FeatureStateChildMember<ChildState, Child>>,
+            action embed: CaseKeyPath<ChildAction, ChildEvent>
+        ) -> ScopedViewModel<Child, ChildEvent> {
+            scope(state: member, action: { embed($0) })
+        }
+
+        public func scopeIfPresent<Child: FeatureStateProtocol, ChildEvent: Sendable>(
+            state member: KeyPath<ChildState._ViewMembers, FeatureStateOptionalMember<ChildState, Child>>,
+            action embed: CaseKeyPath<ChildAction, ChildEvent>
+        ) -> ScopedViewModel<Child, ChildEvent>? {
+            scopeIfPresent(state: member, action: { embed($0) })
+        }
+
+        public func binding<Value>(
+            _ member: KeyPath<ChildState._ViewMembers, FeatureStateValueMember<ChildState, Value>>,
+            sending embed: CaseKeyPath<ChildAction, Value>
+        ) -> Binding<Value> {
+            binding(member, sending: { embed($0) })
+        }
+    }
+#endif

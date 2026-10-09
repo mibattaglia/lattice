@@ -3,7 +3,7 @@ import OrderedCollections
 
 /// Filtered, identity-keyed access to feature rows.
 @MainActor
-public struct CollectionProjection<Element: FeatureStateProtocol & Identifiable & Equatable> {
+public struct CollectionProjection<Element: _LegacyFeatureProjectionState & Identifiable & Equatable> {
     let read: () -> (value: IdentifiedArrayOf<Element>, isLive: Bool)
     let registrar: FeatureStateRegistrar
     let key: ProjectionKey

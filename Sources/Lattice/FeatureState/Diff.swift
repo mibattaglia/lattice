@@ -13,7 +13,7 @@ public func _commitProjectionMember<Root, Value>(
 }
 
 @MainActor
-public func _commitProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _commitProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ member: ProjectionChildMember<Root, Child>, old: Root, new: Root,
     registrar: FeatureStateRegistrar, key: ProjectionKey
 ) {
@@ -25,7 +25,7 @@ public func _commitProjectionMember<Root, Child: FeatureStateProtocol>(
 }
 
 @MainActor
-public func _commitProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _commitProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ member: ProjectionOptionalMember<Root, Child>, old: Root, new: Root,
     registrar: FeatureStateRegistrar, key: ProjectionKey
 ) {

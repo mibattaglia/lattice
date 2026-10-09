@@ -1,20 +1,27 @@
 import Lattice
+import SwiftUI
 import FeatureStateFixtureDefinitions
 
-func externalMetadataPass<Value: Equatable>(_: Value.Type) -> ProjectionValueMember<FixtureRoot<Value>, Value> {
-    FixtureRoot<Value>._viewMembers.value
-}
-
-func externalProtocolMetadataPass<State: FeatureStateProtocol>(_: State.Type) -> State._ViewMembers {
-    State._viewMembers
+@MainActor
+func externalPass(_ model: FixtureModel) {
+    let _: Int = model.value
+    let _: String = model.label
+    let _: String = model.scope(state: \.child).title
+    let _: String? = model.filteredRows.first?.title
+    let _: String? = model.scopeIfPresent(state: \.optional)?.scope(state: \.child).label
+    let _: Binding<String> = model.binding(\.query, sending: { .query($0) })
+    #if SAME_PACKAGE
+    let _: String = model.packageOnly
+    let _: Int? = model.filteredRows.first?.packageOnly
+    #endif
 }
 
 @MainActor
-func externalPass<Value: Equatable>(_ projection: FeatureProjection<FixtureRoot<Value>>) {
-    let _: Value = projection.value
-    let _: String = projection.child.title
-    let _: Int = projection.readOnly
-    #if SAME_PACKAGE
-    let _: String = projection.packageOnly
-    #endif
+struct ExternalRowsClient: View {
+    let model: FixtureModel
+    var body: some View {
+        ForEach(model.filteredRows) { row in
+            Text(row.title)
+        }
+    }
 }

@@ -15,7 +15,7 @@ import SwiftUI
 /// TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 /// ```
 @dynamicMemberLookup
-public struct _ViewModelBinding<F: FeatureProtocol, Value> {
+public struct _ViewModelBinding<F: FeatureProtocol, Value> where F.ViewState: ObservableState {
     private let viewModel: ViewModel<F>
     private let keyPath: KeyPath<F.ViewState, Value>
 
@@ -52,7 +52,7 @@ public struct _ViewModelBinding<F: FeatureProtocol, Value> {
 }
 
 /// A convenience alias for ``_ViewModelBinding`` that is parameterized by feature type.
-public typealias _ViewModelBindingOf<F: FeatureProtocol, Value> = _ViewModelBinding<F, Value>
+public typealias _ViewModelBindingOf<F: FeatureProtocol, Value> = _ViewModelBinding<F, Value> where F.ViewState: ObservableState
 
 extension Bindable {
     /// Accesses ViewModel state properties for creating bindings.
@@ -60,7 +60,7 @@ extension Bindable {
         dynamicMember keyPath: KeyPath<F.ViewState, Member>
     ) -> _ViewModelBindingOf<F, Member>
     where
-        Value == ViewModel<F>
+        Value == ViewModel<F>, F.ViewState: ObservableState
     {
         _ViewModelBinding(
             viewModel: self.wrappedValue,
@@ -75,7 +75,7 @@ extension Bindable {
         ) -> _ViewModelCaseBinding<F, Case>
         where
             Value == ViewModel<F>,
-            F.ViewState: CasePathable
+            F.ViewState: ObservableState & CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
@@ -91,7 +91,7 @@ extension Binding {
         dynamicMember keyPath: KeyPath<F.ViewState, Member>
     ) -> _ViewModelBindingOf<F, Member>
     where
-        Value == ViewModel<F>
+        Value == ViewModel<F>, F.ViewState: ObservableState
     {
         _ViewModelBinding(
             viewModel: self.wrappedValue,
@@ -106,7 +106,7 @@ extension Binding {
         ) -> _ViewModelCaseBinding<F, Case>
         where
             Value == ViewModel<F>,
-            F.ViewState: CasePathable
+            F.ViewState: ObservableState & CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
@@ -120,7 +120,7 @@ extension Binding {
     /// A wrapper that enables creating SwiftUI bindings from ViewModel enum case associated values.
     @dynamicMemberLookup
     public struct _ViewModelCaseBinding<F: FeatureProtocol, Case>
-    where F.ViewState: CasePathable {
+    where F.ViewState: ObservableState & CasePathable {
         private let viewModel: ViewModel<F>
         private let casePath: AnyCasePath<F.ViewState, Case>
 
@@ -147,7 +147,7 @@ extension Binding {
     /// A wrapper for accessing members of an enum case's associated value.
     @dynamicMemberLookup
     public struct _ViewModelCaseMemberBinding<F: FeatureProtocol, Case, Member>
-    where F.ViewState: CasePathable {
+    where F.ViewState: ObservableState & CasePathable {
         private let viewModel: ViewModel<F>
         private let casePath: AnyCasePath<F.ViewState, Case>
         private let memberKeyPath: KeyPath<Case, Member>
@@ -213,3 +213,46 @@ extension Binding {
     }
 
 #endif
+
+/// Filtered leaf binding for the temporary tracked Feature host. It deliberately
+/// has no unrestricted nested dynamic-member forwarding.
+public struct _FeatureStateViewModelBinding<F: FeatureProtocol, Value>
+where F.DomainState: FeatureStateProtocol, F.ViewState == _FeatureStatePresentation {
+    private let model: ViewModel<F>
+    private let member: KeyPath<F.DomainState._ViewMembers, FeatureStateValueMember<F.DomainState, Value>>
+
+    init(model: ViewModel<F>, member: KeyPath<F.DomainState._ViewMembers, FeatureStateValueMember<F.DomainState, Value>>) {
+        self.model = model
+        self.member = member
+    }
+
+    @MainActor
+    public func sending(_ embed: @escaping @MainActor (Value) -> F.Action) -> Binding<Value> {
+        model.binding(member, sending: embed)
+    }
+
+    #if canImport(CasePaths)
+        @MainActor
+        public func sending(_ embed: CaseKeyPath<F.Action, Value>) -> Binding<Value> {
+            model.binding(member, sending: { embed($0) })
+        }
+    #endif
+}
+
+extension Bindable {
+    public subscript<F: FeatureProtocol, Member>(
+        dynamicMember member: KeyPath<F.DomainState._ViewMembers, FeatureStateValueMember<F.DomainState, Member>>
+    ) -> _FeatureStateViewModelBinding<F, Member>
+    where Value == ViewModel<F>, F.DomainState: FeatureStateProtocol, F.ViewState == _FeatureStatePresentation {
+        _FeatureStateViewModelBinding(model: wrappedValue, member: member)
+    }
+}
+
+extension Binding {
+    public subscript<F: FeatureProtocol, Member>(
+        dynamicMember member: KeyPath<F.DomainState._ViewMembers, FeatureStateValueMember<F.DomainState, Member>>
+    ) -> _FeatureStateViewModelBinding<F, Member>
+    where Value == ViewModel<F>, F.DomainState: FeatureStateProtocol, F.ViewState == _FeatureStatePresentation {
+        _FeatureStateViewModelBinding(model: wrappedValue, member: member)
+    }
+}

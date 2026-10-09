@@ -1,7 +1,7 @@
 import IdentifiedCollections
 
 @MainActor
-public func _commitProjectionMember<Root, Element: FeatureStateProtocol & Identifiable & Equatable>(
+public func _commitProjectionMember<Root, Element: _LegacyFeatureProjectionState & Identifiable & Equatable>(
     _ member: ProjectionCollectionMember<Root, Element>, old: Root, new: Root,
     registrar: FeatureStateRegistrar, key: ProjectionKey
 ) {

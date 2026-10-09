@@ -8,19 +8,19 @@ public struct ProjectionValueMember<Root, Value> {
 }
 
 /// A filtered child descriptor, never a raw child value.
-public struct ProjectionChildMember<Root, Child: FeatureStateProtocol> {
+public struct ProjectionChildMember<Root, Child: _LegacyFeatureProjectionState> {
     let keyPath: KeyPath<Root, Child>
     let areEqual: ((Child, Child) -> Bool)?
 }
 
 /// A filtered optional child, including generated enum case accessors.
-public struct ProjectionOptionalMember<Root, Child: FeatureStateProtocol> {
+public struct ProjectionOptionalMember<Root, Child: _LegacyFeatureProjectionState> {
     let keyPath: KeyPath<Root, Child?>
     let areEqual: ((Child?, Child?) -> Bool)?
 }
 
 /// Identified feature rows; stored rows are diffed by identity.
-public struct ProjectionCollectionMember<Root, Element: FeatureStateProtocol & Identifiable & Equatable> {
+public struct ProjectionCollectionMember<Root, Element: _LegacyFeatureProjectionState & Identifiable & Equatable> {
     let keyPath: KeyPath<Root, IdentifiedArrayOf<Element>>
     let isDerived: Bool
     let areEqual: (IdentifiedArrayOf<Element>, IdentifiedArrayOf<Element>) -> Bool
@@ -36,19 +36,19 @@ public func _projectionMember<Root, Value: Equatable>(
     ProjectionValueMember(keyPath: keyPath, isDerived: false, areEqual: { $0 == $1 })
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, Child>
 ) -> ProjectionChildMember<Root, Child> {
     ProjectionChildMember(keyPath: keyPath, areEqual: nil)
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, Child?>
 ) -> ProjectionOptionalMember<Root, Child> {
     ProjectionOptionalMember(keyPath: keyPath, areEqual: nil)
 }
 
-public func _projectionMember<Root, Element: FeatureStateProtocol & Identifiable & Equatable>(
+public func _projectionMember<Root, Element: _LegacyFeatureProjectionState & Identifiable & Equatable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Element>>
 ) -> ProjectionCollectionMember<Root, Element> {
     ProjectionCollectionMember(keyPath: keyPath, isDerived: false, areEqual: { $0 == $1 }, rowsEqual: { $0 == $1 })
@@ -61,31 +61,31 @@ public func _derivedProjectionMember<Root, Value: Equatable>(
     ProjectionValueMember(keyPath: keyPath, isDerived: true, areEqual: { $0 == $1 })
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Equatable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Equatable>(
     _ keyPath: KeyPath<Root, Child>
 ) -> ProjectionChildMember<Root, Child> {
     ProjectionChildMember(keyPath: keyPath, areEqual: { $0 == $1 })
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Equatable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Equatable>(
     _ keyPath: KeyPath<Root, Child?>
 ) -> ProjectionOptionalMember<Root, Child> {
     ProjectionOptionalMember(keyPath: keyPath, areEqual: { $0 == $1 })
 }
 
-public func _derivedProjectionMember<Root, Element: FeatureStateProtocol & Identifiable & Equatable>(
+public func _derivedProjectionMember<Root, Element: _LegacyFeatureProjectionState & Identifiable & Equatable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Element>>
 ) -> ProjectionCollectionMember<Root, Element> {
     ProjectionCollectionMember(keyPath: keyPath, isDerived: true, areEqual: { $0 == $1 }, rowsEqual: { $0 == $1 })
 }
 
 @available(*, unavailable, message: "computed feature outputs must be Equatable; add Equatable or '@Domain'")
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, Child>
 ) -> ProjectionChildMember<Root, Child> { fatalError() }
 
 @available(*, unavailable, message: "computed feature outputs must be Equatable; add Equatable or '@Domain'")
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, Child?>
 ) -> ProjectionOptionalMember<Root, Child> { fatalError() }
 
@@ -106,250 +106,250 @@ public func _commitProjectionMember<Root, Value>(
     registrar: FeatureStateRegistrar, key: ProjectionKey
 ) { fatalError() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child>>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child?>>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child?>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child>?>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child?>?>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child?>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Identifiable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Identifiable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Child>>
 ) -> UnsupportedFeatureContainerMember<Root, IdentifiedArrayOf<Child>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Identifiable>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Identifiable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Child>?>
 ) -> UnsupportedFeatureContainerMember<Root, IdentifiedArrayOf<Child>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child>>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child?>>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child?>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child>?>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable>(
     _ keyPath: KeyPath<Root, Set<Child?>?>
 ) -> UnsupportedFeatureContainerMember<Root, Set<Child?>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, ID: Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Identifiable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Identifiable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Child>>
 ) -> UnsupportedFeatureContainerMember<Root, IdentifiedArrayOf<Child>> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Identifiable>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Identifiable>(
     _ keyPath: KeyPath<Root, IdentifiedArrayOf<Child>?>
 ) -> UnsupportedFeatureContainerMember<Root, IdentifiedArrayOf<Child>?> {
     UnsupportedFeatureContainerMember()
 }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child?: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child: Value]?> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child?: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]?> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child?: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child: Value]?> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value>(
     _ keyPath: KeyPath<Root, [Child?: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]?> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]?> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _projectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]?> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child]?> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, ID: FeatureStateProtocol & Hashable, Child: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, ID: _LegacyFeatureProjectionState & Hashable, Child: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [ID: Child?]?>
 ) -> UnsupportedFeatureContainerMember<Root, [ID: Child?]?> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _projectionMember<Root, Child: FeatureStateProtocol & Hashable, Value: FeatureStateProtocol>(
+public func _projectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]?> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?: Value]>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]> { UnsupportedFeatureContainerMember() }
 
-public func _derivedProjectionMember<Root, Child: FeatureStateProtocol & Hashable, Value: FeatureStateProtocol>(
+public func _derivedProjectionMember<Root, Child: _LegacyFeatureProjectionState & Hashable, Value: _LegacyFeatureProjectionState>(
     _ keyPath: KeyPath<Root, [Child?: Value]?>
 ) -> UnsupportedFeatureContainerMember<Root, [Child?: Value]?> { UnsupportedFeatureContainerMember() }

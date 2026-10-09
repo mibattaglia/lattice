@@ -5,64 +5,11 @@
 
     final class FeatureStateMacroTests: XCTestCase {
         override func invokeTest() {
-            withMacroTesting(macros: [FeatureStateMacro.self, DomainMacro.self]) {
+            withMacroTesting(macros: [FeatureStateMacro.self, FeatureStateTrackedMacro.self, DomainMacro.self]) {
                 super.invokeTest()
             }
         }
 
-        func testGenericDescriptorsPreserveGetterAccess() {
-            assertMacro {
-                """
-                @FeatureState
-                public struct State<Value: Equatable> {
-                    public var value: Value
-                    public var child: Child
-                    var moduleOnly: String
-                    package var packageOnly: Int
-                    public private(set) var readOnly: Int
-                    @Domain public var secret: Int
-                    private var privateValue: Int
-                    fileprivate var fileValue: Int
-                    static var shared: Int = 0
-                }
-                """
-            } expansion: {
-                """
-                public struct State<Value: Equatable> {
-                    public var value: Value
-                    public var child: Child
-                    var moduleOnly: String
-                    package var packageOnly: Int
-                    public private(set) var readOnly: Int
-                    public var secret: Int
-                    private var privateValue: Int
-                    fileprivate var fileValue: Int
-                    static var shared: Int = 0
-
-                    public struct _ViewMembers {
-                        public let value = Lattice._projectionMember(\\State<Value>.value)
-                        public let child = Lattice._projectionMember(\\State<Value>.child)
-                        let moduleOnly = Lattice._projectionMember(\\State<Value>.moduleOnly)
-                        package let packageOnly = Lattice._projectionMember(\\State<Value>.packageOnly)
-                        public let readOnly = Lattice._projectionMember(\\State<Value>.readOnly)
-                    }
-
-                    public static var _viewMembers: _ViewMembers {
-                        _ViewMembers()
-                    }
-
-                    @MainActor
-                    public static func _commit(old: Self, new: Self, registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey) {
-                        Lattice._commitProjectionMember(_viewMembers.value, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.value))
-                        Lattice._commitProjectionMember(_viewMembers.child, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.child))
-                        Lattice._commitProjectionMember(_viewMembers.moduleOnly, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.moduleOnly))
-                        Lattice._commitProjectionMember(_viewMembers.packageOnly, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.packageOnly))
-                        Lattice._commitProjectionMember(_viewMembers.readOnly, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.readOnly))
-                    }
-                }
-                """
-            }
-        }
         func testMissingTypeDiagnostic() {
             assertMacro {
                 """
@@ -75,7 +22,7 @@
                 """
                 @FeatureState
                 ┬────────────
-                ╰─ 🛑 view-visible members need an explicit type annotation for the generated projection
+                ╰─ 🛑 view-visible members need an explicit type annotation for generated member metadata
                 struct State {
                     var value = 1
                 }
@@ -111,95 +58,74 @@
                 """
                 @FeatureState
                 ┬────────────
-                ╰─ 🛑 '@FeatureState' generated-name collision with _ViewMembers, _viewMembers, or _commit
+                ╰─ 🛑 '@FeatureState' generated-name collision with member metadata or tracked storage
                 struct State {
                     var _viewMembers: Int = 0
                 }
                 """
             }
         }
-        func testDerivedDescriptorAndStoredObserver() {
+
+        func testHiddenLazyInputIsNotSilentlyUntracked() {
             assertMacro {
                 """
                 @FeatureState
                 struct State {
-                    @Domain var input: Int = 0
-                    var stored: Int = 0 { didSet {} }
-                    var label: String { "\\(input)" }
+                    @Domain lazy var hidden: Int = 0
                 }
                 """
-            } expansion: {
+            } diagnostics: {
                 """
+                @FeatureState
+                ┬────────────
+                ╰─ 🛑 lazy properties are unsupported by '@FeatureState', including hidden inputs
                 struct State {
-                    var input: Int = 0
-                    var stored: Int = 0 { didSet {} }
-                    var label: String { "\\(input)" }
-
-                    struct _ViewMembers {
-                        let stored = Lattice._projectionMember(\\State.stored)
-                        let label = Lattice._derivedProjectionMember(\\State.label)
-                    }
-
-                    static var _viewMembers: _ViewMembers {
-                        _ViewMembers()
-                    }
-
-                    @MainActor
-                    static func _commit(old: Self, new: Self, registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey) {
-                        Lattice._commitProjectionMember(_viewMembers.stored, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.stored))
-                        Lattice._commitProjectionMember(_viewMembers.label, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.label))
-                    }
+                    @Domain lazy var hidden: Int = 0
                 }
                 """
             }
         }
 
-        func testEnumCaseDescriptors() {
+        func testHiddenWrapperIsNotSilentlyUntracked() {
             assertMacro {
                 """
                 @FeatureState
-                enum Phase {
-                    case idle
-                    case ready(Child)
+                struct State {
+                    @Wrapper private var hidden: Int = 0
                 }
                 """
-            } expansion: {
+            } diagnostics: {
                 """
-                enum Phase {
-                    case idle
-                    case ready(Child)
-
-                    var ready: Child? {
-                        guard case .ready(let value) = self else {
-                            return nil
-                        }
-                        return value
-                    }
-
-                    struct _ViewMembers {
-                        let ready = Lattice._projectionMember(\\Phase.ready)
-                    }
-
-                    static var _viewMembers: _ViewMembers {
-                        _ViewMembers()
-                    }
-
-                    @MainActor
-                    static func _commit(old: Self, new: Self, registrar: Lattice.FeatureStateRegistrar, key: Lattice.ProjectionKey) {
-                        switch (old, new) {
-                        case (.idle, .idle):
-                            break
-                        case (.ready, .ready):
-                            break
-                        default:
-                            Lattice._invalidateProjectionSubtree(registrar: registrar, key: key)
-                        }
-                        Lattice._commitProjectionMember(_viewMembers.ready, old: old, new: new, registrar: registrar, key: key.appending(\\_ViewMembers.ready))
-                    }
+                @FeatureState
+                ┬────────────
+                ╰─ 🛑 property attributes/wrappers and member-specific availability are unsupported by '@FeatureState', including hidden stored inputs
+                struct State {
+                    @Wrapper private var hidden: Int = 0
                 }
                 """
             }
         }
+
+        func testComputedSetterDiagnostic() {
+            assertMacro {
+                """
+                @FeatureState
+                struct State {
+                    var value: Int { get { 0 } set {} }
+                }
+                """
+            } diagnostics: {
+                """
+                @FeatureState
+                ┬────────────
+                ╰─ 🛑 view-visible computed properties must have a synchronous, nonmutating, get-only getter
+                struct State {
+                    var value: Int { get { 0 } set {} }
+                }
+                """
+            }
+        }
+
         func testDomainOutsideStateDiagnostic() {
             assertMacro {
                 """
