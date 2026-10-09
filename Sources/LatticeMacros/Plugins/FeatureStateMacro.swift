@@ -38,10 +38,22 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
         }
     }
 
+    private static func hasConditionalStateMembers(_ conditional: IfConfigDeclSyntax) -> Bool {
+        for clause in conditional.clauses {
+            guard case .decls(let members) = clause.elements else { continue }
+            for member in members {
+                if let variable = member.decl.as(VariableDeclSyntax.self), variable.isInstance { return true }
+                if member.decl.is(EnumCaseDeclSyntax.self) { return true }
+                if let nested = member.decl.as(IfConfigDeclSyntax.self), hasConditionalStateMembers(nested) { return true }
+            }
+        }
+        return false
+    }
+
     private static func collect(_ declaration: some DeclGroupSyntax) throws -> [Member] {
         var result: [Member] = []
         for member in declaration.memberBlock.members {
-            if member.decl.is(IfConfigDeclSyntax.self) {
+            if let conditional = member.decl.as(IfConfigDeclSyntax.self), hasConditionalStateMembers(conditional) {
                 throw MacroExpansionErrorMessage("conditional member groups are unsupported by '@FeatureState'; move them to a separate type")
             }
             guard let variable = member.decl.as(VariableDeclSyntax.self), variable.isInstance else { continue }
@@ -93,7 +105,7 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
             variable.isInstance, !variable.isImmutable, variable.bindings.count == 1,
             let binding = variable.bindings.first, !isComputed(binding),
             let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
-            !identifier.text.hasPrefix("_feature")
+            !identifier.text.hasPrefix("_feature_"), identifier.text != "_featureStateLocation"
         else { return [] }
         // Validation is owned by the member expansion so hidden properties are
         // diagnosed, not silently excluded from mutation instrumentation.

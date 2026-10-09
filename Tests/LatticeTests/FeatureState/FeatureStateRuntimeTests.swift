@@ -556,3 +556,23 @@ extension FeatureStateCopyTests {
         #expect(probe.log == ["will:Detail", "did:Detail", "will:Detail", "did:Copy"])
     }
 }
+
+@FeatureState
+private struct PrefixedMutationInput: Sendable {
+    @Domain var _featureInput: Int = 0
+    var label: String { "\(_featureInput)" }
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func similarlyPrefixedUserInputIsStillTracked() {
+        let original = PrefixedMutationInput()
+        var copy = original
+        let changes = MutationProbe()
+        withObservationTracking { _ = original.label } onChange: { changes.increment() }
+        copy._featureInput = 1
+        #expect(changes.count() == 1)
+        #expect(original.label == "0")
+        #expect(copy.label == "1")
+    }
+}

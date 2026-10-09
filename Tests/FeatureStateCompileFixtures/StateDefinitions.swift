@@ -163,3 +163,11 @@ public struct OuterNestedFixture: Sendable {
     public struct Child: Sendable { public var value: Int = 0 }
     public var child: Child = Child()
 }
+
+@FeatureState
+public struct ConditionalHelpersFixture: Sendable {
+    public var value: Int = 0
+    #if os(macOS)
+    public static func helper() -> Int { 1 }
+    #endif
+}
