@@ -1,4 +1,10 @@
+import IdentifiedCollections
 import Observation
+
+private protocol _FeatureStateTrackedCollection {}
+extension Array: _FeatureStateTrackedCollection where Element: _FeatureStateStructure {}
+extension IdentifiedArray: _FeatureStateTrackedCollection where Element: _FeatureStateStructure {}
+extension Optional: _FeatureStateTrackedCollection where Wrapped: _FeatureStateTrackedCollection {}
 
 /// Storage emitted by `@FeatureState`. Copies have independent values but share
 /// their property notification channel. No callback assumes an actor or executor.
@@ -81,6 +87,10 @@ public struct _FeatureStateTracked<Value> {
             let new = new as? any _FeatureStateStructure {
             return old._featureStateIdentity != new._featureStateIdentity
         }
+        // Tracked collections keep native COW. Whole-value equality would compare
+        // row contents; replacement conservatively invalidates the field instead.
+        // Result records reconcile selected rows using IDs and tracked locations.
+        if Value.self is any _FeatureStateTrackedCollection.Type { return true }
         if let old = old as? any Equatable {
             func differs<T: Equatable>(_ old: T) -> Bool { (new as? T).map { old != $0 } ?? true }
             return differs(old)

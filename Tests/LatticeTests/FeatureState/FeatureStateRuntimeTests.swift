@@ -1,4 +1,5 @@
 import Foundation
+import IdentifiedCollections
 import Observation
 import Testing
 @testable import Lattice
@@ -97,13 +98,18 @@ struct FeatureStateRuntimeTests {
 
     @Test
     func freshEqualRowReplacementSwitchesChannelsWithoutRowEquality() throws {
-        let model = mutationModel()
+        let original = MutationRow(id: 1, title: "Milk")
+        let model = mutationModel(MutationState(rows: [original]))
         let a = try #require(model.filteredRows.first { $0.id == 1 })
         let changes = MutationProbe()
+        let listChanges = MutationProbe()
         observe({ _ = a.title }, changes)
+        observe({ _ = model.filteredRows }, listChanges)
         let fresh = MutationRow(id: 1, title: "Milk")
         model.sendViewEvent(.replaceRows([fresh]))
         #expect(changes.count() == 1)
+        #expect(listChanges.count() == 1)
+        #expect(original.probe.count("rowEquality") == 0)
         #expect(fresh.probe.count("rowEquality") == 0)
         observe({ _ = a.title }, changes)
         model.sendViewEvent(.row(1, .sibling))
@@ -574,5 +580,48 @@ extension FeatureStateCopyTests {
         #expect(changes.count() == 1)
         #expect(original.label == "0")
         #expect(copy.label == "1")
+    }
+}
+
+@FeatureState
+private struct TrackedCollectionAssignmentState: Sendable {
+    var rows: [MutationRow]
+    var identified: IdentifiedArrayOf<MutationRow>
+    @Domain var optionalRows: [MutationRow]?
+    var numbers: [Int] = [1]
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func trackedCollectionSettersDoNotCompareRowsAndLeafCollectionEqualityIsUnchanged() {
+        let control = MutationRow(id: 1, title: "Milk")
+        #expect([control] == [MutationRow(id: 1, title: "Milk")])
+        #expect(control.probe.count("rowEquality") == 1)
+
+        let originalRow = MutationRow(id: 1, title: "Milk")
+        let original = TrackedCollectionAssignmentState(
+            rows: [originalRow], identified: [originalRow], optionalRows: [originalRow]
+        )
+        var copy = original
+        let changes = MutationProbe()
+        withObservationTracking { _ = original.rows } onChange: { changes.increment("rows") }
+        withObservationTracking { _ = original.identified } onChange: { changes.increment("identified") }
+        withObservationTracking { _ = original.optionalRows } onChange: { changes.increment("optional") }
+        withObservationTracking { _ = original.numbers } onChange: { changes.increment("numbers") }
+        let replacement = MutationRow(id: 1, title: "Milk")
+        copy.rows = [replacement]
+        copy.identified = [replacement]
+        copy.optionalRows = [replacement]
+        copy.numbers = [1]
+        #expect(originalRow.probe.count("rowEquality") == 0)
+        #expect(replacement.probe.count("rowEquality") == 0)
+        #expect(changes.count("rows") == 1)
+        #expect(changes.count("identified") == 1)
+        #expect(changes.count("optional") == 1)
+        #expect(changes.count("numbers") == 0)
+        copy.numbers = [2]
+        #expect(changes.count("numbers") == 1)
+        #expect(original.numbers == [1])
+        #expect(copy.numbers == [2])
     }
 }
