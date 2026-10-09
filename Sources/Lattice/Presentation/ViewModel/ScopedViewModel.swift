@@ -289,7 +289,7 @@ extension ScopedViewModel where ChildState: FeatureStateProtocol {
     public subscript<Value>(
         dynamicMember member: KeyPath<ChildState._ViewMembers, FeatureStateValueMember<ChildState, Value>>
     ) -> Value {
-        trackedContext!.read()[keyPath: ChildState._viewMembers[keyPath: member].keyPath]
+        ChildState._viewMembers[keyPath: member].read(trackedContext!.read())
     }
 
     public subscript<Row: FeatureStateProtocol & Identifiable>(
@@ -323,7 +323,7 @@ extension ScopedViewModel where ChildState: FeatureStateProtocol {
     ) -> ScopedViewModel<Grandchild, GrandAction>? {
         let descriptor = ChildState._viewMembers[keyPath: member]
         let parent = trackedContext!
-        guard let seed = parent.read()[keyPath: descriptor.keyPath] else { return nil }
+        guard let seed = descriptor.access(parent.read()) else { return nil }
         let context = parent.child(key: member, seed: seed, read: descriptor.read)
         return ScopedViewModel<Grandchild, GrandAction>(context: context, owner: owner!, send: { [self] in _send(embed($0)) })
     }

@@ -9,6 +9,7 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
         let access: String
         let computed: Bool
         let storage: String?
+        let payloadType: TypeSyntax?
     }
 
     private static func accessPrefix(_ modifiers: DeclModifierListSyntax) -> String {
@@ -91,7 +92,8 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
             }
             result.append(Member(
                 name: identifier.trimmedDescription, access: access, computed: computed,
-                storage: !computed && !variable.isImmutable ? FeatureStateTrackedMacro.storageName(identifier) : nil
+                storage: !computed && !variable.isImmutable ? FeatureStateTrackedMacro.storageName(identifier) : nil,
+                payloadType: nil
             ))
         }
         return result
@@ -174,13 +176,9 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
                         throw MacroExpansionErrorMessage("enum case '\(name)' collides with an existing member")
                     }
                     identityCases.append("case .\(name)(let value): return Lattice._featureStateCaseIdentity(\(tag), value)")
-                    generated.append("""
-                        \(raw: access)var \(raw: name): \(payload.type)? {
-                            guard case .\(raw: name)(let value) = self else { return nil }
-                            return value
-                        }
-                        """)
-                    members.append(Member(name: name, access: access, computed: false, storage: nil))
+                    members.append(Member(
+                        name: name, access: access, computed: false, storage: nil, payloadType: payload.type
+                    ))
                 }
             }
             generated.append("""
@@ -193,6 +191,14 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
             generated.append("\(raw: access)var _featureStateIdentity: Lattice._FeatureStateIdentity { _featureStateLocation.identity }")
         }
         let fields = members.map { member -> String in
+            if let payloadType = member.payloadType {
+                return """
+                    \(member.access)let \(member.name) = Lattice._featureStateCaseMember { (state: \(root)) -> \(payloadType)? in
+                        guard case .\(member.name)(let value) = state else { return nil }
+                        return value
+                    }
+                    """
+            }
             if member.computed {
                 return "\(member.access)let \(member.name) = Lattice._featureStateComputedMember(\\\(root).\(member.name))"
             }
@@ -205,7 +211,7 @@ public struct FeatureStateMacro: MemberMacro, MemberAttributeMacro, ExtensionMac
         generated.append(contentsOf: [
             """
             \(raw: access)struct _ViewMembers\(raw: identityMembers) {
-                \(raw: fields.joined(separator: "\n"))
+                \(raw: fields.joined(separator: "\n").replacingOccurrences(of: "\n", with: "\n    "))
                 nonisolated init() {
                     \(raw: validation.joined(separator: "\n"))
                 }

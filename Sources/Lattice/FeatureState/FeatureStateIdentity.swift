@@ -6,6 +6,48 @@ public indirect enum _FeatureStateIdentity: Hashable, Sendable {
     case absent
     case present(_FeatureStateIdentity)
     case `case`(Int, _FeatureStateIdentity?)
+    case scalar(_FeatureStateScalarIdentity)
+}
+
+/// Macro/runtime scalar classification, not aggregate tracking or an advertised
+/// customization point. Containers and optional payloads are not in this category.
+public protocol _FeatureStateScalarPayload: Hashable, Sendable {}
+
+extension Bool: _FeatureStateScalarPayload {}
+extension String: _FeatureStateScalarPayload {}
+extension Character: _FeatureStateScalarPayload {}
+extension Int: _FeatureStateScalarPayload {}
+extension Int8: _FeatureStateScalarPayload {}
+extension Int16: _FeatureStateScalarPayload {}
+extension Int32: _FeatureStateScalarPayload {}
+extension Int64: _FeatureStateScalarPayload {}
+extension UInt: _FeatureStateScalarPayload {}
+extension UInt8: _FeatureStateScalarPayload {}
+extension UInt16: _FeatureStateScalarPayload {}
+extension UInt32: _FeatureStateScalarPayload {}
+extension UInt64: _FeatureStateScalarPayload {}
+extension Float: _FeatureStateScalarPayload {}
+extension Double: _FeatureStateScalarPayload {}
+
+/// An immutable, typed value snapshot. Exact equality, not a scalar hash or
+/// AnyHashable's numeric bridging, determines an enum replacement boundary.
+public struct _FeatureStateScalarIdentity: Hashable, Sendable {
+    private let value: any Hashable & Sendable
+
+    init<Value: Hashable & Sendable>(_ value: Value) { self.value = value }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard ObjectIdentifier(type(of: lhs.value)) == ObjectIdentifier(type(of: rhs.value)) else { return false }
+        func equals<Value: Hashable & Sendable>(_ value: Value) -> Bool {
+            (rhs.value as? Value).map { value == $0 } ?? false
+        }
+        return equals(lhs.value)
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(type(of: value)))
+        value.hash(into: &hasher)
+    }
 }
 
 /// The generated location participates in neither value equality nor coding.
@@ -40,7 +82,14 @@ public func _featureStateCaseIdentity<State: FeatureStateProtocol>(
     .case(tag, value._featureStateIdentity)
 }
 
-@available(*, unavailable, message: "annotated feature enum cases require one tracked payload struct; leave ordinary payload enums unannotated")
+@_disfavoredOverload
+public func _featureStateCaseIdentity<Value: _FeatureStateScalarPayload>(
+    _ tag: Int, _ value: Value
+) -> _FeatureStateIdentity {
+    .case(tag, .scalar(_FeatureStateScalarIdentity(value)))
+}
+
+@available(*, unavailable, message: "annotated feature enum cases require one tracked payload or supported scalar; use one tracked payload struct for other cases")
 public func _featureStateCaseIdentity<Value>(_ tag: Int, _ value: Value) -> _FeatureStateIdentity {
     fatalError()
 }

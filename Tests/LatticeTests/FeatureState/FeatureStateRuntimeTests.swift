@@ -625,3 +625,274 @@ extension FeatureStateCopyTests {
         #expect(copy.numbers == [2])
     }
 }
+
+@FeatureState
+private enum MutationCaseState: Sendable, Equatable {
+    case idle
+    case ready(MutationDetail)
+    case alternate(MutationDetail)
+    case count(Int)
+    case otherCount(Int)
+    case text(String)
+    case flag(Bool)
+    case double(Double)
+}
+
+@FeatureState
+private struct MutationCaseRoot: Sendable, Equatable {
+    var phase: MutationCaseState?
+}
+
+private enum MutationCaseAction: Sendable {
+    case phase(MutationCaseState?)
+    case title(String)
+    case emittedTitle(String)
+    case removeAfterEdit
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func synthesizedContentEqualityExcludesTrackingIdentityForStructsAndCases() {
+        let first = MutationDetail()
+        let second = MutationDetail()
+        #expect(first == second)
+        #expect(first._featureStateIdentity != second._featureStateIdentity)
+        #expect(MutationCaseState.ready(first) == .ready(second))
+        #expect(MutationCaseState.ready(first) != .alternate(first))
+        #expect(MutationCaseState.ready(first)._featureStateIdentity != MutationCaseState.alternate(first)._featureStateIdentity)
+        #expect(MutationCaseRoot(phase: .ready(first)) == MutationCaseRoot(phase: .ready(second)))
+        var changed = second
+        changed.secret = 1
+        #expect(first != changed)
+        #expect(MutationCaseState.ready(first) != .ready(changed))
+    }
+}
+
+extension FeatureStateRuntimeTests {
+    @Test
+    func filteredCaseMetadataRetainsCommitsThroughCaseAndOptionalAbsence() async throws {
+        let original = MutationDetail()
+        let actions = MutationProbe()
+        let model = ViewModel(initialDomainState: MutationCaseRoot(phase: .ready(original)), feature: Feature(
+            interactor: Interact<MutationCaseRoot, MutationCaseAction> { state, action in
+                actions.increment()
+                switch action {
+                case .phase(let phase): state.phase = phase
+                case .title(let title):
+                    if case .ready(var child) = state.phase {
+                        child.title = title
+                        state.phase = .ready(child)
+                    }
+                case .emittedTitle(let title): return .perform { .title(title) }
+                case .removeAfterEdit:
+                    if case .ready(var child) = state.phase {
+                        child.title = "Transient"
+                        state.phase = .ready(child)
+                    }
+                    state.phase = nil
+                }
+                return .none
+            }
+        ))
+        let optionalPhase = model.scopeIfPresent(state: \.phase, action: { (event: MutationCaseAction) in event })
+        let phase = try #require(optionalPhase)
+        let optionalHeld = phase.scopeIfPresent(state: \.ready, action: { (title: String) in .title(title) })
+        let held = try #require(optionalHeld)
+        let cases = MutationProbe()
+        observe({ _ = phase.scopeIfPresent(state: \.ready) }, cases)
+        model.sendViewEvent(.phase(.alternate(original)))
+        #expect(cases.count() == 1)
+        #expect(phase.scopeIfPresent(state: \.ready) == nil)
+        #expect(held.title == "Detail")
+        #expect(phase.scopeIfPresent(state: \.alternate)?.title == "Detail")
+        model.sendViewEvent(.phase(.idle))
+        #expect(phase.scopeIfPresent(state: \.alternate) == nil)
+
+        var returning = original
+        returning.title = "Returned"
+        let reconnected = MutationProbe()
+        observe({ _ = held.title }, reconnected)
+        model.sendViewEvent(.phase(.ready(returning)))
+        #expect(reconnected.count() == 1)
+        #expect(held.title == "Returned")
+        model.sendViewEvent(.title("Sent"))
+        await model.sendViewEvent(.emittedTitle("Committed")).finish()
+        model.sendViewEvent(.removeAfterEdit)
+        #expect(model.scopeIfPresent(state: \.phase) == nil)
+        #expect(held.title == "Committed")
+        #expect(phase.scopeIfPresent(state: \.ready)?.title == "Committed")
+        let beforeAbsentSend = actions.count()
+        held.binding(\.title, sending: { $0 }).wrappedValue = "Ignored by interactor"
+        #expect(actions.count() == beforeAbsentSend + 1)
+        #expect(model.scopeIfPresent(state: \.phase) == nil)
+        #expect(held.title == "Committed")
+
+        let fresh = MutationDetail()
+        model.sendViewEvent(.phase(.ready(fresh)))
+        #expect(held.title == "Detail")
+        let freshChanges = MutationProbe()
+        observe({ _ = held.title }, freshChanges)
+        returning.title = "Old channel"
+        #expect(freshChanges.count() == 0)
+        model.sendViewEvent(.title("Fresh channel"))
+        #expect(freshChanges.count() == 1)
+        #expect(held.title == "Fresh channel")
+    }
+}
+
+private struct ScalarHashCollision: Hashable, Sendable {
+    let value: Int
+    func hash(into hasher: inout Hasher) { hasher.combine(0) }
+}
+
+@FeatureState
+private struct MutationScalarContainer: Sendable {
+    var nested: MutationCaseState = .count(1)
+    var optional: MutationCaseState? = .count(1)
+}
+
+private func incrementScalarCase(_ state: inout MutationCaseState) {
+    if case .count(let value) = state { state = .count(value + 1) }
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func scalarCaseIdentityUsesExactTypedValuesAndDoesNotMakePrimitivesAggregates() {
+        let one = _FeatureStateScalarIdentity(ScalarHashCollision(value: 1))
+        let two = _FeatureStateScalarIdentity(ScalarHashCollision(value: 2))
+        #expect(one.hashValue == two.hashValue)
+        #expect(one != two)
+        #expect(Set([one, two, one]).count == 2)
+        let integer = _featureStateCaseIdentity(0, Int(1))
+        let unsigned = _featureStateCaseIdentity(0, UInt(1))
+        let double = _featureStateCaseIdentity(0, Double(1))
+        #expect(Set([integer, unsigned, double]).count == 3)
+        #expect(integer == _featureStateCaseIdentity(0, Int(1)))
+        #expect(integer != _featureStateCaseIdentity(1, Int(1)))
+        #expect(integer != _featureStateCaseIdentity(0, Int(2)))
+        #expect(_featureStateCaseIdentity(0, Double(-0.0)) == _featureStateCaseIdentity(0, Double(0.0)))
+        #expect(Set([_featureStateCaseIdentity(0, Double(-0.0)), _featureStateCaseIdentity(0, Double(0.0))]).count == 1)
+        let nan = _featureStateCaseIdentity(0, Double.nan)
+        #expect(nan != nan) // Ordinary floating equality conservatively invalidates.
+        let primitives: [Any.Type] = [Bool.self, String.self, Character.self, Int.self, Int8.self,
+            Int16.self, Int32.self, Int64.self, UInt.self, UInt8.self, UInt16.self, UInt32.self,
+            UInt64.self, Float.self, Double.self]
+        for primitive in primitives {
+            #expect(!(primitive is any _FeatureStateStructure.Type))
+        }
+        #expect(_FeatureStateTracked(1).storageIdentity == nil)
+    }
+
+    @Test
+    func scalarEnumCopiesNotifyAtContainingFieldForSetterAndModify() {
+        let original = MutationScalarContainer()
+        var copy = original
+        let changes = MutationProbe()
+        withObservationTracking { _ = original.nested } onChange: { changes.increment("nested") }
+        withObservationTracking { _ = original.optional } onChange: { changes.increment("optional") }
+        copy.nested = .count(1)
+        copy.optional = .count(1)
+        #expect(changes.count("nested") == 0 && changes.count("optional") == 0)
+        incrementScalarCase(&copy.nested)
+        incrementScalarCase(&copy.optional!)
+        #expect(changes.count("nested") == 1 && changes.count("optional") == 1)
+        #expect(copy.nested == .count(2) && copy.optional == .count(2))
+        #expect(original.nested == .count(1) && original.optional == .count(1))
+        withObservationTracking { _ = original.nested } onChange: { changes.increment("nested") }
+        copy.nested = .otherCount(2)
+        #expect(changes.count("nested") == 2)
+        #expect(storageID(original, "nested", MutationCaseState.self) != storageID(copy, "nested", MutationCaseState.self))
+        #expect(storageID(original, "optional", MutationCaseState?.self) != storageID(copy, "optional", MutationCaseState?.self))
+    }
+}
+
+private enum MutationScalarAction: Sendable {
+    case replace(MutationCaseState)
+    case increment
+    case sibling
+    case title(String)
+    case emit(MutationCaseState)
+}
+
+extension FeatureStateRuntimeTests {
+    @Test
+    func scalarEnumRootReobservesValuesCaseFlipsAndMixedTrackedPayloads() async throws {
+        let model = ViewModel(initialDomainState: MutationCaseState.count(1), feature: Feature(
+            interactor: Interact<MutationCaseState, MutationScalarAction> { state, action in
+                switch action {
+                case .replace(let replacement): state = replacement
+                case .increment: incrementScalarCase(&state)
+                case .sibling:
+                    if case .ready(var child) = state {
+                        child.sibling += 1
+                        state = .ready(child)
+                    }
+                case .title(let title):
+                    if case .ready(var child) = state {
+                        child.title = title
+                        state = .ready(child)
+                    }
+                case .emit(let replacement): return .perform { .replace(replacement) }
+                }
+                return .none
+            }
+        ))
+        let changes = MutationProbe()
+        observe({ _ = model.count }, changes)
+        model.sendViewEvent(.replace(.count(1)))
+        #expect(changes.count() == 0)
+        model.sendViewEvent(.increment)
+        #expect(changes.count() == 1 && model.count == 2)
+        observe({ _ = model.count }, changes)
+        await model.sendViewEvent(.emit(.count(3))).finish()
+        #expect(changes.count() == 2 && model.count == 3)
+        observe({ _ = model.count }, changes)
+        model.sendViewEvent(.replace(.otherCount(3)))
+        #expect(changes.count() == 3 && model.count == nil && model.otherCount == 3)
+        observe({ _ = model.otherCount }, changes)
+        model.sendViewEvent(.replace(.ready(MutationDetail())))
+        #expect(changes.count() == 4 && model.otherCount == nil)
+        let optionalChild = model.scopeIfPresent(state: \.ready)
+        let child = try #require(optionalChild)
+        observe({ _ = model.count }, changes)
+        let titleChanges = MutationProbe()
+        observe({ _ = child.title }, titleChanges)
+        model.sendViewEvent(.sibling)
+        #expect(changes.count() == 4 && titleChanges.count() == 0)
+        model.sendViewEvent(.replace(.ready(MutationDetail(sibling: 1))))
+        #expect(changes.count() == 5 && titleChanges.count() == 1)
+        observe({ _ = child.title }, titleChanges)
+        model.sendViewEvent(.title("New channel"))
+        #expect(titleChanges.count() == 2 && child.title == "New channel")
+        model.sendViewEvent(.replace(.double(.nan)))
+        observe({ _ = model.double }, changes)
+        model.sendViewEvent(.replace(.double(.nan)))
+        #expect(changes.count() == 6 && model.double?.isNaN == true)
+    }
+}
+
+extension FeatureStateCopyTests {
+    @Test
+    func concurrentScalarEnumCopiesKeepSnapshotIdentityAndValuesIndependent() async {
+        let original = MutationScalarContainer()
+        let originalIdentity = original.nested._featureStateIdentity
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for number in 0..<64 {
+                group.addTask {
+                    var copy = original
+                    copy.nested = .count(number)
+                    copy.optional = .otherCount(number)
+                    return copy.nested._featureStateIdentity == MutationCaseState.count(number)._featureStateIdentity
+                        && copy.optional?._featureStateIdentity == MutationCaseState.otherCount(number)._featureStateIdentity
+                        && original.nested._featureStateIdentity == originalIdentity
+                        && original.optional == .count(1)
+                }
+            }
+            var results: [Bool] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+        #expect(results.count == 64 && results.allSatisfy { $0 })
+        #expect(original.nested == .count(1) && original.optional == .count(1))
+    }
+}

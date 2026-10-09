@@ -47,8 +47,12 @@ import IdentifiedCollections
 #elseif HIDDEN_WRAPPER
 @propertyWrapper struct Wrapper { var wrappedValue: Int }
 @FeatureState struct Invalid { @Domain @Wrapper var value: Int = 1 }
-#elseif PLAIN_ENUM_PAYLOAD
-@FeatureState enum Invalid { case count(Int) }
+#elseif ARRAY_ENUM_PAYLOAD
+@FeatureState enum Invalid { case values([Int]) }
+#elseif OPTIONAL_ENUM_PAYLOAD
+@FeatureState enum Invalid { case value(Int?) }
+#elseif TRACKED_ARRAY_ENUM_PAYLOAD
+@FeatureState enum Invalid { case rows([FixtureRow]) }
 #elseif HIDDEN_CONDITIONAL
 @FeatureState struct Invalid {
     #if os(macOS)

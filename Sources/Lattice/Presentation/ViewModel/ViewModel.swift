@@ -479,7 +479,7 @@ extension ViewModel where DomainState: FeatureStateProtocol, ViewState == _Featu
     public subscript<Value>(
         dynamicMember member: KeyPath<DomainState._ViewMembers, FeatureStateValueMember<DomainState, Value>>
     ) -> Value {
-        featureStateContext!.read()[keyPath: DomainState._viewMembers[keyPath: member].keyPath]
+        DomainState._viewMembers[keyPath: member].read(featureStateContext!.read())
     }
 
     public subscript<Row: FeatureStateProtocol & Identifiable>(
@@ -513,7 +513,7 @@ extension ViewModel where DomainState: FeatureStateProtocol, ViewState == _Featu
     ) -> ScopedViewModel<Child, ChildAction>? {
         let descriptor = DomainState._viewMembers[keyPath: member]
         let parent = featureStateContext!
-        guard let seed = parent.read()[keyPath: descriptor.keyPath] else { return nil }
+        guard let seed = descriptor.access(parent.read()) else { return nil }
         let context = parent.child(key: member, seed: seed, read: descriptor.read)
         return ScopedViewModel(context: context, owner: self, send: { [self] in sendViewEvent(embed($0)) })
     }

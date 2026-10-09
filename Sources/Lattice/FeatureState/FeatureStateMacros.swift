@@ -2,9 +2,11 @@
 /// namespace. Hidden inputs are still tracked. Computed getters execute normally;
 /// identified filter/sort results are adapted to read-only model handles.
 ///
-/// Visible members require explicit types. Ordinary nested tracked children use
-/// explicit scopes. Attached macros cannot discover unrelated extension members.
-@attached(member, names: named(_ViewMembers), named(_viewMembers), named(_featureStateIdentity), arbitrary)
+/// Visible members require explicit types. Ordinary nested tracked children and
+/// tracked enum payloads use explicit scopes. Single scalar enum payloads are
+/// optional leaf reads; their enum boundary observes value and case changes.
+/// Attached macros cannot discover unrelated extension members.
+@attached(member, names: named(_ViewMembers), named(_viewMembers), named(_featureStateIdentity), named(_featureStateLocation))
 @attached(memberAttribute)
 @attached(extension, conformances: FeatureStateProtocol)
 public macro FeatureState() =

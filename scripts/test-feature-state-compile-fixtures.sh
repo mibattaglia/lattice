@@ -91,6 +91,15 @@ PRIVATE_ESCAPE|has no dynamic member|has no member
 FILEPRIVATE_ESCAPE|has no dynamic member|has no member
 OPTIONAL_ESCAPE|has no dynamic member|has no member
 CASE_ESCAPE|has no dynamic member|has no member
+RAW_ENUM_PAYLOAD_GETTER|enum case 'ready' cannot be used as an instance member|cannot convert
+RAW_CASE_COERCION|cannot convert|cannot assign
+CASE_ACCESSOR_ESCAPE|'access' is inaccessible due to 'internal' protection level
+CASE_DESCRIPTOR_READ_ESCAPE|'read' is inaccessible due to 'internal' protection level
+PAYLOADLESS_CASE_SCOPE|has no member 'idle'
+CASE_DOMAIN_ESCAPE|has no dynamic member|has no member
+LEAF_DESCRIPTOR_READ_ESCAPE|'read' is inaccessible due to 'internal' protection level
+SCALAR_CASE_DESCRIPTOR_READ_ESCAPE|'read' is inaccessible due to 'internal' protection level
+SCALAR_CASE_SCOPE|cannot convert|no exact matches
 ROW_ESCAPE|has no dynamic member|has no member
 ROW_PRIVATE_ESCAPE|has no dynamic member|has no member
 ROW_FILEPRIVATE_ESCAPE|has no dynamic member|has no member
@@ -118,6 +127,8 @@ CASES
   pass "$variant-definitions" "${CLIENT_COMPILER[@]}" -emit-module -module-name FeatureStateFixtureDefinitions -package-name FixturePackage "$CLIENT_DEFINITIONS" -emit-module-path "$DEST/FeatureStateFixtureDefinitions.swiftmodule"
   pass "$variant-external" "${CLIENT_COMPILER[@]}" -typecheck -I "$DEST" -module-name FeatureStateFixtureExternal -package-name OtherPackage "$FIXTURES/ExternalClientPass.swift"
   pass "$variant-same-package" "${CLIENT_COMPILER[@]}" -typecheck -I "$DEST" -module-name FeatureStateFixturePackageClient -package-name FixturePackage -D SAME_PACKAGE "$FIXTURES/ExternalClientPass.swift"
+  pass "$variant-conformance-build" "${CLIENT_COMPILER[@]}" -module-name FeatureStateConformanceClient -package-name FixturePackage -L "$BIN" -lLattice "$CLIENT_DEFINITIONS" "$FIXTURES/ConformanceRuntime.swift" -o "$DEST/conformance-runtime"
+  pass "$variant-conformance-runtime" "$DEST/conformance-runtime"
   while IFS='|' read -r name package expected; do
     fail "$variant-$name" "$expected" "${CLIENT_COMPILER[@]}" -typecheck -I "$DEST" -module-name FeatureStateFixtureExternalNegative -package-name "$package" -D "$name" "$FIXTURES/ExternalClientFailures.swift"
   done <<'CASES'
@@ -158,7 +169,6 @@ NON_EQUATABLE_COMPUTED_OPTIONAL|computed tracked children require a stored child
 HIDDEN_LAZY|lazy properties are unsupported
 HIDDEN_WRAPPER|property attributes/wrappers
 HIDDEN_CONDITIONAL|conditional member groups are unsupported
-PLAIN_ENUM_PAYLOAD|tracked payload struct
 DOMAIN_NESTED_OUTSIDE|requires an instance property
 NON_SENDABLE_DOMAIN|non-Sendable type
 HIDDEN_ROW_ID|view-visible leaf id
@@ -173,6 +183,13 @@ DICTIONARY_KEY_FEATURE|unsupported tracked container
 DICTIONARY_BOTH_FEATURE|unsupported tracked container
 ALIASED_ARRAY_FEATURE|unsupported tracked container
 CASES
+
+# Fixed-name enum macro bodies may defer availability checking until emission.
+# Compile the unsupported declarations fully instead of relying on an unused
+# enum's successful typecheck to mean its generated bodies are valid.
+for name in ARRAY_ENUM_PAYLOAD OPTIONAL_ENUM_PAYLOAD TRACKED_ARRAY_ENUM_PAYLOAD; do
+  fail "$name" "one tracked payload or supported scalar" "${COMPILER[@]}" -emit-module -module-name FeatureStateUnsupportedEnum -package-name FixturePackage -D "$name" "$DEFINITIONS" "$FIXTURES/MacroFailures.swift" -emit-module-path "$LOG_DIR/$name.swiftmodule"
+done
 
 # Compile/link actual ordinary-import clients using the package's archive. These
 # isolate duplicate-result preconditions from the test runner process.

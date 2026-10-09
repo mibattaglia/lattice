@@ -24,17 +24,14 @@ struct MutationDetail: Sendable, Equatable {
 }
 
 @FeatureState
-struct MutationRow: Sendable, Identifiable {
+struct MutationRow: Sendable, Equatable, Identifiable {
     let id: Int
     var title: String
     var sibling: Int = 0
     var detail: MutationDetail = MutationDetail()
     @Domain var eligible: Bool = true
     @Domain var probe: MutationProbe = MutationProbe()
-}
 
-// The setter regression verifies that Array's generic witness reaches this probe.
-extension MutationRow: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.probe.increment("rowEquality")
         return lhs.id == rhs.id && lhs.title == rhs.title && lhs.sibling == rhs.sibling

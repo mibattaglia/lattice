@@ -1,6 +1,7 @@
 import Lattice
 import CasePaths
 import IdentifiedCollections
+import os
 
 @FeatureState
 public struct FixtureChild: Equatable, Sendable {
@@ -42,6 +43,45 @@ public struct FixtureRoot<Value: Equatable & Sendable>: Equatable, Sendable {
 
 @FeatureState
 public enum FixturePhase: Equatable, Sendable {
+    case idle
+    case ready(FixtureChild)
+    case alternate(FixtureChild)
+    case count(Int)
+    case otherCount(Int)
+    case text(String)
+    case flag(Bool)
+    case character(Character)
+    case int8(Int8)
+    case int16(Int16)
+    case int32(Int32)
+    case int64(Int64)
+    case unsigned(UInt)
+    case uint8(UInt8)
+    case uint16(UInt16)
+    case uint32(UInt32)
+    case uint64(UInt64)
+    case float(Float)
+    case double(Double)
+
+    @Domain public var domainSummary: String { "Hand-authored domain member" }
+}
+
+// No Equatable or Sendable request is needed just to annotate this declaration.
+@FeatureState
+public enum FixtureScalarDeclaration {
+    case count(Int)
+}
+
+@FeatureState
+public struct FixtureScalarContexts: Equatable, Sendable {
+    public var nested: FixturePhase = .count(1)
+    public var optional: FixturePhase? = .count(1)
+    public init() {}
+}
+
+@CasePathable
+@FeatureState
+public enum FixtureCasePathPhase: Equatable, Sendable {
     case idle
     case ready(FixtureChild)
 }
@@ -162,6 +202,31 @@ public struct OuterNestedFixture: Sendable {
     @FeatureState
     public struct Child: Sendable { public var value: Int = 0 }
     public var child: Child = Child()
+}
+
+// This probe deliberately has no Equatable conformance: the nominal state's
+// custom witness must be used, not an accidentally synthesized replacement.
+nonisolated public final class FixtureEqualityProbe: Sendable {
+    private let storage = OSAllocatedUnfairLock(initialState: 0)
+    public init() {}
+    public func increment() { storage.withLock { $0 += 1 } }
+    public var count: Int { storage.withLock { $0 } }
+}
+
+@FeatureState
+public struct FixtureNominalEquality: Equatable, Sendable {
+    public var value: Int
+    @Domain public let probe: FixtureEqualityProbe
+
+    public init(value: Int, probe: FixtureEqualityProbe = FixtureEqualityProbe()) {
+        self.value = value
+        self.probe = probe
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.probe.increment()
+        return lhs.value == rhs.value
+    }
 }
 
 @FeatureState

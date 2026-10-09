@@ -10,6 +10,61 @@
             }
         }
 
+        func testEnumPayloadExtractionStaysInsideFilteredMetadata() {
+            assertMacro {
+                """
+                @FeatureState
+                enum Phase {
+                    case idle
+                    case ready(Child)
+                    case count(Int)
+                }
+                """
+            } expansion: {
+                """
+                enum Phase {
+                    case idle
+                    case ready(Child)
+                    case count(Int)
+
+                    var _featureStateIdentity: Lattice._FeatureStateIdentity {
+                        switch self {
+                        case .idle:
+                            return .case(0, nil)
+                        case .ready(let value):
+                            return Lattice._featureStateCaseIdentity(1, value)
+                        case .count(let value):
+                            return Lattice._featureStateCaseIdentity(2, value)
+                        }
+                    }
+
+                    struct _ViewMembers {
+                        let ready = Lattice._featureStateCaseMember { (state: Phase) -> Child? in
+                            guard case .ready(let value) = state else {
+                                return nil
+                            }
+                            return value
+                        }
+                        let count = Lattice._featureStateCaseMember { (state: Phase) -> Int? in
+                            guard case .count(let value) = state else {
+                                return nil
+                            }
+                            return value
+                        }
+                        nonisolated init() {
+                            Lattice._validateFeatureStateMember(ready)
+                            Lattice._validateFeatureStateMember(count)
+                        }
+                    }
+
+                    static var _viewMembers: _ViewMembers {
+                        _ViewMembers()
+                    }
+                }
+                """
+            }
+        }
+
         func testMissingTypeDiagnostic() {
             assertMacro {
                 """

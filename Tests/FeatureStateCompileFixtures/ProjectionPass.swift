@@ -11,6 +11,10 @@ nonisolated func genericMetadataPass<Value: Equatable & Sendable>(_: Value.Type)
 
 nonisolated func protocolMetadataPass<State: FeatureStateProtocol>(_: State.Type) -> State._ViewMembers { State._viewMembers }
 
+nonisolated func scalarDeclarationMetadataPass() {
+    let _: FeatureStateValueMember<FixtureScalarDeclaration, Int?> = FixtureScalarDeclaration._viewMembers.count
+}
+
 @MainActor
 func modelPass(_ model: FixtureModel) {
     let _: Int = model.value
@@ -22,6 +26,9 @@ func modelPass(_ model: FixtureModel) {
     let _: Int = model.readOnly
     let _: String? = model.scopeIfPresent(state: \.optional)?.scope(state: \.child).title
     let _: String? = model.scope(state: \.phase).scopeIfPresent(state: \.ready)?.title
+    let _: Int? = model.scope(state: \.phase).count
+    let _: String? = model.scope(state: \.phase).text
+    let _: Bool? = model.scope(state: \.phase).flag
     let _: String? = model.filteredRows.first?.title
     let _: Int? = model.filteredRows.first?.packageOnly
     let _: String? = model.filteredRows.first?.scope(state: \.child).label

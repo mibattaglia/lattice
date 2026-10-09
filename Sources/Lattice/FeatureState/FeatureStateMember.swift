@@ -3,7 +3,7 @@ import IdentifiedCollections
 /// Generated descriptors keep raw extraction internal. Model entry points accept
 /// only paths into this namespace, never paths into the raw state.
 public struct FeatureStateValueMember<Root, Value> {
-    let keyPath: KeyPath<Root, Value>
+    let read: (Root) -> Value
 }
 
 public struct FeatureStateChildMember<Root, Child: FeatureStateProtocol> {
@@ -12,7 +12,9 @@ public struct FeatureStateChildMember<Root, Child: FeatureStateProtocol> {
 }
 
 public struct FeatureStateOptionalMember<Root, Child: FeatureStateProtocol> {
-    let keyPath: KeyPath<Root, Child?>
+    // Scope creation preserves native container dependencies; commit refresh
+    // uses the non-observing extraction separately.
+    let access: (Root) -> Child?
     let read: (Root) -> Child?
 }
 
@@ -31,7 +33,7 @@ public protocol _FeatureStateIdentityMembers {
 public func _featureStateMember<Root, Value>(
     _ keyPath: KeyPath<Root, Value>, read: @escaping (Root) -> Value
 ) -> FeatureStateValueMember<Root, Value> {
-    FeatureStateValueMember(keyPath: keyPath)
+    FeatureStateValueMember(read: { $0[keyPath: keyPath] })
 }
 
 public func _featureStateMember<Root, Child: FeatureStateProtocol>(
@@ -43,8 +45,32 @@ public func _featureStateMember<Root, Child: FeatureStateProtocol>(
 public func _featureStateMember<Root, Child: FeatureStateProtocol>(
     _ keyPath: KeyPath<Root, Child?>, read: @escaping (Root) -> Child?
 ) -> FeatureStateOptionalMember<Root, Child> {
-    FeatureStateOptionalMember(keyPath: keyPath, read: read)
+    FeatureStateOptionalMember(access: { $0[keyPath: keyPath] }, read: read)
 }
+
+/// Used by generated enum metadata, without a raw payload getter on the state.
+public func _featureStateCaseMember<Root, Child: FeatureStateProtocol>(
+    _ read: @escaping (Root) -> Child?
+) -> FeatureStateOptionalMember<Root, Child> {
+    FeatureStateOptionalMember(access: read, read: read)
+}
+
+@_disfavoredOverload
+public func _featureStateCaseMember<Root, Value: _FeatureStateScalarPayload>(
+    _ read: @escaping (Root) -> Value?
+) -> FeatureStateValueMember<Root, Value?> {
+    FeatureStateValueMember(read: read)
+}
+
+public struct _UnsupportedFeatureStateCaseMember<Root, Value> {}
+
+@_disfavoredOverload
+public func _featureStateCaseMember<Root, Value>(
+    _ read: @escaping (Root) -> Value?
+) -> _UnsupportedFeatureStateCaseMember<Root, Value> { _UnsupportedFeatureStateCaseMember() }
+
+@available(*, unavailable, message: "annotated feature enum cases require one tracked payload or supported scalar; use one tracked payload struct for other cases")
+public func _validateFeatureStateMember<Root, Value>(_ member: _UnsupportedFeatureStateCaseMember<Root, Value>) {}
 
 public func _featureStateMember<Root, Row: FeatureStateProtocol & Identifiable>(
     _ keyPath: KeyPath<Root, [Row]>, read: @escaping (Root) -> [Row]
@@ -67,7 +93,7 @@ where Row._ViewMembers: _FeatureStateIdentityMembers,
 public func _featureStateComputedMember<Root, Value>(
     _ keyPath: KeyPath<Root, Value>
 ) -> FeatureStateValueMember<Root, Value> {
-    FeatureStateValueMember(keyPath: keyPath)
+    FeatureStateValueMember(read: { $0[keyPath: keyPath] })
 }
 
 public func _featureStateComputedMember<Root, Row: FeatureStateProtocol & Identifiable>(
