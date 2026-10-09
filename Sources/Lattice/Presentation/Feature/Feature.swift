@@ -7,7 +7,7 @@ import Foundation
 public protocol FeatureProtocol {
     associatedtype Action: Sendable
     associatedtype DomainState: Sendable
-    associatedtype ViewState: ObservableState
+    associatedtype ViewState
 
     var interactor: AnyInteractor<DomainState, Action> { get }
     var viewStateReducer: AnyViewStateReducer<DomainState, ViewState> { get }
@@ -45,7 +45,7 @@ public protocol FeatureProtocol {
 /// )
 /// ```
 public struct Feature<Action, DomainState, ViewState>
-where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
+where Action: Sendable, DomainState: Sendable {
     public let interactor: AnyInteractor<DomainState, Action>
     public let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     public let makeInitialViewState: (DomainState) -> ViewState
@@ -60,7 +60,8 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
         I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
+        R.DomainState == DomainState, R.ViewState == ViewState,
+        ViewState: ObservableState
     {
         self.interactor = interactor.eraseToAnyInteractor()
         self.viewStateReducer = reducer.eraseToAnyReducer()
@@ -75,7 +76,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     where
         I: Interactor & Sendable,
         I.DomainState == DomainState, I.Action == Action,
-        DomainState == ViewState
+        DomainState == ViewState, ViewState: ObservableState
     {
         self.interactor = interactor.eraseToAnyInteractor()
         self.viewStateReducer = BuildViewState(
@@ -100,7 +101,8 @@ extension Feature where DomainState: Equatable {
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
         I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
+        R.DomainState == DomainState, R.ViewState == ViewState,
+        ViewState: ObservableState
     {
         self.init(interactor: interactor, reducer: reducer, areStatesEqual: { $0 == $1 })
     }
@@ -111,8 +113,36 @@ extension Feature where DomainState: Equatable {
     where
         I: Interactor & Sendable,
         I.DomainState == DomainState, I.Action == Action,
-        DomainState == ViewState
+        DomainState == ViewState, ViewState: ObservableState
     {
+        self.init(interactor: interactor, areStatesEqual: { $0 == $1 })
+    }
+}
+
+/// Temporary third-generic marker for the T1 integrated proof. This carries no
+/// presentation state and is removed with the legacy Feature API in T3/T6.
+public struct _FeatureStatePresentation: Sendable {
+    init() {}
+}
+
+extension Feature where DomainState: FeatureStateProtocol, ViewState == _FeatureStatePresentation {
+    public init<I>(
+        interactor: I,
+        areStatesEqual: @escaping (DomainState, DomainState) -> Bool
+    ) where I: Interactor & Sendable, I.DomainState == DomainState, I.Action == Action {
+        self.interactor = interactor.eraseToAnyInteractor()
+        self.viewStateReducer = BuildViewState<DomainState, ViewState>(
+            initial: { _ in _FeatureStatePresentation() }, reducerBlock: { _, _ in }
+        ).eraseToAnyReducer()
+        self.makeInitialViewState = { _ in _FeatureStatePresentation() }
+        // Kept on Feature for TestViewModel. Tracked production never consults it.
+        self.areStatesEqual = areStatesEqual
+    }
+}
+
+extension Feature where DomainState: FeatureStateProtocol & Equatable, ViewState == _FeatureStatePresentation {
+    public init<I>(interactor: I)
+    where I: Interactor & Sendable, I.DomainState == DomainState, I.Action == Action {
         self.init(interactor: interactor, areStatesEqual: { $0 == $1 })
     }
 }

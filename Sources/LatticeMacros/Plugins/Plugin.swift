@@ -5,6 +5,9 @@ import SwiftSyntaxMacros
 struct MacrosPlugin: CompilerPlugin {
     let providingMacros: [any Macro.Type] = [
         InteractorMacro.self,
+        FeatureStateMacro.self,
+        FeatureStateTrackedMacro.self,
+        DomainMacro.self,
         ViewStateReducerMacro.self,
         ObservableStateMacro.self,
         ObservationStateIgnoredMacro.self,

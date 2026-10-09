@@ -1,5 +1,9 @@
 # Lattice
 
+Standalone `@FeatureState`/`@Domain` machinery is additive; the current ViewModel/reducer API remains unchanged. See [Feature State](specs/feature-state.md) for its contract and validation status.
+
+`@FeatureState` property notifications follow mutation timing, not a coherent post-commit phase. A notifying setter signals before stored `willSet`/`didSet`; scalar `_modify` signals before yielding, while tracked-aggregate replacement signals after yielding and before those observers. Equal scalar setters still run the property observers without notifying. As with TCA26's accessor-backed observation, assigning the public property in its own `didSet` can re-enter that observer (a normalizing assignment can call it twice, versus once for an unannotated stored property). Observer bodies are not rewritten to emulate all native stored-property semantics.
+
 Lattice is a Swift 6 library for building features with MVVM + unidirectional data flow.
 It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10+.
 
