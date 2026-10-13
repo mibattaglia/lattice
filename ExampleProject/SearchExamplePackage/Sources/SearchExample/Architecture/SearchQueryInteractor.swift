@@ -1,6 +1,6 @@
 import Lattice
 
-@Interactor<SearchDomainState.ResultState, SearchQueryEvent>
+@Interactor<SearchState.ResultState, SearchQueryEvent>
 struct SearchQueryInteractor<C: Clock>: Sendable where C.Duration: Sendable {
     private let weatherService: WeatherService
     private let debouncer: Debouncer<C, SearchQueryEvent?>
@@ -27,7 +27,7 @@ struct SearchQueryInteractor<C: Clock>: Sendable where C.Duration: Sendable {
                     do {
                         let weatherModels = try await weatherService.searchWeather(query: query)
                         let weatherResults = weatherModels.results.map { weatherModel in
-                            SearchDomainState.ResultState.ResultItem(
+                            SearchState.ResultState.ResultItem(
                                 weatherModel: weatherModel,
                                 forecast: nil
                             )

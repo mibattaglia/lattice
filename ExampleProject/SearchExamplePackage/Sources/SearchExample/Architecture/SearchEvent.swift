@@ -10,6 +10,6 @@ enum SearchEvent: Equatable, Sendable {
 @CasePathable
 enum SearchQueryEvent: Equatable, Sendable {
     case query(String)
-    case searchCompleted(query: String, results: [SearchDomainState.ResultState.ResultItem])
+    case searchCompleted(query: String, results: [SearchState.ResultState.ResultItem])
     case searchFailed
 }
