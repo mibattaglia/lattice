@@ -1,59 +1,66 @@
 # Enum-Case Scoping (Spec C): case-scoped `ScopedViewModel` projections
 
-Status: 🔧 Proposed — depends on
-[`scoped-view-composition.md`](./scoped-view-composition.md) (Spec B) landing first, which in
-turn depends on [`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A, ✅) and
+Status: ✅ Implemented — depends on
+[`scoped-view-composition.md`](./scoped-view-composition.md) (Spec B), which in turn depends on
+[`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A, ✅) and
 [`observable-state-identity-preserving-merge.md`](./observable-state-identity-preserving-merge.md)
-(✅). Includes one small **prerequisite fix** to enum `_$id` generation (macro change — requires
-`scripts/rebuild-macro.sh`).
+(✅). Included one small **prerequisite fix** to enum `_$id` generation. Updated for the
+[unified feature state](./plans/unified-feature-state.md): enum states scope and bind through
+their generated `@CasePathable` `ViewState` mirror, and the raw-enum `scopeIfActive` overload is
+removed.
 
 ## Problem
 
-Spec B's `scope(state:action:)` requires a `KeyPath<ViewState, ChildState>` to a non-optional
-`@ObservableState` slice. Enum cases are not reachable by key path, so a feature whose view
-state is (or contains) an enum cannot project a case's payload into a `ScopedViewModel`:
+Spec B's `scope(state:action:)` takes a key path to a child state. Enum cases are not reachable
+by key path, so a feature whose state is (or contains) an enum cannot project a case's payload
+into a `ScopedViewModel` with Spec B's overloads:
 
 ```swift
 @CasePathable
-@ObservableState
-enum PhaseViewState: Equatable, Sendable {
+@FeatureState
+enum PhaseState: Equatable, Sendable {
     case loading
-    case success(SuccessViewState)   // SuccessViewState is @ObservableState
+    case success(SuccessState)   // SuccessState is @FeatureState
 }
 ```
 
-`@CasePathable`'s dynamic-member key path (`\.success`) lands on `SuccessViewState?`, which
-does not conform to `ObservableState` (Lattice has no `Optional: ObservableState` conformance),
-so neither Spec B overload applies.
+The case is reachable through a case key path of the generated mirror instead: `@FeatureState`
+carries `@CasePathable` onto `PhaseState.ViewState`, whose `\.success` is a
+`CaseKeyPath<PhaseState.ViewState, SuccessState.ViewState>`.
 
 ### The two regimes (and the silent trap between them)
 
-Without new API, views compose enum state by switching over the coarse read and destructuring
-the payload. Whether that is correct depends entirely on reducer style:
+Without case scoping, views compose enum state by switching over the coarse read and handing
+the destructured payload to a child view. Whether that is correct depends entirely on how the
+interactor writes the state:
 
-- **Extraction + wholesale rebuild — correct, coarse.** If the reducer always rebuilds the
-  case (`v = .success(SuccessViewState(...))`), every payload change mints a new payload `_$id`,
-  which changes the root `_$id` (payload id + case tag), which fires the gated coarse
-  `\.viewState`, which re-renders the `switch`, which re-extracts a fresh payload. Snapshots
-  are re-taken on every change and are never stale. The cost is granularity: the whole `switch`
+- **Extraction + wholesale replacement — correct, coarse.** If the interactor always replaces
+  the case (`state = .success(SuccessState(...))`), every payload change mints a new payload
+  `_$id`, which changes the root `_$id` (payload id + case tag), which fires the gated coarse
+  `\.state`, which re-renders the `switch`, which re-extracts a fresh payload. Snapshots are
+  re-taken on every change and are never stale. The cost is granularity: the whole `switch`
   subtree re-renders on any payload change.
-- **Scope + in-place mutation — correct, fine-grained.** If the reducer mutates the payload
-  through the case (`v.modify(\.success) { $0.title = ... }`), only the payload's own
-  registrar leaves fire; the root `_$id` is untouched and the `switch` does not re-render.
-  Precision requires a **live** read handle — which extraction cannot provide.
+- **Scope + in-place mutation — correct, fine-grained.** If the interactor mutates the payload
+  through the case (`Interactors.When(state: \.success, action: \.success)`, or
+  `state.modify(\.success) { $0.title = ... }`), only the payload's own registrar leaves fire;
+  the root `_$id` is untouched and the `switch` does not re-render. Precision requires a
+  **live** read handle — which extraction cannot provide.
 - **Mixing them is the trap.** An extracted payload copy shares the live payload's registrar,
   so an in-place leaf mutation *invalidates* a child view rendering from the copy — but the
   copy's stored values are a snapshot, and because the coarse fire never happens, the `switch`
   never re-extracts. The child re-renders **with stale data**, silently and persistently.
 
-The rule this spec establishes and documents: **extraction pairs with wholesale rebuild; scope
-pairs with in-place mutation; never mix.** Existing switch-and-extract code remains valid at
-coarse granularity; case scoping is what unlocks the fine-grained regime (and decouples the
-child view from the parent feature type, per Spec B).
+The rule this spec establishes and documents: **extraction pairs with wholesale replacement;
+scope pairs with in-place mutation; never mix.** Existing switch-and-extract code remains valid
+at coarse granularity; case scoping is what unlocks the fine-grained regime (and decouples the
+child view from the parent feature type, per Spec B). A `switch` whose own `body` reads the
+payload's members (`case .success(let success): Text(success.title)`) is not extraction in this
+sense: those reads register on the payload's registrars and re-run the same `body`, which
+re-extracts (`switchOverViewStateTracksTheCaseAndThePayloadMembersItRead`).
 
-## Prerequisite fix: stable `_$id` for payloadless enum cases
+## Prerequisite fix: stable `_$id` for payload-less enum cases
 
-`enumExpansion` currently generates, for a payloadless case:
+The enum expansion originally generated, for a payload-less case:
 
 ```swift
 case .loading:
@@ -61,41 +68,34 @@ return ObservableStateID()._$tag(0)
 ```
 
 `ObservableStateID()` mints a **fresh UUID on every access**, so two evaluations of
-`PhaseViewState.loading._$id` are never equal. Consequence: while a payloadless case is active
-at the root, the `ViewModel` coarse-fire gate (Spec A; now at the end of
-`commitProductionTransition` after the `_modify` accessor's removal) computes `oldID != newID` on **every reduce
-that runs**, firing the coarse `\.viewState` even when nothing changed. Spec A's fine-grained
-gating silently degrades to the pre-Spec-A behavior until the state leaves that case — and this
-spec's `switch`-driven design leans directly on "the switch only re-renders on real case
-changes," so the fix lands here.
+`PhaseState.loading._$id` were never equal. While a payload-less case was active at the root, the
+view model's coarse-fire gate (Spec A, in the commit step) computed `oldID != newID` on **every
+commit**, firing the coarse key path even when nothing changed. Spec A's fine-grained gating
+silently degraded to the pre-Spec-A behavior until the state left that case — and this spec's
+`switch`-driven design leans directly on "the switch only re-renders on real case changes," so
+the fix landed here.
 
-### Source changes
+### Source
 
-`Sources/Lattice/Observation/ObservableState.swift` — a shared inert identity:
+[`FeatureState.swift`](../Sources/Lattice/Observation/FeatureState.swift) — a shared inert
+identity:
 
 ```swift
-extension ObservableStateID {
-    /// A shared identity for values that carry no observable content of their own, such as
-    /// payloadless enum cases. Tagging `_$inert` with a case index yields an id that is stable
-    /// across accesses and distinct across cases.
-    public static let _$inert = Self()
-}
+/// A shared identity for values that carry no observable content of their own, such as
+/// payloadless enum cases. Tagging `_$inert` with a case index yields an id that is stable
+/// across accesses and distinct across cases.
+public static let _$inert = Self()
 ```
 
-`Sources/LatticeMacros/Plugins/Derived/ObservableStateMacro.swift` — `ObservableStateCase.getCase`,
-payloadless branch only:
+[`FeatureStateMacro.swift`](../Sources/LatticeMacros/Plugins/FeatureStateMacro.swift) —
+`FeatureStateCase.getCase` generates, for a payload-less case:
 
-```diff
-     case .\(element.name.text):
--    return ObservableStateID()._$tag(\(tag))
-+    return ObservableStateID._$inert._$tag(\(tag))
+```swift
+case .loading:
+    return ObservableStateID._$inert._$tag(0)
 ```
 
-This is a macro-source change: run `scripts/rebuild-macro.sh` to refresh the checked-in
-`Macros/LatticeMacros` binary, and update any `LatticeMacrosTests` expansion snapshots that
-cover payloadless enum cases.
-
-### Deliberately unchanged: cases with non-`ObservableState` payloads
+### Deliberately unchanged: single non-`FeatureState` payloads
 
 `ObservableStateID._$id(for:)`'s fallback (`?? Self()`) stays as-is, so a case like
 `.error(String)` keeps an **unstable** `_$id`. That instability is load-bearing: a `String`
@@ -103,20 +103,25 @@ payload has no registrar, so the coarse root fire is the *only* channel by which
 `.error("a") → .error("b")` re-renders the `switch`. Stabilizing it would make such content
 changes invisible to observation. The precision model is therefore:
 
-- payloadless case active → no coarse fire on unrelated reduces (this fix);
-- `@ObservableState` payload → fine-grained via the payload registrar; coarse fires only on a
-  real case change or wholesale payload rebuild;
-- non-`ObservableState` payload → coarse fire on every reduce while active (intended; give the
-  payload `@ObservableState` structure if this matters).
+- payload-less case active → no coarse fire on unrelated commits (this fix);
+- `@FeatureState` payload → fine-grained via the payload registrar; coarse fires only on a real
+  case change or a wholesale payload replacement;
+- single non-`FeatureState` payload → coarse fire on every commit that changes the payload's
+  content while the case is active, and on every commit when the feature has no
+  `areStatesEqual` (intended; give the payload `@FeatureState` structure if this matters).
+
+Known gap: a case with several payload values (`.failed(message:retryCount:)`) shares the
+payload-less branch of `getCase`, so it returns the `_$inert` tag and never fires the root on a
+content change; see [FeatureState](./feature-state.md#limitations).
 
 ### Regression tests
 
-In the new test file (see Tests below):
-
-- payloadless case active at the root + a reduce that changes unrelated domain state → a
-  whole-`viewState` observer does **not** fire (fails before the fix);
-- case change (`.loading → .success`) → the observer **does** fire (pins Spec A's
-  `EnumRootObservationTests` behavior against this change).
+- `EnumCaseScopingTests.payloadlessCaseReassignmentDoesNotFireCoarse`: reassigning the active
+  payload-less case, without a state equality to swallow it, does not fire a whole-`viewState`
+  observer and keeps the root `_$id`.
+- `EnumCaseScopingTests.enumCaseSwitchFiresRoot` and
+  `EnumRootObservationTests.caseChangeInvalidatesWholeStateObserver`: a case change
+  (`.loading → .success`) still fires.
 
 ## Goal
 
@@ -134,7 +139,7 @@ struct PhaseView: View {
 }
 
 struct SuccessView: View {
-    let model: ScopedViewModel<SuccessViewState, SuccessAction>
+    let model: ScopedViewModel<SuccessState, SuccessAction>
     var body: some View {
         Text(model.title)                            // fine-grained read on the payload registrar
         TextField("Title", text: model.binding(\.title, sending: \.titleChanged))
@@ -148,7 +153,7 @@ fallback arguments at the call site.
 
 ## Design
 
-Two forms, both returning the existing `ScopedViewModel` from Spec B:
+Two forms, both returning Spec B's `ScopedViewModel`:
 
 - **`scope(state:action:)` (trapping)** — the switch-facing form. Traps with
   `fatalError` if the case is not active at creation. This is safe by construction in
@@ -163,14 +168,14 @@ Two forms, both returning the existing `ScopedViewModel` from Spec B:
 
 ### Staleness: implicit creation-snapshot fallback
 
-The scope's `_state()` re-reads through the parent on every access (`viewState[case:]`), so
-values are always live while the case is active. If the case flips between a send and the next
-render pass, `[case:]` returns `nil` for at most one transitional window before the `switch`
-(which is registered on the coarse key path) re-renders and tears the child down. In that
-window `_state()` serves the payload captured at scope creation:
+The scope's state closure re-reads through the parent on every access, so values are always
+live while the case is active. If the case flips between a send and the next render pass, the
+extraction returns `nil` for at most one transitional window before the `switch` (which is
+registered on the coarse key path) re-renders and tears the child down. In that window the scope
+serves the payload captured at scope creation:
 
 ```swift
-state: { viewState[case: casePath] ?? snapshotAtCreation }
+state: { [self] in Child.ViewState(self._state())[case: casePath]?._state ?? snapshot }
 ```
 
 The fallback is an implementation detail, not API surface. During normal rendering SwiftUI
@@ -185,292 +190,136 @@ it for free.)
 
 A child can send after its case flipped (`.success(.retry)` arriving while state is
 `.loading`). The scope does not police this — there is no dismount lifecycle to track. The
-interactor is the arbiter, as it already is for every action: switch on `(state, action)` and
-drop actions that no longer apply. This is documented on the API rather than enforced with
-runtime machinery.
+interactor is the arbiter, as it already is for every action: `Interactors.When` over a case
+path drops child actions while the case is inactive, and a hand-written interactor switches on
+`(state, action)` and drops actions that no longer apply. This is documented on the API rather
+than enforced with runtime machinery.
 
-## Source changes
+## API
 
-All additions live in `Sources/Lattice/Presentation/ViewModel/ScopedViewModel.swift` (Spec B's
-file), inside the existing `#if canImport(CasePaths)` block. Case scoping requires the enum to
-be `@CasePathable` in addition to `@ObservableState` (the `@ObservableState` macro does not add
-case paths).
+All overloads live in
+[`ScopedViewModel.swift`](../Sources/Lattice/Presentation/ViewModel/ScopedViewModel.swift),
+inside its `#if canImport(CasePaths)` block:
 
 ```swift
-extension ViewModel where ViewState: CasePathable, Action: CasePathable {
-    /// Projects this view model onto the payload of an enum case of view state, if that case
-    /// is currently active.
-    ///
-    /// This is the primitive form; ``scope(state:action:fileID:line:)`` is trapping sugar over
-    /// it for use inside a matched `switch` case. Reads are live: the returned scope
-    /// re-extracts the payload from the current view state on every access, so in-place payload
-    /// mutations are observed fine-grained. If the case deactivates while the scope is still
-    /// held (at most one transitional render), reads serve the payload captured at creation.
-    ///
-    /// Sends are embedded into this feature's action with `embed` and run on this view model's
-    /// action loop. A send can arrive after the case has deactivated; the interactor should
-    /// drop actions that no longer apply to the current state.
-    ///
-    /// - Parameters:
-    ///   - casePath: A case key path to an `@ObservableState` payload of the view state enum.
-    ///   - embed: A case key path that embeds the child action into this feature's action.
-    /// - Returns: A scope over the case's payload, or `nil` if the case is not active.
-    public func scopeIfActive<Child: ObservableState, ChildAction: Sendable>(
-        state casePath: CaseKeyPath<ViewState, Child>,
+extension ViewModel where State.ViewState: CasePathable, Action: CasePathable {
+    /// Enum state: projects the active case's payload, `nil` otherwise.
+    public func scopeIfActive<P: ViewStateProjection, ChildAction>(
+        state casePath: CaseKeyPath<State.ViewState, P>,
         action embed: CaseKeyPath<Action, ChildAction>
-    ) -> ScopedViewModel<Child, ChildAction>? {
-        guard let snapshot = self.viewState[case: casePath] else { return nil }
-        return ScopedViewModel(
-            state: { [self] in self.viewState[case: casePath] ?? snapshot },
-            send: { [self] childAction in self.sendViewEvent(embed(childAction)) }
-        )
-    }
+    ) -> ScopedViewModel<P.State, ChildAction>?
 
-    /// Projects this view model onto the payload of the currently active enum case of view
-    /// state, trapping if the case is not active.
-    ///
-    /// Call this only inside a `switch` case that just matched the same case:
-    ///
-    /// ```swift
-    /// switch viewModel.viewState {
-    /// case .loading:
-    ///     LoadingView()
-    /// case .success:
-    ///     SuccessView(model: viewModel.scope(state: \.success, action: \.success))
-    /// }
-    /// ```
-    ///
-    /// Body evaluation is synchronous on the main actor, so within a matched case this cannot
-    /// trap. Use ``scopeIfActive(state:action:)`` when the case may legitimately be inactive.
-    public func scope<Child: ObservableState, ChildAction: Sendable>(
-        state casePath: CaseKeyPath<ViewState, Child>,
+    /// Trapping form for use inside a matched `switch viewModel.viewState` case.
+    public func scope<P: ViewStateProjection, ChildAction>(
+        state casePath: CaseKeyPath<State.ViewState, P>,
         action embed: CaseKeyPath<Action, ChildAction>,
         fileID: StaticString = #fileID,
         line: UInt = #line
-    ) -> ScopedViewModel<Child, ChildAction> {
-        guard let scoped = scopeIfActive(state: casePath, action: embed) else {
-            fatalError(
-                """
-                scope(state:action:) at \(fileID):\(line): scoped into case '\(casePath)' \
-                while it is not the active case of the view state. Call this only inside a \
-                switch case that matched the same case, or use scopeIfActive(state:action:).
-                """
-            )
-        }
-        return scoped
-    }
+    ) -> ScopedViewModel<P.State, ChildAction>
 }
 
-extension ScopedViewModel where ChildState: CasePathable {
-    /// Projects this scope onto the payload of an enum case of the child slice, if active.
-    /// See ``ViewModel/scopeIfActive(state:action:)``.
-    public func scopeIfActive<CaseState: ObservableState, CaseAction: Sendable>(
-        state casePath: CaseKeyPath<ChildState, CaseState>,
-        action embed: CaseKeyPath<ChildAction, CaseAction>
-    ) -> ScopedViewModel<CaseState, CaseAction>? {
-        guard let snapshot = _state()[case: casePath] else { return nil }
-        let state = self._state
-        let send = self._send
-        return ScopedViewModel<CaseState, CaseAction>(
-            state: { state()[case: casePath] ?? snapshot },
-            send: { caseAction in send(embed(caseAction)) }
-        )
-    }
-
-    /// Projects this scope onto the payload of the currently active enum case of the child
-    /// slice, trapping if the case is not active. See ``ViewModel/scope(state:action:fileID:line:)``.
-    public func scope<CaseState: ObservableState, CaseAction: Sendable>(
-        state casePath: CaseKeyPath<ChildState, CaseState>,
-        action embed: CaseKeyPath<ChildAction, CaseAction>,
-        fileID: StaticString = #fileID,
-        line: UInt = #line
-    ) -> ScopedViewModel<CaseState, CaseAction> {
-        guard let scoped = scopeIfActive(state: casePath, action: embed) else {
-            fatalError(
-                """
-                scope(state:action:) at \(fileID):\(line): scoped into case '\(casePath)' \
-                while it is not the active case of the child slice. Call this only inside a \
-                switch case that matched the same case, or use scopeIfActive(state:action:).
-                """
-            )
-        }
-        return scoped
-    }
+extension ScopedViewModel where Child.ViewState: CasePathable, ChildAction: CasePathable {
+    // The same two overloads over `CaseKeyPath<Child.ViewState, P>`, for an enum child.
 }
 ```
 
+- The case path is rooted at the `@CasePathable` mirror and names the payload's projection `P`;
+  the scope recovers the raw payload as `P.State` through the SPI `_state`. Case scoping
+  therefore requires the state enum to be `@CasePathable` (user-applied; `@FeatureState`
+  propagates it to the mirror) and the payload to be `@FeatureState`. A plain payload has no
+  projection, so it is read or bound through the mirror but not scoped.
+- The trapping form reports the call site and the case path in its `fatalError` message.
+- The raw-enum overload, `scopeIfActive(state: CaseKeyPath<State, Child>, …)`, is removed:
+  coexisting with the mirror overload made `\.success` ambiguous, and the raw state is not a
+  view-facing type. The negative compile checks (`LEAK_CASE`) assert that a raw-enum case path
+  is rejected, and that a `@Domain` member of a payload is rejected through a case scope and a
+  case binding.
+- There is no ambiguity with Spec B's key-path `scope`: the mirror is not
+  `@dynamicMemberLookup`, so for an enum state `\.success` can only be a case key path, and a
+  struct state has no case key paths.
+
 No changes to the action loop, `ScopedViewModel`'s stored representation, or Spec B's existing
-overloads. There is no ambiguity with Spec B's key-path `scope`: for an enum view state,
-`\.success` cannot satisfy `KeyPath<ViewState, ChildState>` with `ChildState: ObservableState`
-(the dynamic-member key path lands on an optional), so only the `CaseKeyPath` overload is
-viable — and vice versa for struct view state.
+overloads were needed.
 
 ### Observation trace (why this is fine-grained)
 
-Reading `model.title` through a case scope registers: the coarse `\.viewState` (gated on root
-`_$id` — fires only on a case change or wholesale payload rebuild, exactly when the child
+Reading `model.title` through a case scope registers: the coarse `\.state` (gated on root
+`_$id` — fires only on a case change or wholesale payload replacement, exactly when the child
 should die or fully refresh) and `\.title` on the payload's own registrar (fires on in-place
-mutation). The `switch` view registers only the coarse key path. So: in-place payload mutation
-re-renders only the leaf child; case change re-renders the `switch`, which tears down the child
-and builds the new case's subtree. For a nested enum slice (`scope(state: \.phase, action:
-\.phase)` per Spec B, then case-scoping the result), the containing registrar's `\.phase` fires
-on case changes via `didModify` identity comparison — same shape, one level down.
+mutation). The `switch` view registers only the coarse key path (plus any payload member it
+reads itself). So: in-place payload mutation re-renders only the leaf child; a case change
+re-renders the `switch`, which tears down the child and builds the new case's subtree. For a
+nested enum child (`scope(state: \.phase, action: \.phase)` per Spec B, then case-scoping the
+result), the containing registrar's `\.phase` fires on case changes via `didModify` identity
+comparison — same shape, one level down.
 
 ## Tests
 
-New file `Tests/LatticeTests/PresentationTests/EnumCaseScopingTests.swift`:
+`Tests/LatticeTests/PresentationTests/EnumCaseScopingTests.swift` covers root observation
+(`payloadlessCaseReassignmentDoesNotFireCoarse`, `enumCaseSwitchFiresRoot`,
+`payloadEditThroughWhenCasePathIsLeafOnlyAndKeepsRootID`,
+`switchOverViewStateTracksTheCaseAndThePayloadMembersItRead`), case scoping
+(`trappingScopeReadsLivePayload`, `scopeIfActiveReturnsNilForInactiveCase`,
+`caseFlipServesCreationSnapshotWithoutCrashing`, `lateSendAfterCaseFlipIsDroppedByWhen`,
+`bindingThroughCaseScope`) and an enum child of a scope
+(`scopedEnumChildScopesIntoItsActiveCase`). Excerpt:
 
 ```swift
-import CasePaths
-import Foundation
-import Observation
-import Testing
-
-@testable import Lattice
-
-private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
-}
-
-@ObservableState private struct SuccessViewState: Equatable, Sendable {
+@FeatureState struct SuccessState: Equatable, Sendable {
     var title: String
     var count: Int
 }
 
+// Mocks/PhaseState.swift — a `@FeatureState` enum must be alone in its file.
 @CasePathable
-@ObservableState private enum PhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self.loading
+@FeatureState
+enum PhaseState: Equatable, Sendable {
     case loading
-    case success(SuccessViewState)
+    case success(SuccessState)
 }
 
-private struct PhaseDomain: Equatable, Sendable {
-    var isLoaded = false
-    var title = "t"
-    var count = 0
-    var tick = 0
-}
-
-@CasePathable private enum SuccessAction: Sendable {
-    case titleChanged(String)
-    case incremented
-}
-
-@CasePathable private enum PhaseAction: Sendable {
-    case load
-    case reset
-    case tick
-    case success(SuccessAction)
-}
-
-private struct PhaseInteractor: Interactor, Sendable {
-    typealias DomainState = PhaseDomain
-    typealias Action = PhaseAction
+/// Transitions replace the case; steady-state updates mutate the payload in place through
+/// `Interactors.When`'s case path, which also drops payload actions while the case is inactive.
+@Interactor<PhaseState, PhaseAction>
+private struct PhaseInteractor: Sendable {
     var body: some InteractorOf<Self> {
+        Interactors.When(state: \.success, action: \.success) {
+            SuccessInteractor()
+        }
         Interact { state, action in
             switch action {
-            case .load: state.isLoaded = true
-            case .reset: state.isLoaded = false
-            case .tick: state.tick += 1
-            case .success(let action):
-                // Late sends after the case deactivated are dropped here, by design.
-                guard state.isLoaded else { return .none }
-                switch action {
-                case .titleChanged(let t): state.title = t
-                case .incremented: state.count += 1
-                }
+            case .load: state = .success(SuccessState(title: "t", count: 0))
+            case .reset: state = .loading
+            case .tick:
+                // Reassigns the payload-less case the state is already in.
+                if case .loading = state { state = .loading }
+            case .success: break
             }
             return .none
         }
     }
 }
 
-/// Fine-grained regime: transitions rebuild the case; steady-state updates mutate the payload
-/// in place through the case.
-private struct PhaseReducer: ViewStateReducer, Sendable {
-    typealias DomainState = PhaseDomain
-    typealias ViewState = PhaseViewState
-    // PhaseViewState: DefaultValueProvider supplies the initial view state.
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { s, v in
-            guard s.isLoaded else {
-                v = .loading
-                return
-            }
-            if v.is(\.success) {
-                v.modify(\.success) {          // in-place: payload registrar fires leaves only
-                    $0.title = s.title
-                    $0.count = s.count
-                }
-            } else {
-                v = .success(SuccessViewState(title: s.title, count: s.count))  // case transition
-            }
-        }
-    }
-}
-
 @MainActor
 @Suite struct EnumCaseScopingTests {
-    private func makeViewModel() -> ViewModel<Feature<PhaseAction, PhaseDomain, PhaseViewState>> {
-        ViewModel(
-            initialDomainState: PhaseDomain(),
-            feature: Feature(interactor: PhaseInteractor(), reducer: PhaseReducer())
-        )
-    }
+    // … makeViewModel(areStatesEqual:)
 
-    // MARK: Prerequisite fix (_$inert)
-
-    @Test func payloadlessCaseIsStable_unrelatedReduceDoesNotFireCoarse() {
-        let vm = makeViewModel()   // .loading
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
-
-        vm.sendViewEvent(.tick)    // domain changes; view state stays .loading
-        #expect(!probe.didChange)  // fails before the _$inert fix
-    }
-
-    @Test func caseChangeStillFiresCoarse() {
-        let vm = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
-
-        vm.sendViewEvent(.load)    // .loading -> .success
-        #expect(probe.didChange)
-    }
-
-    // MARK: Case scoping
-
-    @Test func trappingScopeReadsLivePayload() {
+    @Test func payloadEditThroughWhenCasePathIsLeafOnlyAndKeepsRootID() {
         let vm = makeViewModel()
         vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-        #expect(success.title == "t")
-
-        success.sendViewEvent(.titleChanged("new"))   // in-place reduce
-        #expect(success.title == "new")               // live re-extraction, not a snapshot
-    }
-
-    @Test func scopeIfActiveReturnsNilForInactiveCase() {
-        let vm = makeViewModel()   // .loading
-        #expect(vm.scopeIfActive(state: \.success, action: \.success) == nil)
-    }
-
-    @Test func inPlacePayloadMutationIsFineGrained() {
-        let vm = makeViewModel()
-        vm.sendViewEvent(.load)
+        let rootID = vm.state._$id
         let success = vm.scope(state: \.success, action: \.success)
 
-        let titleProbe = ChangeProbe()
-        withObservationTracking { _ = success.title } onChange: { titleProbe.mark() }
-        let coarseProbe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { coarseProbe.mark() }
+        let title = ObservationProbe { _ = success.title }
+        let count = ObservationProbe { _ = success.count }
+        let root = ObservationProbe { _ = vm.viewState }
 
-        success.sendViewEvent(.incremented)   // in-place: only count changes
-        #expect(!titleProbe.didChange)        // sibling leaf not invalidated
-        #expect(!coarseProbe.didChange)       // switch not re-rendered
+        success.sendViewEvent(.incremented)  // in place: only count changes
+        #expect(count.didFire)
+        #expect(!title.didFire)  // sibling leaf not invalidated
+        #expect(!root.didFire)  // switch not re-rendered
+        #expect(vm.state._$id == rootID)
+        #expect(success.count == 1)
     }
 
     @Test func caseFlipServesCreationSnapshotWithoutCrashing() {
@@ -478,128 +327,112 @@ private struct PhaseReducer: ViewStateReducer, Sendable {
         vm.sendViewEvent(.load)
         let success = vm.scope(state: \.success, action: \.success)
 
-        vm.sendViewEvent(.reset)     // .success -> .loading; scope is now stale
-        #expect(success.title == "t")   // creation snapshot, no trap/crash
-    }
-
-    @Test func lateSendAfterCaseFlipIsDroppedByInteractor() {
-        let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-        vm.sendViewEvent(.reset)
-
-        success.sendViewEvent(.incremented)   // arrives while .loading
-        vm.sendViewEvent(.load)
-        #expect(vm.viewState[case: \.success]?.count == 0)   // guard dropped it
-    }
-
-    @Test func bindingThroughCaseScope() {
-        let vm = makeViewModel()
-        vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-        let binding = success.binding(\.title, sending: \.titleChanged)
-        #expect(binding.wrappedValue == "t")
-        binding.wrappedValue = "typed"
-        #expect(binding.wrappedValue == "typed")
+        vm.sendViewEvent(.reset)  // .success -> .loading; scope is now stale
+        #expect(success.title == "t")  // creation snapshot, no trap/crash
     }
 }
 ```
 
 The trapping path itself is not unit-tested (no exit-test infrastructure in the suite); the
-optional primitive's `nil` path covers the branch, and the trap is a `fatalError`
-whose condition is pinned by `scopeIfActiveReturnsNilForInactiveCase`.
+optional primitive's `nil` path covers the branch, and the trap is a `fatalError` whose
+condition is pinned by `scopeIfActiveReturnsNilForInactiveCase`.
 
 ## Demo project
 
-Extend the `ExampleProject/ScopedCompositionExamplePackage` created by Spec B's Demo project
-section (see [`scoped-view-composition.md`](./scoped-view-composition.md)) with a second
-screen — **not** a new package. Add the phase feature's files alongside the existing ones
-(`Architecture/Phase*.swift`, a `PhaseExampleView.swift`, and a public
-`PhaseExampleAppView.swift` entry that builds the `Feature` + `ViewModel` in `@State`, mirroring
-`ScopedCompositionExampleAppView`), and wire a new `case enumCaseScoping` into the private
-`Example` enum in `ExampleProject/ExampleProject/ContentView.swift` (title "Enum Case Scoping
-Example", navigation title "Enum Case Scoping", `destinationView` `PhaseExampleAppView()`).
-Use the example project's macro conventions (`@Interactor`, `@ViewStateReducer` with
-`Self.buildViewState`) rather than this spec's protocol-spelled test fixtures.
+The `ExampleProject/ScopedCompositionExamplePackage` from Spec B's Demo project section has a
+second screen for this spec: `PhaseExampleAppView` (the `case enumCaseScoping` entry of
+`ContentView.swift`'s `Example` enum, "Enum Case Scoping Example"), which builds the `Feature` and
+`ViewModel` in `@State` with `initialState: .loading`.
 
-The demo must make four things visible in a running app: the fine-grained in-place path
-through a case scope (down a deep chain of nested slices), the coarse case-change path at
-both enum levels, and the `_$inert` fix.
+The demo makes four things visible in a running app: the fine-grained in-place path through a
+case scope (down a deep chain of nested children), the coarse case-change path at both enum
+levels, and the `_$inert` fix.
 
-Shape — the whole view state is the enum, and the success payload is a deep chain of nested
-`@ObservableState` slices (`Success > Session > Telemetry > Subphase > Active`) with a
-`Summary` sibling branch at the first level and a nested sub-phase **enum** at the third, so
-the render counters can show exactly which boundaries a change crosses:
+The whole state is the enum, and the success payload is a deep chain of nested `@FeatureState`
+children (`Success > Session > Telemetry > Subphase > Active`) with a `Summary` sibling branch at
+the first level and a nested sub-phase **enum** at the third, so the render counters can show
+exactly which boundaries a change crosses:
 
 ```swift
+// PhaseState.swift, alone in its file
 @CasePathable
-@ObservableState
-enum PhaseViewState: Equatable, Sendable {
+@FeatureState
+enum PhaseState: Equatable, Sendable {
     case loading
-    case success(SuccessViewState)
+    case success(SuccessState)
 }
 
-@ObservableState
-struct SuccessViewState: Equatable, Sendable {
-    var title: String
-    var summary: SummaryViewState    // sibling branch: count
-    var session: SessionViewState    // deep branch: name > telemetry
-}
-
-@ObservableState
-struct SessionViewState: Equatable, Sendable {
-    var name: String
-    var telemetry: TelemetryViewState    // status + nested sub-phase enum
-}
-
-@ObservableState
-struct TelemetryViewState: Equatable, Sendable {
-    var status: String
-    var subphase: SubphaseViewState
-}
-
+// SubphaseState.swift, alone in its file
 @CasePathable
-@ObservableState
-enum SubphaseViewState: Equatable, Sendable {
+@FeatureState
+enum SubphaseState: Equatable, Sendable {
     case idle
-    case active(ActiveViewState)    // deep leaf: tick + note
+    case active(ActiveState)
+}
+
+// SuccessState.swift
+@FeatureState
+struct SuccessState: Equatable, Sendable {
+    var title: String = "Success"
+    var summary: SummaryState = SummaryState()   // sibling branch: count
+    var session: SessionState = SessionState()   // deep branch: name > telemetry
+}
+
+@FeatureState
+struct SessionState: Equatable, Sendable {
+    var name: String = "Live sync"
+    var telemetry: TelemetryState = TelemetryState()
+}
+
+@FeatureState
+struct TelemetryState: Equatable, Sendable {
+    var status: String = "Connected"
+    var subphase: SubphaseState = .idle
+}
+
+@FeatureState
+struct ActiveState: Equatable, Sendable {   // the deep leaf
+    var tick: Int = 0
+    var note: String = ""
 }
 ```
 
+`SummaryState` holds `count`. Each enum sits alone in its file, as the Swift 6.4 layout rule in
+[FeatureState](./feature-state.md#limitations) requires, and the payload structs share
+`SuccessState.swift`.
+
 Each level is rendered by a thin child view holding a `ScopedViewModel` chained with Spec B's
-key-path `scope` from the case scope; the inner sub-phase is case-scoped via this spec's
-`ScopedViewModel.scope(state:action:)` case overload
+key-path `scope` from the case scope; the inner sub-phase is case-scoped through
+`ScopedViewModel`'s case overload
 (`model.scope(state: \.subphase, action: \.subphase).scope(state: \.active, action: \.active)`),
 demonstrating case scoping below the root. The action enums nest the same way
 (`ActiveAction ⊂ SubphaseAction ⊂ TelemetryAction ⊂ SessionAction ⊂ SuccessAction ⊂
 PhaseEvent`, with `SummaryAction` as the sibling branch).
 
-Domain state is flat (`isLoaded`/`isActive`/`title`/`count`/`sessionName`/`status`/`tick`/
-`note`, plus an `isTicking` guard flag so the tick stream is started at most once — the
-`TimerLeakExamplePackage` convention). The interactor:
+`PhaseInteractor` keeps this spec's two-regimes discipline at **both** enum levels: it mutates
+payloads in place while staying in a case and replaces a case only on a real transition.
+Because the state is the enum itself, each case carries its own data:
 
-- `.loadTapped` fakes an async load: `return .perform { try? await clock.sleep(for: .seconds(1));
-  return .loaded }` (the `.perform` convention used by `SearchExamplePackage`'s interactors);
-  `.loaded` sets `isLoaded = true` and `.resetTapped` clears it.
-- A once-per-second tick stream via `.observe` (the `TimerLeakExamplePackage` convention),
-  started from a view event on appear, bumps `state.tick` — the unrelated-reduce driver for the
-  `_$inert` behavior below, and the deep-leaf driver while the `.active` sub-phase is showing.
-- `.success(.session(.telemetry(.startTapped/.stopTapped)))` toggles `isActive`, driving the
-  inner sub-phase case.
-- `.success(...)` actions are guarded on `isLoaded` (and the leaf's `.noteChanged` additionally
-  on `isActive`) and dropped otherwise (the late-send discipline from "Late sends").
-
-The reducer keeps this spec's two-regimes discipline at **both** enum levels: `.loading` when
-not loaded; wholesale `v = .success(SuccessViewState(...))` only on the `.loading → .success`
-transition; otherwise **in place** via `v.modify(\.success) { ... }` (title, count, name,
-status), and inside that, `.idle` / wholesale `.active(ActiveViewState(...))` only on sub-phase
-transitions with `subphase.modify(\.active) { ... }` (tick, note) while staying in the case.
-Payloadless cases (`.loading`, `.idle`) are reassigned on every reduce; their `_$inert`-stable
-ids make those assignments identity-equal no-ops.
+- `.loadTapped` fakes an async load (`.perform` that sleeps one second and returns `.loaded`).
+  `.loaded` moves `.loading → .success(SuccessState())` and is ignored in any other case.
+  `.resetTapped` returns to `.loading`, dropping the payload, so the next Load begins from the
+  defaults.
+- `.startTicking` starts a once-per-second tick stream (`.observe`). The root view's `.task`
+  sends it once; there is no start-once guard, because an enum state has no storage outside its
+  cases, and `Emission` has no cancellation API, so a re-appearing view would start a second
+  stream.
+- `.tick` increments `tick` only while `.active` is showing, so `Tick:` counts the ticks since
+  Start. While a payload-less case (`.loading` or `.idle`) is showing, a tick changes nothing.
+- `.success(.session(.telemetry(.startTapped)))` moves `.idle → .active(ActiveState())`;
+  `.stopTapped` returns to `.idle`, dropping the payload, so the next Start begins from the
+  defaults.
+- `.success(...)` actions are dropped while the state is not `.success` (the late-send
+  discipline from "Late sends"), and the note edit is dropped while the sub-phase is not
+  `.active`.
 
 The root view is a plain exhaustive `switch` over `viewModel.viewState`, with load/reset
-buttons outside the switch and a render counter (the same instrumentation as
-Spec B's demo views) on **every** view in the chain. The view tree mirrors the state tree:
+buttons outside the switch and a render counter on **every** view in the chain. The view tree
+mirrors the state tree:
 
 - `PhaseExampleView` — owns the outer `switch`; `.success` renders
   `SuccessView(model: viewModel.scope(state: \.success, action: \.success))`; starts the tick
@@ -609,69 +442,78 @@ Spec B's demo views) on **every** view in the chain. The view tree mirrors the s
   `SessionView(model: model.scope(state: \.session, action: \.session))`.
 - `SummaryView` — count + Increment button.
 - `SessionView` — reads `name`, scopes deeper to `TelemetryView`.
-- `TelemetryView` — reads `status`; owns the **inner** `switch` over `model.subphase` (the
-  sub-phase container read registers its identity, so this view re-renders on inner case
-  changes only); `.active` renders `ActiveView` via the chained case scope shown above;
-  Start/Stop buttons drive the sub-phase.
+- `TelemetryView` — reads `status`; owns the **inner** `switch` over `model.subphase` (reading
+  the sub-phase registers its identity, so this view re-renders on inner case changes only);
+  `.active` renders `ActiveView` via the chained case scope shown above; Start/Stop buttons
+  drive the sub-phase.
 - `ActiveView` — the deep leaf: `Tick:` text and a note `TextField` via
   `binding(\.note, sending: \.noteChanged)`.
 
 Expected, demonstrable behavior (all visible in the render counters):
 
 - Ticks while `.active` is showing, or typing in the **Note** field (in-place mutations of the
-  deep leaf through both `modify` levels): only `ActiveView renders:` advances. Every
-  intermediate counter (`TelemetryView`, `SessionView`, `SuccessView`) and the sibling
-  (`SummaryView`) stay put, as does the root switch.
+  deep leaf): only `ActiveView renders:` advances. Every intermediate counter (`TelemetryView`,
+  `SessionView`, `SuccessView`) and the sibling (`SummaryView`) stay put, as does the root
+  switch.
 - Tapping **Increment** (sibling branch): only `SummaryView renders:` advances.
 - Tapping **Start**/**Stop** (inner case change): `TelemetryView renders:` advances — the
-  sub-phase identity changed, so the inner switch re-renders and builds/tears down the
+  sub-phase identity changed, so the inner switch re-renders and builds or tears down the
   `ActiveView` subtree. `SessionView` and everything above stay put.
 - Tapping **Load**/**Reset** (outer case change): `PhaseExampleView renders:` advances — the
   root `_$id` changed, the coarse fire re-renders the outer switch, and the success subtree is
   built or torn down. This is the intended coarse channel, not a regression.
-- While sitting in `.loading`, the tick stream keeps reducing unrelated domain state once per
-  second, and **no** counter advances. This is the `_$inert` fix made visible: before it,
-  `.loading._$id` minted a fresh UUID per access, the coarse-fire gate saw a changed root `_$id`
-  on every reduce, and the switch would re-render once per second while showing an unchanged
-  spinner. (The same holds one level down: ticks while the sub-phase sits in `.idle` advance
-  nothing, because `.idle`'s id is `_$inert`-stable too.)
-- Typing in the **Title** field re-renders `SuccessView` — and, because scopes are recreated
-  by the render that owns them, its scoped children re-render with it (Spec B's documented
-  trade-off, already visible in the Spec B demo).
+- While `.loading` is showing, the tick stream keeps committing once per second and **no**
+  counter advances: a tick changes only the `.active` payload, and `.loading` keeps its
+  `_$inert`-stable identity across commits, so a commit that leaves `.loading` showing never
+  counts as a wholesale replacement. This is the `_$inert` fix made visible. The same holds one
+  level down while the sub-phase sits in `.idle`.
 
-This is the manual counterpart to `payloadlessCaseIsStable_*`, `inPlacePayloadMutationIsFineGrained`,
-and `caseChangeStillFiresCoarse`.
+Each counter lives in its view value (`private final class Renders`), so it starts over when
+SwiftUI re-creates that view (for example `ActiveView` after Start); compare which counters
+advance rather than absolute counts.
+
+`PhaseExampleTests` checks the same boundaries with observation probes:
+`tickWhileLoadingDoesNotInvalidateTheRootSwitch` (with `areStatesEqual: nil`, so only the
+`_$inert` identity prevents a fire), `tickWhileIdleInvalidatesNeitherSwitch`,
+`payloadEditsWhileActiveInvalidateOnlyTheirLeaf`, `caseTransitionsInvalidateExactlyTheirSwitch`,
+and `resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a `TestViewModel`
+walk-through).
 
 ## Validation
 
-1. `scripts/rebuild-macro.sh` (enum expansion changed), then `swift build`.
-2. `swift test --filter LatticeMacrosTests` — update payloadless-enum expansion snapshots.
+1. `swift build`
+2. `swift test --filter FeatureStateMacroTests` — the enum expansion snapshots, including
+   payload-less cases.
 3. `swift test --filter EnumCaseScopingTests`
 4. `swift test --filter EnumRootObservationTests` and
    `swift test --filter FineGrainedObservationTests` — Spec A behavior unchanged (case changes
    still fire coarse).
 5. `swift test --filter ScopedViewModelTests` — Spec B unchanged.
-6. Demo: build the phase-enum screen specified in "Demo project" and confirm with the render
-   counters plus `Self._printChanges()` that the expected behaviors listed there hold: typing
-   and counting (in-place mutation) re-render only the success child, load/reset (case change)
-   re-renders the `switch`, and ticks while in `.loading` re-render nothing (the `_$inert`
-   fix).
+6. `cd ExampleProject/ScopedCompositionExamplePackage && swift test --filter PhaseExampleTests`,
+   then confirm in the running demo, with the render counters plus `Self._printChanges()`, that
+   the expected behaviors listed there hold: in-place mutations re-render only the deep leaf,
+   load/reset (case change) re-renders the outer `switch`, and ticks while in `.loading`
+   re-render nothing (the `_$inert` fix).
 7. `swift test` — full suite.
 
 ## Migration / API notes
 
-- Purely additive. Existing switch-and-extract code keeps working under the wholesale-rebuild
-  regime (coarse granularity); this spec adds the fine-grained path.
+- Existing switch-and-extract code keeps working under the wholesale-replacement regime (coarse
+  granularity); case scoping adds the fine-grained path.
 - Document the two-regimes rule prominently (this spec's Problem section is the source of
-  truth): extraction pairs with wholesale rebuild; scope pairs with in-place mutation; mixing
-  them shows stale data.
-- Requires the view-state enum to be `@CasePathable` (user-applied; `@ObservableState` does not
-  add it) and the payload to be `@ObservableState`.
-- Payloadless cases need no scope: no state to project, and one-off actions are a plain
+  truth): extraction pairs with wholesale replacement; scope pairs with in-place mutation;
+  mixing them shows stale data.
+- Requires the state enum to be `@CasePathable` (user-applied; `@FeatureState` propagates it to
+  the `ViewState` mirror) and the payload to be `@FeatureState`.
+- Payload-less cases need no scope: no state to project, and one-off actions are a plain
   `viewModel.sendViewEvent(...)` closure or Spec B's typed-callback handoff.
-- Give enum payloads `@ObservableState` structure when their content changes matter for
-  precision; a non-`ObservableState` payload (e.g. `.error(String)`) is observed coarsely by
-  design (see the prerequisite-fix section).
+- Give enum payloads `@FeatureState` structure when their content changes matter for
+  precision; a plain payload (e.g. `.error(String)`) is observed coarsely by design (see the
+  prerequisite-fix section).
+- Enum case bindings (`$viewModel.loaded.query.sending(...)`) go through the same mirror, for
+  both payload kinds.
+- Declare each `@FeatureState` enum in its own file until the Swift 6.4 compiler crash is fixed
+  (see [FeatureState](./feature-state.md#limitations)).
 
 ## Out of scope
 

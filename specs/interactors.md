@@ -1,6 +1,6 @@
 # Interactors
 
-`Interactor` is the core domain primitive in Lattice. It synchronously handles an action, mutates `DomainState`, and returns an `Emission<Action>` that describes any follow-up work.
+`Interactor` is the core domain primitive in Lattice. It synchronously handles an action, mutates its `State`, and returns an `Emission<Action>` that describes any follow-up work. In a feature, `State` is the feature's `@FeatureState` type and the interactor is its only mutator.
 
 Key source files:
 
@@ -17,10 +17,12 @@ Key source files:
 
 The protocol shape is:
 
-- `associatedtype DomainState: Sendable`
+- `associatedtype State: Sendable`
 - `associatedtype Action: Sendable`
 - `var body: Body`
-- `func interact(state: inout DomainState, action: Action) -> Emission<Action>`
+- `func interact(state: inout State, action: Action) -> Emission<Action>`
+
+`@Interactor<State, Action>` declares the conformance; see [Macros](./macros.md#interactor). `InteractorOf<I>` is `Interactor<I.State, I.Action>`.
 
 Interactors are synchronous at the mutation boundary:
 
@@ -170,5 +172,5 @@ There is also `UncheckedSendableInteractor` and `eraseToAnyInteractorUnchecked()
 ## Related Specs
 
 - [ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md)
-- [ViewStateReducer](./view-state-reducer.md)
+- [FeatureState](./feature-state.md)
 - [Macros](./macros.md)

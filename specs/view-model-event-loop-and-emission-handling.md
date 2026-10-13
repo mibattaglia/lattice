@@ -28,7 +28,7 @@ For each buffered action, `ViewModel` does the following:
 
 1. Pop the next buffered action from the front of the deque.
 2. Decrement that root scope's `bufferedActionCount`.
-3. Copy the current domain state into a working value.
+3. Copy the current state into a working value. The copy shares the stored state's observation registrars.
 4. Apply the interactor synchronously through `ActionTransition.apply(...)`.
 5. Commit the transition into production state.
 6. Spawn effect work from the returned `Emission<Action>`.
@@ -38,17 +38,29 @@ For each buffered action, `ViewModel` does the following:
 
 ## Commit Rules
 
-Committing a transition does two separate things:
+The interactor already mutated the working copy, so per-member notifications fired during `interact(state:action:)`, and an observer that re-read the view model synchronously saw the previous committed value. Committing then decides what to store and whether to fire the coarse `\.state` key path:
 
-- Replace the stored production `domainState`.
-- Decide whether to re-run the `ViewStateReducer`.
+```swift
+private func commit(_ transition: ActionTransition<State, Action>) {
+    let newState = transition.currentState
+    let isReplacement = newState._$id != _state._$id
+    if isReplacement, let areStatesEqual, areStatesEqual(_state, newState) {
+        // Content-equal wholesale replacement: keep the current value so its registrar tree —
+        // and every observer registered on it — survives. Nothing changed for the view.
+        return
+    }
+    _state = newState
+    if isReplacement {
+        _$observationRegistrar.withMutation(of: self, keyPath: \.state) {}
+    }
+}
+```
 
-The reducer rules are:
+- A wholesale replacement (a new root `_$id`) with content equal to the stored state, per the feature's `areStatesEqual`, is dropped: the stored value and every registered observer survive.
+- Any other result is stored. Only a new root `_$id` fires `\.state`, which re-renders readers of `viewState` and every member reader (member reads register the root too).
+- In-place member mutations keep the root `_$id`, so they reach views only through the member registrars.
 
-- Sent action: reduce only if `areStatesEqual(previousState, currentState)` is false.
-- Emitted action: always reduce.
-
-That means an emitted action can refresh presentation even when the custom equality function treats the domain state as unchanged.
+Sent and emitted actions commit the same way.
 
 ## Root Send Scopes
 
@@ -174,7 +186,7 @@ Production `ViewModel` buffering is an internal serialization tool. Emitted acti
 
 `TestViewModel` is different:
 
-- Emitted actions are still reduced internally.
+- Emitted actions are still applied internally.
 - Their resulting states are held in a visible pending-receive queue.
 - Tests must explicitly `receive(...)` or skip them.
 

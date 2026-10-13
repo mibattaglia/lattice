@@ -11,10 +11,11 @@ Key source files:
 - [TestViewModelSendTests.swift](../Tests/LatticeTests/TestingInfrastructureTests/TestViewModelSendTests.swift)
 - [TestViewModelExhaustivityTests.swift](../Tests/LatticeTests/TestingInfrastructureTests/TestViewModelExhaustivityTests.swift)
 - [TestViewModelWaitingTests.swift](../Tests/LatticeTests/TestingInfrastructureTests/TestViewModelWaitingTests.swift)
+- [TestViewModelStateEqualityTests.swift](../Tests/LatticeTests/TestingInfrastructureTests/TestViewModelStateEqualityTests.swift)
 
 ## Main Tools
 
-- `TestViewModel<F>`
+- `TestViewModel<F>`, created with `TestViewModel(initialState:feature:)` or `TestViewModel(initialState:feature:areStatesEqual:)`
 - `TestEventTask`
 - `Exhaustivity`
 - `skipReceivedActions()`
@@ -23,15 +24,23 @@ Key source files:
 
 ## TestViewModel State Model
 
-`TestViewModel` is domain-state first.
+`TestViewModel` is state first. Its state is the feature's raw `@FeatureState` value, `@Domain` members included; tests are not limited to the `ViewState` projection.
 
 It tracks three different notions of state:
 
-- `domainState`: the most recently asserted or committed visible state
+- `state`: the most recently asserted or committed visible state
 - `assertedState`: the baseline used for the next assertion
-- `latestState`: the internal state after fully reducing sent and emitted actions
+- `latestState`: the internal state after fully applying sent and emitted actions
 
 That distinction is why emitted work can be processed internally before the test chooses to make it visible with `receive(...)`.
+
+## State Equality
+
+Assertions compare an expected and an actual state with one equality, resolved at `init` as `feature.areStatesEqual ?? areStatesEqual`:
+
+- `TestViewModel(initialState:feature:)` uses the feature's `areStatesEqual`. `Feature(interactor:)` supplies `==` for an `Equatable` state, and `Feature(interactor:areStatesEqual:)` a custom comparison (the Todos example ignores generated IDs this way).
+- `TestViewModel(initialState:feature:areStatesEqual:)` supplies the comparison for a feature that has none, such as one over a state that is not `Equatable`. The feature's own equality takes precedence over it.
+- With no equality at all, `init` reports `TestFailure.missingStateEquality` through issue reporting, at the caller's location (the initializer takes defaulted `fileID:file:line:column:` parameters), and every state assertion then fails with the same message.
 
 ## `send(...)`
 
@@ -43,7 +52,7 @@ It does the following:
 2. Creates a root send scope.
 3. Buffers the sent action and drains execution.
 4. Waits for effect startup for that root scope.
-5. Asserts the immediately visible domain-state mutation.
+5. Asserts the immediately visible state mutation.
 6. Returns a `TestEventTask` for that root scope.
 
 Important consequence:
@@ -57,7 +66,7 @@ When an emitted action is processed in tests:
 - the interactor still runs immediately
 - resulting state still updates `latestState`
 - spawned child effects can still start immediately
-- but the transition is stored in `pendingReceives` instead of being applied to visible `domainState`
+- but the transition is stored in `pendingReceives` instead of being applied to visible `state`
 
 `receive(...)` does not re-run the interactor. It commits a transition that has already happened internally.
 
@@ -122,7 +131,7 @@ This is the model-wide escape hatch. `TestEventTask.cancel()` is the root-scope-
 
 Crucially, `TestEventTask.finish()` does not drain buffered receives.
 
-That means a task can finish successfully while `domainState` has not yet advanced through emitted actions that are still sitting in `pendingReceives`.
+That means a task can finish successfully while `state` has not yet advanced through emitted actions that are still sitting in `pendingReceives`.
 
 ## `finish()` On TestViewModel
 
@@ -178,6 +187,7 @@ Assertions are issue-reporting based rather than throwing-based.
 - state mutation mismatch
 - unhandled buffered receives
 - in-flight effects that did not finish
+- a feature without state equality (`missingStateEquality`)
 
 Caller attribution is part of the design, so failures point back to the test site rather than only to the helper implementation.
 

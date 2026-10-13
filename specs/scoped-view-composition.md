@@ -1,23 +1,26 @@
 # Scoped View Composition (Spec B): `scope(state:action:)` child projection
 
-Status: 🔧 Proposed — depends on
-`[observable-state-identity-preserving-merge.md](./observable-state-identity-preserving-merge.md)`
-**and** `[fine-grained-observation.md](./fine-grained-observation.md)` (Spec A) landing first.
+Status: ✅ Implemented — depends on
+[`observable-state-identity-preserving-merge.md`](./observable-state-identity-preserving-merge.md)
+**and** [`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A). Updated for the
+[unified feature state](./plans/unified-feature-state.md): scopes project `@FeatureState`
+children through key paths rooted at `State.ViewState`, reads go through `Child.ViewState` (so a
+child's `@Domain` members stay hidden), and optional children and collections of children have
+their own overloads.
 
 ## Problem
 
-Lattice has no TCA-style `store.scope(state:action:)` for composing subviews around a slice of
-a feature. A child view that should own "the header" must today either take the whole
-`ViewModel<F>` (coupling it to the parent feature's full action/state surface and re-rendering
-coarsely) or receive detached value snapshots (losing observation). The only existing
-composition is domain-side (`When` in the interactor), not a view-facing projection.
+Lattice had no TCA-style `store.scope(state:action:)` for composing subviews around a part of a
+feature. A child view that should own "the header" had to either take the whole `ViewModel<F>`
+(coupling it to the parent feature's full action/state surface) or receive detached value
+snapshots (losing observation). The only composition was domain-side (`When` in the
+interactor), not a view-facing projection.
 
-Spec A made all view-state reads fine-grained: reading `viewModel.<member>` (the
-`dynamicMember` subscript) registers on the view state's nested `@ObservableState` registrars,
-and the coarse `\.viewState` only fires when the root `_$id` changes. Spec B builds the
-composition handle on top: a child projection that
-exposes a slice of view state with fine-grained observation **and** maps child view events into
-parent actions — with no detached snapshots and no identity churn.
+Spec A made all state reads fine-grained: reading `viewModel.<member>` (the `dynamicMember`
+subscript) registers on the state's nested `@FeatureState` registrars, and the coarse `\.state`
+only fires when the root `_$id` changes. Spec B builds the composition handle on top: a child
+projection that exposes a child state with fine-grained observation **and** maps child view
+events into parent actions — with no detached snapshots and no identity churn.
 
 ## Key simplification vs TCA
 
@@ -25,7 +28,7 @@ TCA's scoping is heavy because child `Store`s are **reference types that own red
 effects, and lifetime**, forcing scope caching by identity to avoid recreating stateful stores
 each render (a historic source of bugs).
 
-Lattice's child is **stateless**: all state lives in the parent's `_viewState`, all effects run
+Lattice's child is **stateless**: all state lives in the parent's stored state, all effects run
 in the parent's action loop (`SendScopeID`/`RootScopeState`), and all observation goes through
 the parent's registrar tree (Spec A). So the child projection is a **value type that is cheap
 to recreate every render** — no caching, no lifecycle, no parent↔child retain cycle to manage.
@@ -45,32 +48,40 @@ struct DashboardView: View {
 struct HeaderView: View {
     let model: ScopedViewModel<HeaderState, HeaderAction>
     var body: some View {
-        Text(model.title)                          // fine-grained read on parent's header registrar
+        Text(model.title)                          // fine-grained read on the header's registrar
         TextField("Title", text: model.binding(\.title, sending: \.titleChanged))
         Button("Refresh") { model.sendViewEvent(.refreshTapped) }   // embeds into parent action
     }
 }
 ```
 
-`HeaderView` re-renders only when `header` changes, never when `footer` or unrelated slices
-change. `DashboardView` does not re-render when `header.title` changes (it created the scope
-but read nothing observable).
+`HeaderView` re-renders only when a header member it reads changes, never when `footer` or
+unrelated members change. `DashboardView` does not re-render when `header.title` changes (it
+created the scope but read nothing observable).
 
 ## Design
 
-`ScopedViewModel<ChildState, ChildAction>` is a `@MainActor` value type that erases the parent
-feature `F` via two closures:
+`ScopedViewModel<Child: FeatureState, ChildAction>` is a `@MainActor` value type that erases the
+parent feature `F` via two closures:
 
-- `state: () -> ChildState` — reads the slice through the parent's `dynamicMember` subscript
-(`viewState[keyPath:]`), so it registers on the slice's nested `@ObservableState` registrar;
-the coarse `\.viewState` only fires on root `_$id` change (Spec A).
-- `send: (ChildAction) -> EventTask` — embeds the child action into the parent action and
-calls `parent.sendViewEvent`, returning the parent's `EventTask`. The embedding is supplied
-either as a `CaseKeyPath` (sugar) or a plain `(ChildAction) -> Action` closure (general
-form, no `CasePathable` requirement). Both build the same closure.
+- `state: () -> Child` — reads the child **live** from the parent on every access:
+  `State.ViewState(parent.state)[keyPath: keyPath]._state`. The key path is rooted at the
+  parent's `ViewState` and lands on the child's projection `P: ViewStateProjection`; the raw
+  child is recovered as `P.State` through the SPI `_state`, so `\.header` infers without
+  annotation. Members read through the scope register on the child's own registrars, and the
+  read through the parent registers the parent's root.
+- `send: (ChildAction) -> EventTask` — embeds the child action into the parent action and calls
+  `parent.sendViewEvent`, returning the parent's `EventTask`. The embedding is supplied either as
+  a `CaseKeyPath` (sugar) or a plain `(ChildAction) -> Action` closure (general form, no
+  `CasePathable` requirement). Both build the same closure.
 
-Because `_send` is just a closure, `sendViewEvent(_:)` is also the handoff for child views
-that take a typed `(ChildAction) -> Void` callback: wrap it in a closure,
+Reads through the scope go through `Child.ViewState`: `model.title` is
+`Child.ViewState(state())[keyPath: \.title]`, so a child's `@Domain` member is rejected at the
+scope's read site exactly as on the view model. The state closure always reads live; a captured
+child value would still be notified (it shares the live registrars) but would serve stale data.
+
+Because `send` is just a closure, `sendViewEvent(_:)` is also the handoff for child views that
+take a typed `(ChildAction) -> Void` callback: wrap it in a closure,
 `{ scoped.sendViewEvent($0) }` (a bare method reference will not type-check — Swift 6 cannot
 strip the `@MainActor` isolation). Children that declare a type-erased `(Any) -> Void` callback
 (common in shared/legacy views) are bridged with a one-line cast at the call site, not a shipped
@@ -84,228 +95,63 @@ a scope stashed in long-lived storage (e.g. a child's `@State`) keeps the parent
 alive past its owning view, delaying the effect cancellation in its `deinit` — hence the
 "create inline in `body`, don't store" guidance in the doc comment.
 
-## Source changes
+## API
 
-
-
-### New file: `Sources/Lattice/Presentation/ViewModel/ScopedViewModel.swift`
+The implementation is
+[`ScopedViewModel.swift`](../Sources/Lattice/Presentation/ViewModel/ScopedViewModel.swift):
 
 ```swift
-import SwiftUI
-
-#if canImport(CasePaths)
-    import CasePaths
-#endif
-
-/// A stateless, fine-grained projection of a parent ``ViewModel`` onto a child slice of view
-/// state and a child action space.
-///
-/// Create a scope with ``ViewModel/scope(state:action:)``. Reads register on the parent's
-/// nested observation registrar, so a child view re-renders only when its own slice changes;
-/// ``sendViewEvent(_:)`` embeds child actions into the parent action and runs them on the
-/// parent's action loop.
-///
-/// ## Observe members, not the container
-///
-/// Read **members** through the scope (`model.title`, `model.badge.count`, or
-/// ``binding(_:sending:)``) so observation tracks the live getter chain and the view re-renders
-/// on in-place mutations. Reading the whole-slice ``viewState`` value registers only the
-/// container's identity and will **not** re-render on an in-place leaf mutation — exactly the
-/// same distinction as `viewModel.title` (fine-grained) versus `viewModel.viewState` (coarse).
-/// Member access at any depth stays fine-grained because each hop invokes a live
-/// `@ObservableState` getter; the rule is the chain of getters you actually read, not how deep
-/// the slice is. (`@ObservableState` shares its observation registrar across value copies, so
-/// reading members off a stored copy still tracks the live state — only reading the *whole*
-/// container value is coarse.)
-///
-/// `ScopedViewModel` is a value type that owns no state, effects, or lifecycle, so it is cheap
-/// to recreate on every render.
-///
-/// Create scopes inline in `body` and do not store them (e.g. in `@State` or any long-lived
-/// property): a scope strongly retains its parent ``ViewModel``, so storing one beyond the
-/// render that created it extends the parent's lifetime and delays the effect cancellation
-/// that runs in the parent's `deinit`.
-@dynamicMemberLookup
-@MainActor
-public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable> {
-    private let _state: @MainActor () -> ChildState
-    private let _send: @MainActor (ChildAction) -> EventTask
-
-    init(
-        state: @escaping @MainActor () -> ChildState,
-        send: @escaping @MainActor (ChildAction) -> EventTask
-    ) {
-        self._state = state
-        self._send = send
-    }
-
-    /// The current value of the whole child slice.
-    ///
-    /// This is the **coarse** read: it registers only the slice's identity (`_$id`), so like
-    /// ``ViewModel/viewState`` it re-renders only on a wholesale slice replacement and **not**
-    /// on an in-place leaf mutation. To observe leaf changes fine-grained, read members through
-    /// the scope instead (`model.title`), which is the common case.
-    public var viewState: ChildState { _state() }
-
-    /// Accesses a member of the child slice with fine-grained observation.
-    ///
-    /// This is the **fine-grained** read: `model.title` (or deeper, `model.badge.count`) walks
-    /// the live `@ObservableState` getter chain and re-renders the view on in-place mutations
-    /// of that member. Prefer this over ``viewState`` in views.
-    public subscript<Value>(dynamicMember keyPath: KeyPath<ChildState, Value>) -> Value {
-        _state()[keyPath: keyPath]
-    }
-
-    /// Sends a child action, embedding it into the parent action and running it on the parent's
-    /// action loop.
-    ///
-    /// To hand off to a child view that takes a `(ChildAction) -> Void` callback, wrap in a
-    /// closure (the returned ``EventTask`` is discarded):
-    ///
-    /// ```swift
-    /// ChildView(action: { scoped.sendViewEvent($0) })
-    /// ```
-    ///
-    /// For a child declared with a type-erased `(Any) -> Void` callback, bridge at the call
-    /// site, where the consumer who chose erasure owns the cast and its mismatch policy:
-    ///
-    /// ```swift
-    /// ErasedChildView(action: { if let a = $0 as? ChildAction { scoped.sendViewEvent(a) } })
-    /// ```
-    ///
-    /// - Parameter action: The child action to embed and dispatch.
-    /// - Returns: The parent's ``EventTask`` for the dispatched action.
-    @discardableResult
-    public func sendViewEvent(_ action: ChildAction) -> EventTask {
-        _send(action)
-    }
-
-    #if canImport(CasePaths)
-        /// Returns a binding whose getter reads the given key path with fine-grained
-        /// observation and whose setter sends the new value embedded as a child action.
-        ///
-        /// - Parameters:
-        ///   - keyPath: A key path into the child slice to read.
-        ///   - embed: A case key path that wraps the new value into a child action.
-        /// - Returns: A two-way binding over the child slice.
-        public func binding<Value>(
-            _ keyPath: KeyPath<ChildState, Value>,
-            sending embed: CaseKeyPath<ChildAction, Value>
-        ) -> Binding<Value> {
-            let state = self._state
-            let send = self._send
-            return Binding(
-                get: { state()[keyPath: keyPath] },
-                set: { newValue in _ = send(embed(newValue)) }
-            )
-        }
-    #endif
+@MainActor @dynamicMemberLookup
+public struct ScopedViewModel<Child: FeatureState, ChildAction: Sendable> {
+    public var viewState: Child.ViewState                                         // coarse value
+    public subscript<V>(dynamicMember keyPath: KeyPath<Child.ViewState, V>) -> V  // fine-grained
+    @discardableResult public func sendViewEvent(_ action: ChildAction) -> EventTask
+    public func binding<V>(
+        _ keyPath: KeyPath<Child.ViewState, V>, sending embed: CaseKeyPath<ChildAction, V>
+    ) -> Binding<V>
 }
 
-#if canImport(CasePaths)
-    extension ViewModel where Action: CasePathable {
-        /// Projects this view model onto a child slice of view state and a child action space.
-        ///
-        /// The child action is embedded into this feature's action with `actionCasePath`. This
-        /// is sugar over the closure-based ``scope(state:action:)`` overload.
-        ///
-        /// - Parameters:
-        ///   - stateKeyPath: A key path to a nested `@ObservableState` slice of the view state.
-        ///   - actionCasePath: A case key path that embeds the child action into this feature's
-        ///     action.
-        /// - Returns: A ``ScopedViewModel`` over the child slice and action.
-        public func scope<ChildState: ObservableState, ChildAction: Sendable>(
-            state stateKeyPath: KeyPath<ViewState, ChildState>,
-            action actionCasePath: CaseKeyPath<Action, ChildAction>
-        ) -> ScopedViewModel<ChildState, ChildAction> {
-            // A CaseKeyPath is callable as (ChildAction) -> Action, so forward to the closure
-            // overload below. The case-path form is just ergonomic sugar.
-            scope(state: stateKeyPath, action: { actionCasePath($0) })
-        }
-    }
-
-    extension ScopedViewModel {
-        /// Projects this scope onto a grandchild slice and action space, composing through the
-        /// parent.
-        ///
-        /// - Parameters:
-        ///   - stateKeyPath: A key path from the child slice to a nested `@ObservableState`
-        ///     grandchild slice.
-        ///   - embed: A case key path that embeds the grandchild action into the child action.
-        /// - Returns: A ``ScopedViewModel`` over the grandchild slice and action.
-        public func scope<GrandState: ObservableState, GrandAction: Sendable>(
-            state stateKeyPath: KeyPath<ChildState, GrandState>,
-            action embed: CaseKeyPath<ChildAction, GrandAction>
-        ) -> ScopedViewModel<GrandState, GrandAction> {
-            let state = self._state
-            let send = self._send
-            return ScopedViewModel<GrandState, GrandAction>(
-                state: { state()[keyPath: stateKeyPath] },
-                send: { grandAction in send(embed(grandAction)) }
-            )
-        }
-    }
-#endif
-
-extension ViewModel {
-    /// Projects this view model onto a child slice of view state and a child action space,
-    /// mapping child actions into parent actions with a closure.
-    ///
-    /// This is the general form and has no `CasePathable` requirement; the case-path
-    /// ``scope(state:action:)`` overload is sugar over it. Reach for it when the parent action
-    /// is not `@CasePathable`, or when the mapping is not a plain case embedding.
-    ///
-    /// - Parameters:
-    ///   - stateKeyPath: A key path to a nested `@ObservableState` slice of the view state.
-    ///   - embed: A closure that maps a child action into this feature's action.
-    /// - Returns: A ``ScopedViewModel`` over the child slice and action.
-    public func scope<ChildState: ObservableState, ChildAction: Sendable>(
-        state stateKeyPath: KeyPath<ViewState, ChildState>,
-        action embed: @escaping @MainActor (ChildAction) -> Action
-    ) -> ScopedViewModel<ChildState, ChildAction> {
-        ScopedViewModel(
-            state: { [self] in self[dynamicMember: stateKeyPath] },   // fine-grained (Spec A)
-            send: { [self] childAction in self.sendViewEvent(embed(childAction)) }
-        )
-    }
-
-    /// Projects this view model onto a read-only child slice, for child views that display
-    /// state but send no actions.
-    ///
-    /// - Parameter stateKeyPath: A key path to a nested `@ObservableState` slice of the view
-    ///   state.
-    /// - Returns: A ``ScopedViewModel`` whose action type is `Never`.
-    public func scope<ChildState: ObservableState>(
-        state stateKeyPath: KeyPath<ViewState, ChildState>
-    ) -> ScopedViewModel<ChildState, Never> {
-        ScopedViewModel(
-            state: { [self] in self[dynamicMember: stateKeyPath] },
-            send: { (_: Never) in EventTask(rawValue: nil) }
-        )
-    }
+/// Lets `ForEach(viewModel.scope(state: \.rows, action: \.row))` identify rows.
+extension ScopedViewModel: @MainActor Identifiable where Child: Identifiable {
+    public var id: Child.ID { _state().id }
 }
 ```
 
-> `EventTask(rawValue:)` is the existing internal initializer used by `ViewModel.makeEventTask`
-> for the empty/quiescent case (see `makeEventTask` in `ViewModel.swift`). The `Never` send
-> closure is unreachable.
+The scoping overloads exist identically on `ViewModel` (key paths rooted at `State.ViewState`)
+and on `ScopedViewModel` (rooted at `Child.ViewState`, for grandchildren). Each primitive is
+implemented once on `ScopedViewModel`; the `ViewModel` overloads delegate to a scope over the
+whole state.
 
+| Overload | Returns | Notes |
+|---|---|---|
+| `scope(state: KeyPath<_, P>, action: CaseKeyPath<_, ChildAction>)` | `ScopedViewModel<P.State, ChildAction>` | `P: ViewStateProjection`; requires a `@CasePathable` action |
+| `scope(state: KeyPath<_, P?>, action: CaseKeyPath<_, ChildAction>)` | `ScopedViewModel<P.State, ChildAction>?` | `nil` while the child is absent; after removal, serves the creation snapshot for the at-most-one transitional render |
+| `scope(state: KeyPath<_, ViewStateCollection<C>>, action: CaseKeyPath<_, (C.Element.ID, ChildAction)>)` | `[ScopedViewModel<C.Element, ChildAction>]` | elements are `FeatureState & Identifiable`; each scope re-finds its element by id on every read (O(n)) |
+| `scope(state: KeyPath<_, ViewStateCollection<IdentifiedArray<ID, Element>>>, action: CaseKeyPath<_, (ID, ChildAction)>)` | `[ScopedViewModel<Element, ChildAction>]` | `IdentifiedArray` specialisation: O(1) lookup through `[id:]`; preferred by overload ranking |
+| `scope(state: KeyPath<_, P>, action: @escaping @MainActor (ChildAction) -> Action)` | `ScopedViewModel<P.State, ChildAction>` | closure-mapped action; no `CasePathable` requirement |
+| `scope(state: KeyPath<_, P>)` | `ScopedViewModel<P.State, Never>` | read-only child |
 
+A collection scope serves the element captured at its creation if the element is removed while
+the scope is still held. The enum-case overloads (`scopeIfActive(state:action:)` and the
+trapping `scope(state:action:fileID:line:)`) are specified in
+[`enum-case-scoping.md`](./enum-case-scoping.md) (Spec C).
 
-No changes to the action loop, the macro, or existing public APIs. `scope` is additive and
-reuses the parent's `dynamicMember` subscript for fine-grained reads (Spec A) and the existing
-`sendViewEvent` for writes. Both the closure and case-path forms compile down to the same
-`_send` closure — no new runtime representation.
+The read-only scope's send closure is unreachable; it is typed `(Never) -> EventTask` and
+returns `EventTask(rawValue: nil)`, the internal initializer `ViewModel` uses for a send without
+effects.
+
+No changes to the action loop or the macro were needed. Both the closure and case-path forms
+compile down to the same `send` closure — no new runtime representation.
 
 ## Why no caching/lifecycle is needed
 
-- **State**: derived on demand from the parent (`_state()`), never stored. Recreating the
+- **State**: derived on demand from the parent (`state()`), never stored. Recreating the
 struct each render re-derives the same value.
 - **Observation**: registration happens on the parent's stable registrar tree (Spec A +
 merge invariant), so re-creating the scope does not detach observers.
 - **Effects**: `sendViewEvent` runs in the parent's loop; the child starts/owns nothing.
-- **Identity**: the child view's `body` reads (e.g. `model.title`) register on the parent
-registrar; whether `model` is a fresh struct each render is irrelevant.
+- **Identity**: the child view's `body` reads (e.g. `model.title`) register on the parent's
+registrar tree; whether `model` is a fresh struct each render is irrelevant.
 
 Contrast TCA, where a scoped `Store` is a stateful reference that must be cached by scope
 identity to preserve in-flight effects and avoid teardown churn. None of that applies here.
@@ -326,288 +172,139 @@ read-light container views.
 
 ## Tests
 
-New file `Tests/LatticeTests/PresentationTests/ScopedViewModelTests.swift`:
+`Tests/LatticeTests/PresentationTests/ScopedViewModelTests.swift` covers every overload on both
+`ViewModel` and `ScopedViewModel`:
+
+- Child: `scopedReadReflectsParentState`, `scopedSendEmbedsIntoParentAction`,
+  `scopedSendReturnsParentEventTaskForEffects`, `scopedComputedMemberReadsDomainMember`,
+  `scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate`,
+  `scopedReadInvalidatesOnSliceChange`,
+  `wholeSliceReadIsCoarse_inPlaceLeafMutationDoesNotInvalidate`,
+  `wholeSliceReadInvalidatesOnWholesaleReplacement`, `nestedScopeComposes`,
+  `readOnlyScopeHasNoActionSurface`, `bindingGetterIsFineGrainedAndSetterSends`,
+  `closureActionOverloadEmbedsWithoutCasePaths`, `sendViewEventActsAsTypedCallbackHandoff`,
+  `anyVoidChildBridgesAtCallSite`.
+- Optional child: `optionalChildScopeIsNilWhileAbsentAndLiveWhilePresent`,
+  `optionalChildScopeServesItsSnapshotAfterRemoval`.
+- Collections: `arrayCollectionScopesReFindTheirElementByID`,
+  `identifiedArrayCollectionScopesReFindTheirElementByID`,
+  `collectionScopesAreIdentifiableForForEach`,
+  `collectionScopeServesItsSnapshotAfterTheElementIsRemoved`.
+- Overloads on `ScopedViewModel`: `scopedViewModelScopesIntoCollectionsOptionalsAndClosures`.
+
+Excerpt:
 
 ```swift
-import CasePaths
-import Foundation
-import Observation
-import Testing
-
-@testable import Lattice
-
-private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
-}
-
-@ObservableState private struct BadgeState: Equatable, Sendable {
-    var count: Int
-}
-
-@ObservableState private struct HeaderState: Equatable, Sendable {
+@FeatureState private struct HeaderState: Equatable, Sendable {
     var title: String
     var badge: BadgeState
+    @Domain var refreshCount = 0
+    var refreshText: String { refreshCount == 0 ? "Never refreshed" : "Refreshed \(refreshCount)x" }
 }
 
-@ObservableState private struct AppViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self(
-        header: HeaderState(title: "h", badge: BadgeState(count: 0)),
-        footer: "f"
-    )
-    var header: HeaderState
-    var footer: String
+@FeatureState private struct RowState: Equatable, Identifiable, Sendable {
+    let id: Int
+    var title: String
+    var count = 0
+    // … mutating func apply(_ action: RowAction)
 }
 
-private struct AppDomain: Equatable, Sendable {
-    var title = "h"; var badge = 0; var footer = "f"
+@FeatureState private struct ListState: Equatable, Sendable {
+    var rows: [RowState] = [RowState(id: 1, title: "one"), RowState(id: 2, title: "two")]
+    var idRows: IdentifiedArrayOf<RowState> = [RowState(id: 1, title: "one"), RowState(id: 2, title: "two")]
+    var selection: RowState?
 }
 
-@CasePathable private enum BadgeAction: Sendable {
-    case incremented
-}
-
-@CasePathable private enum HeaderAction: Sendable {
-    case titleChanged(String)
-    case badge(BadgeAction)
-    case refreshTapped
-}
-
-@CasePathable private enum AppAction: Sendable {
-    case header(HeaderAction)
-    case setFooter(String)
-}
-
-private struct AppInteractor: Interactor, Sendable {
-    typealias DomainState = AppDomain
-    typealias Action = AppAction
-    var body: some InteractorOf<Self> {
-        Interact { state, action in
-            switch action {
-            case .header(.titleChanged(let t)): state.title = t
-            case .header(.badge(.incremented)): state.badge += 1
-            case .header(.refreshTapped):
-                // Async effect: exercises EventTask propagation through the scope.
-                return .perform { .header(.badge(.incremented)) }
-            case .setFooter(let f): state.footer = f
-            }
-            return .none
-        }
-    }
-}
-
-private struct AppReducer: ViewStateReducer, Sendable {
-    typealias DomainState = AppDomain
-    typealias ViewState = AppViewState
-    // AppViewState: DefaultValueProvider supplies the initial view state.
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { s, v in
-            v.header.title = s.title          // in-place
-            v.header.badge.count = s.badge    // in-place
-            v.footer = s.footer
-        }
-    }
-}
-
-/// Rebuilds the header slice wholesale on every reduce, for the coarse-read tests.
-private struct WholesaleAppReducer: ViewStateReducer, Sendable {
-    typealias DomainState = AppDomain
-    typealias ViewState = AppViewState
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { s, v in
-            v.header = HeaderState(title: s.title, badge: BadgeState(count: s.badge))  // wholesale
-            v.footer = s.footer
-        }
-    }
+@CasePathable private enum ListAction: Sendable {
+    case row(RowState.ID, RowAction)
+    case idRow(RowState.ID, RowAction)
+    case selection(RowAction)
+    case select(RowState.ID?)
+    case insertAtFront
+    case remove(RowState.ID)
 }
 
 @MainActor
 @Suite struct ScopedViewModelTests {
-    private func makeViewModel() -> ViewModel<Feature<AppAction, AppDomain, AppViewState>> {
-        ViewModel(
-            initialDomainState: AppDomain(),
-            feature: Feature(interactor: AppInteractor(), reducer: AppReducer())
-        )
-    }
-
-    @Test func scopedReadReflectsParentState() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        #expect(header.title == "h")
-        #expect(header.badge.count == 0)
-    }
-
-    @Test func scopedSendEmbedsIntoParentAction() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        header.sendViewEvent(.titleChanged("new"))
-        #expect(vm.viewState.header.title == "new")
-    }
-
-    @Test func scopedSendReturnsParentEventTaskForEffects() async {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        // .refreshTapped spawns a .perform effect in the parent's loop; the returned EventTask
-        // is the parent's root-scope handle, so finish() awaits the emitted follow-up action.
-        await header.sendViewEvent(.refreshTapped).finish()
-        #expect(vm.viewState.header.badge.count == 1)
-    }
-
-    @Test func scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.mark() }
-
-        vm.sendViewEvent(.setFooter("f2"))   // footer change
-        #expect(!probe.didChange)            // header scope not invalidated
-    }
-
-    @Test func scopedReadInvalidatesOnSliceChange() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.mark() }
-
-        header.sendViewEvent(.titleChanged("new"))
-        #expect(probe.didChange)
-    }
+    // … makeViewModel(), makeListViewModel()
 
     @Test func wholeSliceReadIsCoarse_inPlaceLeafMutationDoesNotInvalidate() {
-        let vm = makeViewModel()   // in-place reducer
-        let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.viewState } onChange: { probe.mark() }
-
-        header.sendViewEvent(.titleChanged("new"))   // in-place leaf mutation
-        #expect(!probe.didChange)                    // container identity unchanged
-        #expect(header.title == "new")               // reads still see the live value
-    }
-
-    @Test func wholeSliceReadInvalidatesOnWholesaleReplacement() {
-        let vm = ViewModel(
-            initialDomainState: AppDomain(),
-            feature: Feature(interactor: AppInteractor(), reducer: WholesaleAppReducer())
-        )
-        let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.viewState } onChange: { probe.mark() }
-
-        header.sendViewEvent(.titleChanged("new"))   // reducer rebuilds header wholesale
-        #expect(probe.didChange)
-    }
-
-    @Test func nestedScopeComposes() {
-        let vm = makeViewModel()
-        // App > header > badge: chained scope onto a nested @ObservableState slice.
-        let badge = vm.scope(state: \.header, action: \.header)
-            .scope(state: \.badge, action: \.badge)
-        #expect(badge.count == 0)
-        badge.sendViewEvent(.incremented)
-        #expect(vm.viewState.header.badge.count == 1)
-    }
-
-    @Test func readOnlyScopeHasNoActionSurface() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header)   // ScopedViewModel<HeaderState, Never>
-        #expect(header.badge.count == 0)
-    }
-
-    @Test func bindingGetterIsFineGrainedAndSetterSends() {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        let binding = header.binding(\.title, sending: \.titleChanged)
-        #expect(binding.wrappedValue == "h")
-        binding.wrappedValue = "typed"
-        #expect(vm.viewState.header.title == "typed")
+        let coarse = ObservationProbe { _ = header.viewState }
+
+        header.sendViewEvent(.titleChanged("new"))  // in-place leaf mutation
+        #expect(!coarse.didFire)  // the path to the header is unchanged
+        #expect(header.title == "new")  // reads still see the live value
     }
 
-    @Test func closureActionOverloadEmbedsWithoutCasePaths() {
-        let vm = makeViewModel()
-        // General form: map child action -> parent action with a closure.
-        let header = vm.scope(state: \.header, action: { AppAction.header($0) })
-        header.sendViewEvent(.titleChanged("closure"))
-        #expect(vm.viewState.header.title == "closure")
-    }
+    @Test func arrayCollectionScopesReFindTheirElementByID() {
+        let vm = makeListViewModel()
+        let rows = vm.scope(state: \.rows, action: \.row)
+        #expect(rows.map(\.id) == [1, 2])
 
-    @Test func sendViewEventActsAsTypedCallbackHandoff() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        // Wrap in a closure to hand off to a child view's (HeaderAction) -> Void callback.
-        let handler: @MainActor (HeaderAction) -> Void = { header.sendViewEvent($0) }
-        handler(.titleChanged("viaSend"))
-        #expect(vm.viewState.header.title == "viaSend")
-    }
+        rows[1].sendViewEvent(.incremented)
+        #expect(rows[1].count == 1)
+        #expect(vm.rows[1].count == 1)
 
-    @Test func anyVoidChildBridgesAtCallSite() {
-        let vm = makeViewModel()
-        let header = vm.scope(state: \.header, action: \.header)
-        // The consumer who chose (Any) -> Void owns the cast at the call site.
-        let erasedChildCallback: (Any) -> Void = {
-            if let a = $0 as? HeaderAction { header.sendViewEvent(a) }
-        }
-
-        erasedChildCallback(HeaderAction.titleChanged("viaAny"))
-        #expect(vm.viewState.header.title == "viaAny")
-
-        erasedChildCallback("not a HeaderAction")   // consumer's cast drops it
-        #expect(vm.viewState.header.title == "viaAny")
+        vm.sendViewEvent(.insertAtFront)  // shifts positions; each scope follows its id
+        #expect(rows[1].id == 2)
+        #expect(rows[1].count == 1)
+        rows[1].sendViewEvent(.titleChanged("deux"))
+        #expect(vm.rows[2].title == "deux")
     }
 }
 ```
 
-
+The negative compile checks (`scripts/negative-compile-checks.sh`, flags `LEAK_SCOPED` and
+`LEAK_KEYPATH`) assert that a scoped read, a collection-scope read and a scoped binding reject a
+`@Domain` member.
 
 ## Demo project
 
-Add a new local example package `ExampleProject/ScopedCompositionExamplePackage` (an empty
-placeholder directory already exists), mirroring the existing
-`ExampleProject/FineGrainedExamplePackage` layout: a `Package.swift` with the same manifest
-shape (swift-tools-version 6.2, platforms `.iOS(.v26)`/`.macOS(.v14)`, a `.package(path: "../..")`
-dependency on Lattice, a `ScopedCompositionExample` library product, and a matching test
-target), and sources split into `ScopedCompositionExampleAppView.swift` (the public entry that
-builds the `Feature` + `ViewModel` in `@State`), the screen view file, and an `Architecture/`
-folder with the domain state / event / interactor / view state / view-state reducer files.
-Use the example project's macro conventions — `@Interactor`, `@ViewStateReducer` with
-`Self.buildViewState`, a root event enum named `ScopedCompositionEvent` — rather than the
-protocol spelling used in this spec's test fixtures.
+`ExampleProject/ScopedCompositionExamplePackage` (the `case scopedComposition` entry of
+`ContentView.swift`'s `Example` enum) makes two things visible in a running app: the
+fine-grained re-render boundary of each scoped child, and the read-light-container discipline
+from "Re-render cost when the parent re-renders".
 
-Wire the package in everywhere `FineGrainedExamplePackage` is wired: a `FileRef` in
-`ExampleProject/ExampleProjectWorkspace.xcworkspace/contents.xcworkspacedata`, a local package
-reference + `ScopedCompositionExample` product dependency in
-`ExampleProject/ExampleProject.xcodeproj`, and a new `case scopedComposition` in the private
-`Example` enum in `ExampleProject/ExampleProject/ContentView.swift` (title "Scoped Composition
-Example", navigation title "Scoped Composition", `destinationView`
-`ScopedCompositionExampleAppView()`).
-
-The demo must make two things visible in a running app: the fine-grained re-render boundary of
-each scoped child, and the read-light-container discipline from "Re-render cost when the parent
-re-renders".
-
-Shape — one level deeper than the Goal example so chained scoping is exercised past one hop
-(`App > Dashboard > Header > Badge`, plus a `Footer` sibling), with the same slice names as
-this spec's fixtures:
+The feature's one state is composed of nested `@FeatureState` children, one level deeper than
+the Goal example so chained scoping is exercised past one hop (`App > Dashboard > Header >
+Badge`, plus a `Footer` sibling):
 
 ```swift
-@ObservableState struct ScopedCompositionViewState: Equatable, Sendable {
-    var dashboard: DashboardState
-    var footer: FooterState
+@FeatureState
+struct ScopedCompositionState: Equatable, Sendable {
+    var dashboard: DashboardState = DashboardState()
+    var footer: FooterState = FooterState()
 }
-@ObservableState struct DashboardState: Equatable, Sendable { var header: HeaderState }
-@ObservableState struct HeaderState: Equatable, Sendable {
-    var title: String
-    var badge: BadgeState
+
+@FeatureState
+struct DashboardState: Equatable, Sendable {
+    var header: HeaderState = HeaderState()
 }
-@ObservableState struct BadgeState: Equatable, Sendable { var label: String; var count: Int }
-@ObservableState struct FooterState: Equatable, Sendable { var status: String }
+
+@FeatureState
+struct HeaderState: Equatable, Sendable {
+    var title: String = "Dashboard"
+    var badge: BadgeState = BadgeState()
+}
+
+@FeatureState
+struct BadgeState: Equatable, Sendable {
+    var label: String = "Badge"
+    var count: Int = 0
+}
+
+@FeatureState
+struct FooterState: Equatable, Sendable {
+    var status: String = "Ready"
+}
 ```
 
 Child actions nest the same way (`BadgeAction` ⊂ `HeaderAction` ⊂ `DashboardAction` ⊂
 `ScopedCompositionEvent`, all `@CasePathable`; the root event also has a `setFooter(String)`
-case), the domain state is flat (`title`/`badgeLabel`/`badgeCount`/`footerStatus`), and the
-reducer mutates **every slice in place** so leaf changes stay fine-grained (see Spec A's
+case), and the interactor mutates every leaf **in place** (for example
+`state.dashboard.header.badge.count += 1`) so leaf changes stay fine-grained (see Spec A's
 precision model). The view tree is one thin view per level, each holding a `ScopedViewModel`
 created inline in `body` by the chained `scope(state:action:)` calls:
 
@@ -619,35 +316,39 @@ ScopedCompositionView                 owns the ViewModel; buttons only send — 
 └─ FooterView(model: viewModel.scope(state: \.footer))                       read-only scope
 ```
 
-The root view hosts two buttons that drive non-leaf mutations, mirroring the fine-grained
-demo's button row: **Rename header** (sends `.dashboard(.header(.titleChanged(...)))` with a
-random suffix) and **Update footer** (sends `.setFooter(...)`). `BadgeView` is the leaf and
-carries the `binding(_:sending:)` text field plus a counter button. Every view holds a
-render counter (same instrumentation as `FineGrainedExamplePackage`'s
-`HeaderView`) so re-render boundaries are visible:
+The root view hosts two buttons that drive non-leaf mutations: **Rename header** (sends
+`.dashboard(.header(.titleChanged(...)))` with a random suffix) and **Update footer** (sends
+`.setFooter(...)`). `BadgeView` is the leaf and carries the `binding(_:sending:)` text field
+plus a counter button. `DashboardView` is the degenerate container case: it reads nothing
+observable and only creates the header scope. `FooterView` reads `model.status` through the
+read-only `ScopedViewModel<FooterState, Never>`.
+
+Every view counts its `body` runs in one shared `RenderCounters` object (`root`, `dashboard`,
+`header`, `badge`, `footer`), read through `@Environment(\.renderCounters)` (an `@Entry`
+environment value) and injected by `ScopedCompositionExampleAppView` from its own `@State`. A
+counter stored in the view value would start over every time SwiftUI re-creates the view, which
+happens whenever the parent's `body` runs:
 
 ```swift
 struct BadgeView: View {
     let model: ScopedViewModel<BadgeState, BadgeAction>
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
-        return VStack(alignment: .leading) {
+        renderCounters.badge += 1
+        return VStack(alignment: .leading, spacing: 8) {
             TextField("Label", text: model.binding(\.label, sending: \.labelChanged))
+                .textFieldStyle(.roundedBorder)
             Button("Increment") { model.sendViewEvent(.incremented) }
+                .buttonStyle(.bordered)
             Text("Count: \(model.count)")
-            Text("BadgeView renders: \(renders.count)")
-                .font(.caption).foregroundStyle(.secondary)
+            Text("BadgeView renders: \(renderCounters.badge)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }
 ```
-
-`DashboardView` is the degenerate container case: it reads nothing observable, creates the
-header scope, and shows only its own render counter. `FooterView` reads `model.status` through
-the read-only `ScopedViewModel<FooterState, Never>`.
 
 Expected, demonstrable behavior:
 
@@ -665,17 +366,30 @@ read-only `scope(state:)` projection is observation-live even though it can send
 read nothing observable. This is the read-light-container shape "Re-render cost when the
 parent re-renders" recommends, validated rather than masked.
 
-Spec C extends this same package with a phase-enum screen — see the Demo project section of
-`[enum-case-scoping.md](./enum-case-scoping.md)`.
+`ScopedCompositionRenderTests` (macOS only, `#if canImport(AppKit)`) pins these counts. It hosts
+`ScopedCompositionView` in an `NSHostingView` with its own `RenderCounters`, sends each action,
+and lays the view out (`layoutSubtreeIfNeeded()` runs every invalidated `body`):
+
+| Test | Expected counts |
+|---|---|
+| `initialRenderRunsEveryBodyOnce` | every view at 1 |
+| `titleChangeReRendersHeaderAndTheBadgeItScopes` | header 2, badge 2, the others 1 |
+| `badgeLeafChangesReRenderOnlyTheBadge` | badge 2 after an increment and 3 after a label change, the others 1 |
+| `footerChangeReRendersOnlyTheFooter` | footer 2, the others 1 |
+| `rootAndDashboardNeverRenderPastOnce` | root and dashboard at 1 after all four actions |
+
+`ScopedCompositionExampleTests` checks the same boundaries with observation probes. Spec C
+extends this package with a phase-enum screen — see the Demo project section of
+[`enum-case-scoping.md`](./enum-case-scoping.md).
 
 ## Validation
 
 1. `swift build`
 2. `swift test --filter ScopedViewModelTests`
 3. `swift test --filter FineGrainedObservationTests` (Spec A still green)
-4. Demo app: build the `ScopedCompositionExamplePackage` demo specified in "Demo project" and
-  confirm with the render counters plus `Self._printChanges()` / Instruments that the expected
-   behaviors listed there hold:
+4. `cd ExampleProject/ScopedCompositionExamplePackage && swift test --filter ScopedCompositionRenderTests`
+   (macOS) — the render counts above hold in real SwiftUI rendering at depth.
+5. Demo app: confirm with the render counters plus `Self._printChanges()` / Instruments that
   - only the leaf child view re-renders on a leaf change,
   - parent/sibling views (`FooterView`) do **not** re-render on a child-only change, and
   - the scope-creating container views read nothing observable and therefore do not
@@ -683,37 +397,34 @@ Spec C extends this same package with a phase-enum screen — see the Demo proje
   "Re-render cost when the parent re-renders" rather than masking it. (When a container
   *does* re-render, expect all its scoped children to re-render with it; that is the
   documented trade-off, not a bug.)
-   This is the manual counterpart to `scopedReadIsFineGrained_*` and `nestedScopeComposes`,
-   verifying granularity and action embedding survive real SwiftUI rendering at depth.
-5. `swift test` — full suite, no regressions to existing `ViewModel`/binding tests.
-
-
+6. `swift test` — full suite, no regressions to existing `ViewModel`/binding tests.
 
 ## Migration / API notes
 
-- Purely additive: `scope(state:action:)`, `scope(state:)`, and `ScopedViewModel` are new
-public surface. Existing `ViewModel<F>` usage is unchanged.
-- Requires `Action: CasePathable` for the action-embedding overload (the same constraint the
-existing `_ViewModelBinding.sending` already relies on). The read-only `scope(state:)`
-overload has no such constraint.
-- Child state slices must be nested `@ObservableState` values reachable by key path (not
-recomputed projections), which is what preserves the registrar-identity invariant and avoids
-detached snapshots.
-- `@dynamicMemberLookup` is shadowed by `ScopedViewModel`'s own API surface: a child slice
-property named `viewState`, `binding`, `scope`, or `sendViewEvent` resolves to the scope's
-member, not the slice's. This mirrors the pre-existing `ViewModel.viewState` behavior; avoid
-those names in view state, or read through `viewState` explicitly.
-
-
+- `scope(state:action:)`, `scope(state:)`, and `ScopedViewModel` are public surface. Key paths
+  are rooted at `State.ViewState` (or `Child.ViewState`) and land on a child's projection; the
+  child type is recovered as `P.State`.
+- The case-path action overloads require a `@CasePathable` action (the same constraint
+  `_ViewModelBinding.sending` relies on). The closure overload and the read-only `scope(state:)`
+  have no such constraint.
+- Child states must be stored `@FeatureState` members reachable through `State.ViewState`: a
+  child, an optional child, or a collection of `Identifiable` children. A computed member that
+  builds a fresh child state on each read would hand the scope new registrars on every read,
+  which defeats the registrar-identity invariant.
+- Collection scopes need an action case that carries the element id, `(ID, ChildAction)`.
+  Prefer `IdentifiedArrayOf` for O(1) lookup.
+- The `Identifiable` conformance of `ScopedViewModel` is an isolated conformance
+  (`@MainActor Identifiable`, SE-0470), which needs a Swift 6.2 compiler.
+- `@dynamicMemberLookup` is shadowed by `ScopedViewModel`'s own API surface: a child member
+  named `viewState`, `binding`, `scope`, `scopeIfActive`, or `sendViewEvent` resolves to the
+  scope's member, not the child's. This mirrors the `ViewModel.viewState` behavior; avoid those
+  names in state, or read through `viewState` explicitly.
 
 ## Out of scope
 
 - `@Bindable`/`AllCasePaths` ergonomic parity with `_ViewModelBinding` /
-`_ViewModelCaseBinding` for scoped models (case-path dynamic-member bindings). Add once the
-core `scope` API proves out; the `binding(_:sending:)` helper covers the common case.
-- Enum-case scoping (projecting a `ScopedViewModel` from an enum case's payload) — specced
-separately in `[enum-case-scoping.md](./enum-case-scoping.md)` (Spec C), which depends on
-this spec landing first.
+`_ViewModelCaseBinding` for scoped models (case-path dynamic-member bindings). The
+`binding(_:sending:)` helper covers the common case.
 - Independent child interactors/effects. By design, scoped children have none — use a separate
 `ViewModel` + interactor `When` composition for genuinely independent sub-features.
 - A shipped `(Any) -> Void` projection on `ScopedViewModel`. At a `scope` call site both
@@ -731,4 +442,3 @@ controller exposing only `(Any) -> Void`), add it then as an explicitly named ad
 (`ScopedViewModel.erased(state:onEvent:)`) whose docs state it has no `EventTask` and no
 observation guarantee — not as an overload of `scope` that would quietly contaminate the safe
 path.
-
