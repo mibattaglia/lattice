@@ -7,6 +7,7 @@ struct MacrosPlugin: CompilerPlugin {
         InteractorMacro.self,
         ViewStateReducerMacro.self,
         FeatureStateMacro.self,
+        DomainMacro.self,
         IdentifiableIfPossibleMacro.self,
         EquatableIfPossibleMacro.self,
         NoOpExtensionMacro.self,

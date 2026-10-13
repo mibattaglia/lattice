@@ -8,6 +8,7 @@
         override func invokeTest() {
             withMacroTesting(
                 macros: [
+                    "Domain": MacroSpec(type: DomainMacro.self),
                     // The constrained overloads: the compiler only selects them when the state
                     // has the conformance, so the specs report it as missing.
                     "_IdentifiableIfPossible": MacroSpec(
@@ -21,6 +22,22 @@
                 ]
             ) {
                 super.invokeTest()
+            }
+        }
+
+        func testDomain_ExpandsToNothing() {
+            assertMacro {
+                """
+                struct CounterState {
+                    @Domain var lastUpdatedAt: Date?
+                }
+                """
+            } expansion: {
+                """
+                struct CounterState {
+                    var lastUpdatedAt: Date?
+                }
+                """
             }
         }
 

@@ -305,6 +305,11 @@ extension FeatureStateMacro: MemberMacro {
         conformingTo protocols: [TypeSyntax],
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
+        if let diagnostic = genericStateDiagnostic(for: declaration) {
+            context.diagnose(diagnostic)
+            return []
+        }
+
         guard !declaration.isEnum
         else {
             return try enumExpansion(of: node, providingMembersOf: declaration, in: context)
@@ -519,6 +524,12 @@ extension FeatureStateMacro: MemberAttributeMacro {
         providingAttributesFor member: MemberDeclaration,
         in context: Context
     ) throws -> [AttributeSyntax] {
+        // A generic state gets no members (the member role diagnoses it), so tracking accessors
+        // would reference a registrar that does not exist.
+        if isGenericState(declaration) {
+            return []
+        }
+
         guard let property = member.as(VariableDeclSyntax.self), property.isValidForObservation,
             property.identifier != nil
         else {
@@ -616,10 +627,22 @@ extension FeatureStateMacro: ExtensionMacro {
             return []
         }
 
+        if let diagnostic = genericStateDiagnostic(for: declaration) {
+            context.diagnose(diagnostic)
+            return []
+        }
+
+        // A reserved-name collision suppresses the generated `ViewState` (the member role
+        // diagnoses it), so only the observation conformance can be added.
+        let conformances =
+            reservedViewStateNameTokens(in: declaration.memberBlock.members).isEmpty
+            ? "\(qualifiedConformanceName), Observation.Observable"
+            : "Observation.Observable"
+
         return [
             ("""
             \(declaration.attributes.availability)extension \(raw: type.trimmedDescription): \
-            \(raw: qualifiedConformanceName), Observation.Observable {}
+            \(raw: conformances) {}
             """ as DeclSyntax)
             .cast(ExtensionDeclSyntax.self)
         ]
@@ -744,6 +767,75 @@ extension FeatureStateMacro {
     static let domainMacroName = "Domain"
     static let casePathableMacroName = "CasePathable"
 
+    /// Names of the declarations `@FeatureState` adds to the state type.
+    static let reservedTypeMemberNames: Set<String> = [
+        viewStateTypeName, viewStateTypesProtocolName, viewStateWitnessTypeName,
+    ]
+
+    static func isGenericState(_ declaration: some DeclGroupSyntax) -> Bool {
+        declaration.as(StructDeclSyntax.self)?.genericParameterClause != nil
+            || declaration.as(EnumDeclSyntax.self)?.genericParameterClause != nil
+    }
+
+    static func genericStateDiagnostic(for declaration: some DeclGroupSyntax) -> Diagnostic? {
+        let name: TokenSyntax
+        let genericParameters: GenericParameterClauseSyntax
+        if let structDecl = declaration.as(StructDeclSyntax.self),
+            let clause = structDecl.genericParameterClause
+        {
+            name = structDecl.name
+            genericParameters = clause
+        } else if let enumDecl = declaration.as(EnumDeclSyntax.self),
+            let clause = enumDecl.genericParameterClause
+        {
+            name = enumDecl.name
+            genericParameters = clause
+        } else {
+            return nil
+        }
+        return Diagnostic(
+            node: genericParameters,
+            message: ViewStateDiagnostic.genericState(name.trimmed.text)
+        )
+    }
+
+    /// Name tokens of state members that the generated declarations would redeclare.
+    static func reservedViewStateNameTokens(in items: MemberBlockItemListSyntax) -> [TokenSyntax] {
+        var tokens: [TokenSyntax] = []
+        for item in items {
+            let decl = item.decl
+            if let ifConfig = decl.as(IfConfigDeclSyntax.self) {
+                for clause in ifConfig.clauses {
+                    if case .decls(let decls) = clause.elements {
+                        tokens += reservedViewStateNameTokens(in: decls)
+                    }
+                }
+            } else if let variable = decl.as(VariableDeclSyntax.self) {
+                for binding in variable.bindings {
+                    if let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier,
+                        isReservedName(name, includingStorage: true)
+                    {
+                        tokens.append(name)
+                    }
+                }
+            } else if let enumCase = decl.as(EnumCaseDeclSyntax.self) {
+                for element in enumCase.elements where isReservedName(element.name, includingStorage: true) {
+                    tokens.append(element.name)
+                }
+            } else if let named = decl.asProtocol((any NamedDeclSyntax).self),
+                isReservedName(named.name, includingStorage: false)
+            {
+                tokens.append(named.name)
+            }
+        }
+        return tokens
+    }
+
+    private static func isReservedName(_ name: TokenSyntax, includingStorage: Bool) -> Bool {
+        reservedTypeMemberNames.contains(name.bareText)
+            || (includingStorage && name.bareText == viewStateStorageName)
+    }
+
     static func domainAttribute(in attributes: AttributeListSyntax) -> AttributeSyntax? {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
@@ -753,6 +845,39 @@ extension FeatureStateMacro {
             }
         }
         return nil
+    }
+
+    /// Diagnoses `@Domain` applications that `@FeatureState` cannot honor.
+    static func diagnoseDomainMisuse(
+        in items: MemberBlockItemListSyntax,
+        isIdentifiable: Bool,
+        in context: some MacroExpansionContext
+    ) {
+        for item in items {
+            let decl = item.decl
+            if let ifConfig = decl.as(IfConfigDeclSyntax.self) {
+                for clause in ifConfig.clauses {
+                    if case .decls(let decls) = clause.elements {
+                        diagnoseDomainMisuse(in: decls, isIdentifiable: isIdentifiable, in: context)
+                    }
+                }
+                continue
+            }
+            guard let attributes = decl.asProtocol((any WithAttributesSyntax).self)?.attributes,
+                let domain = domainAttribute(in: attributes)
+            else {
+                continue
+            }
+            if let variable = decl.as(VariableDeclSyntax.self), variable.isInstance {
+                if isIdentifiable, variable.bindingNames.contains(where: { $0.bareText == "id" }) {
+                    context.diagnose(
+                        Diagnostic(node: domain, message: ViewStateDiagnostic.domainIdentifiableID)
+                    )
+                }
+            } else {
+                context.diagnose(Diagnostic(node: domain, message: ViewStateDiagnostic.domainNotProperty))
+            }
+        }
     }
 
     /// The `_$ViewStateTypes` protocol, `_$ViewStateWitness` struct and `ViewState` projection.
@@ -765,6 +890,16 @@ extension FeatureStateMacro {
             return []
         }
         let inheritedTypeNames = declaration.inheritedTypeNames
+        let isIdentifiable = inheritedTypeNames.contains("Identifiable")
+
+        diagnoseDomainMisuse(
+            in: declaration.memberBlock.members, isIdentifiable: isIdentifiable, in: context
+        )
+        let reservedNames = reservedViewStateNameTokens(in: declaration.memberBlock.members)
+        for name in reservedNames {
+            context.diagnose(Diagnostic(node: name, message: ViewStateDiagnostic.reservedName(name.bareText)))
+        }
+        guard reservedNames.isEmpty else { return [] }
 
         var attributes: [String] = []
         if let availability = declaration.attributes.availability {
@@ -777,6 +912,7 @@ extension FeatureStateMacro {
             typeName: typeName,
             access: viewStateAccess(of: declaration, in: context),
             members: ViewStateMember.members(of: declaration.memberBlock.members),
+            isIdentifiable: isIdentifiable,
             attributes: attributes,
             conformances: "\(moduleName).ViewStateProjection"
                 + (inheritedTypeNames.contains("Sendable") ? ", Sendable" : "")
@@ -822,6 +958,43 @@ extension FeatureStateMacro {
         }
         return ""
     }
+}
+
+struct ViewStateDiagnostic: DiagnosticMessage {
+    let message: String
+    let diagnosticID: MessageID
+    var severity: DiagnosticSeverity { .error }
+
+    init(message: String, id: String) {
+        self.message = message
+        self.diagnosticID = MessageID(domain: "FeatureState", id: id)
+    }
+
+    static func genericState(_ typeName: String) -> Self {
+        Self(
+            message: """
+                '@FeatureState' cannot be applied to generic type '\(typeName)': the generated \
+                projection uses a nested protocol, which Swift does not allow inside generic types \
+                (SE-0404). Make '\(typeName)' non-generic or wrap the generic data in a non-generic \
+                state type.
+                """,
+            id: "genericState"
+        )
+    }
+
+    static func reservedName(_ name: String) -> Self {
+        Self(message: "'\(name)' is reserved by '@FeatureState'", id: "reservedName")
+    }
+
+    static let domainNotProperty = Self(
+        message: "'@Domain' can only be applied to instance properties",
+        id: "domainNotProperty"
+    )
+
+    static let domainIdentifiableID = Self(
+        message: "'id' cannot be '@Domain' on an Identifiable state; its ViewState would not satisfy 'Identifiable'",
+        id: "domainIdentifiableID"
+    )
 }
 
 /// A member of a `@FeatureState` type that shapes its `ViewState`, in declaration order, with
@@ -919,6 +1092,7 @@ struct ViewStateRenderer {
     /// `public `, `package `, `fileprivate ` or empty.
     let access: String
     let members: [ViewStateMember]
+    let isIdentifiable: Bool
     var attributes: [String]
     let conformances: String
 
@@ -1039,7 +1213,12 @@ struct ViewStateRenderer {
 
     private var domainStubs: [String] {
         render { member in
-            guard case .property(let name, let type, isDomain: true) = member else { return [] }
+            guard case .property(let name, let type, isDomain: true) = member,
+                // An `id` stub would shadow the `Identifiable` witness; that case is diagnosed.
+                !(isIdentifiable && name.bareText == "id")
+            else {
+                return []
+            }
             return [
                 "@available(*, unavailable, message: \"'\(name.bareText)' is @Domain state and is not visible to views\")",
                 "\(access)var \(name.text): \(type?.trimmedDescription ?? "_$ViewStateWitness.\(name.text)") {",
@@ -1127,6 +1306,12 @@ extension DeclModifierListSyntax {
             }
         }
         return nil
+    }
+}
+
+extension VariableDeclSyntax {
+    fileprivate var bindingNames: [TokenSyntax] {
+        bindings.compactMap { $0.pattern.as(IdentifierPatternSyntax.self)?.identifier }
     }
 }
 

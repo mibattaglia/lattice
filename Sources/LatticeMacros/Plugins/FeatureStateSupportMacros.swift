@@ -2,6 +2,18 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
+/// `@Domain`: a marker read syntactically by `@FeatureState`, which leaves the property out of
+/// the generated `ViewState`. Expands to nothing.
+public struct DomainMacro: PeerMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        []
+    }
+}
+
 /// `@_IdentifiableIfPossible(T.self)` when `T: Identifiable`. Adds `Identifiable` to the
 /// generated `ViewState`; `id` is the visible `id` member or the `ViewStateProjection` extension.
 public struct IdentifiableIfPossibleMacro: ExtensionMacro {

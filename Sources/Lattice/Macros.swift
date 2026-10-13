@@ -85,6 +85,10 @@ public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module:
 @attached(extension, conformances: FeatureState, Observable)
 public macro FeatureState() = #externalMacro(module: "LatticeMacros", type: "FeatureStateMacro")
 
+/// Marks a property as domain-only: tracked for observation, absent from `ViewState`.
+@attached(peer)
+public macro Domain() = #externalMacro(module: "LatticeMacros", type: "DomainMacro")
+
 // Applied by @FeatureState to the generated ViewState. Overloads are selected by the compiler
 // from the state's actual conformances (type-checked macro arguments).
 @attached(extension, conformances: Identifiable)
