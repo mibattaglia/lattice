@@ -6,16 +6,32 @@ typealias ScopedCompositionViewModel = ViewModel<
     Feature<ScopedCompositionEvent, ScopedCompositionState>
 >
 
+/// How many times each view's `body` has run, as shown by the views' render counters.
+///
+/// SwiftUI re-creates a child view value every time its parent's `body` runs, so a counter
+/// stored in the view value would start over at each re-creation. The counts live in this one
+/// object instead, shared through the environment.
+final class RenderCounters {
+    var root = 0
+    var dashboard = 0
+    var header = 0
+    var badge = 0
+    var footer = 0
+}
+
+extension EnvironmentValues {
+    @Entry var renderCounters = RenderCounters()
+}
+
 /// Root of the demo. Owns the `ViewModel`, creates scopes inline in `body`, and reads
 /// nothing observable itself — the buttons only send. This is the read-light container
 /// shape: its render counter (and `DashboardView`'s) should never advance past 1.
 struct ScopedCompositionView: View {
     let viewModel: ScopedCompositionViewModel
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
+        renderCounters.root += 1
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text(
@@ -49,7 +65,7 @@ struct ScopedCompositionView: View {
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
 
-                Text("Root renders: \(renders.count)")
+                Text("Root renders: \(renderCounters.root)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -62,14 +78,13 @@ struct ScopedCompositionView: View {
 /// Its counter should never advance past 1, even when the header re-renders.
 struct DashboardView: View {
     let model: ScopedViewModel<DashboardState, DashboardAction>
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
+        renderCounters.dashboard += 1
         return VStack(alignment: .leading, spacing: 12) {
             HeaderView(model: model.scope(state: \.header, action: \.header))
-            Text("DashboardView renders: \(renders.count)")
+            Text("DashboardView renders: \(renderCounters.dashboard)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -84,16 +99,15 @@ struct DashboardView: View {
 /// can never be proven unchanged — the documented trade-off, visible in the counters.
 struct HeaderView: View {
     let model: ScopedViewModel<HeaderState, HeaderAction>
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
+        renderCounters.header += 1
         return VStack(alignment: .leading, spacing: 8) {
             Text(model.title)  // reads only header.title
                 .font(.title2)
             BadgeView(model: model.scope(state: \.badge, action: \.badge))
-            Text("HeaderView renders: \(renders.count)")
+            Text("HeaderView renders: \(renderCounters.header)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -104,18 +118,17 @@ struct HeaderView: View {
 /// The leaf: a two-way binding into the slice plus a counter button.
 struct BadgeView: View {
     let model: ScopedViewModel<BadgeState, BadgeAction>
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
+        renderCounters.badge += 1
         return VStack(alignment: .leading, spacing: 8) {
             TextField("Label", text: model.binding(\.label, sending: \.labelChanged))
                 .textFieldStyle(.roundedBorder)
             Button("Increment") { model.sendViewEvent(.incremented) }
                 .buttonStyle(.bordered)
             Text("Count: \(model.count)")
-            Text("BadgeView renders: \(renders.count)")
+            Text("BadgeView renders: \(renderCounters.badge)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -129,15 +142,14 @@ struct BadgeView: View {
 /// projection is observation-live even though it can send nothing.
 struct FooterView: View {
     let model: ScopedViewModel<FooterState, Never>
-    private final class Renders { var count = 0 }
-    private let renders = Renders()
+    @Environment(\.renderCounters) private var renderCounters
 
     var body: some View {
-        renders.count += 1
+        renderCounters.footer += 1
         return VStack(alignment: .leading) {
             Text(model.status)  // reads only footer.status
                 .font(.title2)
-            Text("FooterView renders: \(renders.count)")
+            Text("FooterView renders: \(renderCounters.footer)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
