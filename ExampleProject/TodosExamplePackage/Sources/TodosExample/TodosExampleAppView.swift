@@ -2,16 +2,13 @@ import Lattice
 import SwiftUI
 
 public struct TodosExampleAppView: View {
-    @State private var viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>
+    @State private var viewModel: ViewModel<Feature<TodosEvent, TodosState>>
 
     public init() {
-        let feature = Feature(
-            interactor: TodosInteractor(),
-            reducer: TodosViewStateReducer()
-        )
+        let feature = Feature(interactor: TodosInteractor())
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: TodosDomainState(),
+                initialState: TodosState(),
                 feature: feature
             )
         )

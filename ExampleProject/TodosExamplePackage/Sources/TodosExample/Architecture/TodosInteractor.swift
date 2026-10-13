@@ -1,7 +1,7 @@
 import Foundation
 import Lattice
 
-@Interactor<TodosDomainState, TodosEvent>
+@Interactor<TodosState, TodosEvent>
 struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
     private let autoSortDebouncer: Debouncer<C, TodosEvent?>
 
@@ -20,7 +20,7 @@ struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
                 let trimmed = state.newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return .none }
 
-                let newTodo = TodosDomainState.TodoItem(
+                let newTodo = TodosState.TodoItem(
                     id: UUID(),
                     title: trimmed,
                     isComplete: false,
@@ -67,21 +67,21 @@ struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
             .debounce(using: autoSortDebouncer)
     }
 
-    private func sortedTodos(_ lhs: TodosDomainState.TodoItem, _ rhs: TodosDomainState.TodoItem) -> Bool {
+    private func sortedTodos(_ lhs: TodosState.TodoItem, _ rhs: TodosState.TodoItem) -> Bool {
         if lhs.isComplete != rhs.isComplete {
             return lhs.isComplete == false
         }
         return lhs.order < rhs.order
     }
 
-    private func normalizeOrder(_ state: inout TodosDomainState) {
+    private func normalizeOrder(_ state: inout TodosState) {
         for index in state.todos.indices {
             state.todos[index].order = index
         }
         state.nextOrder = state.todos.count
     }
 
-    private func moveTodos(in state: inout TodosDomainState, ids: [UUID], destination: Int) {
+    private func moveTodos(in state: inout TodosState, ids: [UUID], destination: Int) {
         guard !ids.isEmpty else { return }
 
         let filteredIndices = filteredIndices(in: state.todos, filter: state.filter)
@@ -103,8 +103,8 @@ struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
     }
 
     private func filteredIndices(
-        in todos: [TodosDomainState.TodoItem],
-        filter: TodosDomainState.Filter
+        in todos: [TodosState.TodoItem],
+        filter: TodosState.Filter
     ) -> [Int] {
         switch filter {
         case .all:

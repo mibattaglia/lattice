@@ -8,6 +8,6 @@ enum TodosEvent: Equatable, Sendable {
     case setTodoCompletion(id: UUID, isComplete: Bool)
     case deleteTodos(ids: [UUID])
     case moveTodos(ids: [UUID], destination: Int)
-    case setFilter(TodosDomainState.Filter)
+    case setFilter(TodosState.Filter)
     case applyAutoSort
 }
