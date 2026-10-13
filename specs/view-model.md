@@ -46,7 +46,7 @@ let viewModel = ViewModel(
 
 Views read the state through `State.ViewState`, the projection `@FeatureState` generates:
 
-- `viewModel.member` (`subscript(dynamicMember: KeyPath<State.ViewState, V>)`) is the fine-grained read. It registers the root and then each member it walks through on the state's own registrars, so `viewModel.badge.count` re-renders only when `count` changes or the state is replaced wholesale.
+- `viewModel.member` (`subscript(dynamicMember: KeyPath<State.ViewState, V>)`) is the fine-grained read. It registers the root and then each member it walks through on the state's own registrars, so `viewModel.badge.count` re-renders only when `count` changes, `badge` is replaced with different content, or the whole state is replaced.
 - `viewState: State.ViewState` is the whole projection. The value itself is coarse: it re-renders on a wholesale replacement or an enum case change. Members read off it stay fine-grained (the projection shares every registrar with the state), so `switch viewModel.viewState { case .loaded(let l): Text(l.title) }` re-renders on case changes and on `title` changes only.
 - The raw `state` is internal. `TestViewModel`, `ScopedViewModel` and the bindings live in the same module and use it; views cannot.
 

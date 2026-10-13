@@ -257,7 +257,7 @@ TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 
 Binding key paths are rooted at `FormState.ViewState`, so `$viewModel.member` rejects a `@Domain` member at compile time.
 
-For a `@CasePathable` enum state, bindings reach the members of a case payload through the generated `ViewState` mirror. With `case results(ResultState)` in the state:
+For a `@CasePathable` enum state, bindings reach the members of a case payload through the generated `ViewState` mirror. In the Search example, whose state has `case results(ResultState)`:
 
 ```swift
 $viewModel.results.query.sending(\.search.query)
