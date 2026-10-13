@@ -5,13 +5,10 @@ public struct ScopedCompositionExampleAppView: View {
     @State private var viewModel: ScopedCompositionViewModel
 
     public init() {
-        let feature = Feature(
-            interactor: ScopedCompositionInteractor(),
-            reducer: ScopedCompositionViewStateReducer()
-        )
+        let feature = Feature(interactor: ScopedCompositionInteractor())
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: ScopedCompositionDomainState(),
+                initialState: ScopedCompositionState(),
                 feature: feature
             )
         )

@@ -3,7 +3,7 @@ import Lattice
 import SwiftUI
 
 typealias ScopedCompositionViewModel = ViewModel<
-    Feature<ScopedCompositionEvent, ScopedCompositionDomainState, ScopedCompositionViewState>
+    Feature<ScopedCompositionEvent, ScopedCompositionState>
 >
 
 /// Root of the demo. Owns the `ViewModel`, creates scopes inline in `body`, and reads

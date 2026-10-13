@@ -1,7 +1,7 @@
 import CasePaths
 import Foundation
 
-/// Child actions nest the same way the view-state slices do:
+/// Child actions nest the same way the state slices do:
 /// `ActiveAction` ⊂ `SubphaseAction` ⊂ `TelemetryAction` ⊂ `SessionAction` ⊂ `SuccessAction`
 /// ⊂ `PhaseEvent`, with `SummaryAction` as a sibling branch under `SuccessAction`.
 @CasePathable

@@ -17,11 +17,8 @@ private final class ChangeProbe: @unchecked Sendable {
 struct ScopedCompositionExampleTests {
     private func makeViewModel() -> ScopedCompositionViewModel {
         ViewModel(
-            initialDomainState: ScopedCompositionDomainState(),
-            feature: Feature(
-                interactor: ScopedCompositionInteractor(),
-                reducer: ScopedCompositionViewStateReducer()
-            )
+            initialState: ScopedCompositionState(),
+            feature: Feature(interactor: ScopedCompositionInteractor())
         )
     }
 
