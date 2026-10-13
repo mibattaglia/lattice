@@ -3,9 +3,9 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState private struct Leaf: Equatable { var n: Int }
-@ObservableState private struct Child: Equatable { var value: String; var leaf: Leaf }
-@ObservableState private struct Parent: Equatable { var title: String; var child: Child }
+@FeatureState private struct Leaf: Equatable { var n: Int }
+@FeatureState private struct Child: Equatable { var value: String; var leaf: Leaf }
+@FeatureState private struct Parent: Equatable { var title: String; var child: Child }
 
 @Suite struct ObservableStateAssignmentTests {
     @Test func contentEqualRebuildPreservesNestedIdentity() {

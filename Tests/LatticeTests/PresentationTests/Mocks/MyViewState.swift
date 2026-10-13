@@ -1,7 +1,7 @@
 import Foundation
 import Lattice
 
-@ObservableState
+@FeatureState
 enum MyViewState: Equatable {
     case loading
     case error(title: String)

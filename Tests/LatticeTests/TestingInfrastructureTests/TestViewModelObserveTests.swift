@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct ObserveState: Equatable, Sendable {
     var log: [String] = []
 }

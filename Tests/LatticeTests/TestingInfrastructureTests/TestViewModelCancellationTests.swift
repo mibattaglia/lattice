@@ -50,7 +50,7 @@ actor CancellationProbe {
     }
 }
 
-@ObservableState
+@FeatureState
 private struct CancellationState: Equatable, Sendable {
     var finished = false
 }

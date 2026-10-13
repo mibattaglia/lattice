@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct ExhaustivityState: Equatable, Sendable {
     var values: [Int] = []
     var resetCount = 0

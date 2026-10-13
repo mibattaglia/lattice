@@ -4,7 +4,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct TestSendState: Equatable, Sendable {
     var count = 0
 }

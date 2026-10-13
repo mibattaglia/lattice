@@ -2,7 +2,7 @@ import Foundation
 import Lattice
 import Testing
 
-@ObservableState
+@FeatureState
 private struct EventTaskState: Equatable, Sendable {
     var log: [String] = []
 }

@@ -79,7 +79,7 @@ struct ViewStateReducerTests {
     }
 }
 
-@ObservableState
+@FeatureState
 private struct DefaultedViewState: Equatable, DefaultValueProvider {
     var value: Int
 

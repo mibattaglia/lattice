@@ -9,6 +9,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+// The observation codegen is lifted from The Composable Architecture:
+// https://github.com/pointfreeco/swift-composable-architecture/blob/main/Sources/ComposableArchitectureMacros/ObservableStateMacro.swift
+
 import SwiftDiagnostics
 import SwiftOperators
 import SwiftSyntax
@@ -19,10 +22,10 @@ import SwiftSyntaxMacros
     import SwiftSyntaxMacroExpansion
 #endif
 
-public struct ObservableStateMacro {
+public struct FeatureStateMacro {
     static let moduleName = "Lattice"
 
-    static let conformanceName = "ObservableState"
+    static let conformanceName = "FeatureState"
     static var qualifiedConformanceName: String {
         return "\(moduleName).\(conformanceName)"
     }
@@ -268,7 +271,7 @@ extension VariableDeclSyntax {
     }
 }
 
-extension ObservableStateMacro: MemberMacro {
+extension FeatureStateMacro: MemberMacro {
     #if canImport(SwiftSyntax601)
         public static func expansion(
             of node: AttributeSyntax,
@@ -317,7 +320,7 @@ extension ObservableStateMacro: MemberMacro {
             // classes are not supported
             throw DiagnosticsError(
                 syntax: node,
-                message: "'@ObservableState' cannot be applied to class type '\(observableType.text)'",
+                message: "'@FeatureState' cannot be applied to class type '\(observableType.text)'",
                 id: .invalidApplication
             )
         }
@@ -325,7 +328,7 @@ extension ObservableStateMacro: MemberMacro {
             // actors cannot yet be supported for their isolation
             throw DiagnosticsError(
                 syntax: node,
-                message: "'@ObservableState' cannot be applied to actor type '\(observableType.text)'",
+                message: "'@FeatureState' cannot be applied to actor type '\(observableType.text)'",
                 id: .invalidApplication
             )
         }
@@ -333,48 +336,50 @@ extension ObservableStateMacro: MemberMacro {
         var declarations = [DeclSyntax]()
 
         declaration.addIfNeeded(
-            ObservableStateMacro.registrarVariable(observableType),
+            FeatureStateMacro.registrarVariable(observableType),
             to: &declarations
         )
-        declaration.addIfNeeded(ObservableStateMacro.idVariable(), to: &declarations)
-        declaration.addIfNeeded(ObservableStateMacro.willModifyFunction(), to: &declarations)
+        declaration.addIfNeeded(FeatureStateMacro.idVariable(), to: &declarations)
+        declaration.addIfNeeded(FeatureStateMacro.willModifyFunction(), to: &declarations)
         declaration.addIfNeeded(
-            ObservableStateMacro.shouldNotifyObserversNonEquatableFunction(
+            FeatureStateMacro.shouldNotifyObserversNonEquatableFunction(
                 observableType, context: context), to: &declarations)
         declaration.addIfNeeded(
-            ObservableStateMacro.shouldNotifyObserversEquatableFunction(observableType, context: context),
+            FeatureStateMacro.shouldNotifyObserversEquatableFunction(observableType, context: context),
             to: &declarations)
         declaration.addIfNeeded(
-            ObservableStateMacro.shouldNotifyObserversNonEquatableObjectFunction(
+            FeatureStateMacro.shouldNotifyObserversNonEquatableObjectFunction(
                 observableType, context: context), to: &declarations)
         declaration.addIfNeeded(
-            ObservableStateMacro.shouldNotifyObserversEquatableObjectFunction(
+            FeatureStateMacro.shouldNotifyObserversEquatableObjectFunction(
                 observableType, context: context), to: &declarations)
+
+        declarations += viewStateDeclarations(of: declaration, in: context)
 
         return declarations
     }
 }
 
-extension [ObservableStateCase] {
+extension [FeatureStateCase] {
     init(members: MemberBlockItemListSyntax) {
         var tag = 0
         self.init(members: members, tag: &tag)
     }
 
     init(members: MemberBlockItemListSyntax, tag: inout Int) {
-        self = members.flatMap { member -> [ObservableStateCase] in
+        self = members.flatMap { member -> [FeatureStateCase] in
             if let enumCaseDecl = member.decl.as(EnumCaseDeclSyntax.self) {
                 return enumCaseDecl.elements.map {
                     defer { tag += 1 }
-                    return ObservableStateCase.element($0, tag: tag)
+                    return FeatureStateCase.element($0, tag: tag)
                 }
             }
             if let ifConfigDecl = member.decl.as(IfConfigDeclSyntax.self) {
-                let configs = ifConfigDecl.clauses.flatMap { decl -> [ObservableStateCase.IfConfig] in
+                let configs = ifConfigDecl.clauses.flatMap { decl -> [FeatureStateCase.IfConfig] in
                     guard let elements = decl.elements?.as(MemberBlockItemListSyntax.self)
                     else { return [] }
                     return [
-                        ObservableStateCase.IfConfig(
+                        FeatureStateCase.IfConfig(
                             poundKeyword: decl.poundKeyword,
                             condition: decl.condition,
                             cases: Array(members: elements, tag: &tag)
@@ -388,14 +393,14 @@ extension [ObservableStateCase] {
     }
 }
 
-enum ObservableStateCase {
+enum FeatureStateCase {
     case element(EnumCaseElementSyntax, tag: Int)
     indirect case ifConfig([IfConfig])
 
     struct IfConfig {
         let poundKeyword: TokenSyntax
         let condition: ExprSyntax?
-        let cases: [ObservableStateCase]
+        let cases: [FeatureStateCase]
     }
 
     var getCase: String {
@@ -434,7 +439,7 @@ enum ObservableStateCase {
             {
                 return """
                     case var .\(element.name.text)(state):
-                    \(ObservableStateMacro.moduleName)._$willModify(&state)
+                    \(FeatureStateMacro.moduleName)._$willModify(&state)
                     self = .\(element.name.text)(\(parameter.firstName.map { "\($0): " } ?? "")state)
                     """
             } else {
@@ -457,7 +462,7 @@ enum ObservableStateCase {
     }
 }
 
-extension ObservableStateMacro {
+extension FeatureStateMacro {
     public static func enumExpansion<
         Declaration: DeclGroupSyntax,
         Context: MacroExpansionContext
@@ -466,7 +471,7 @@ extension ObservableStateMacro {
         providingMembersOf declaration: Declaration,
         in context: Context
     ) throws -> [DeclSyntax] {
-        let cases = [ObservableStateCase](members: declaration.memberBlock.members)
+        let cases = [FeatureStateCase](members: declaration.memberBlock.members)
         var getCases: [String] = []
         var willModifyCases: [String] = []
         for enumCase in cases {
@@ -502,7 +507,7 @@ extension SyntaxStringInterpolation {
     }
 }
 
-extension ObservableStateMacro: MemberAttributeMacro {
+extension FeatureStateMacro: MemberAttributeMacro {
     public static func expansion<
         Declaration: DeclGroupSyntax,
         MemberDeclaration: DeclSyntaxProtocol,
@@ -520,35 +525,35 @@ extension ObservableStateMacro: MemberAttributeMacro {
         }
 
         // dont apply to ignored properties or properties that are already flagged as tracked
-        if property.hasMacroApplication(ObservableStateMacro.ignoredMacroName)
-            || property.hasMacroApplication(ObservableStateMacro.trackedMacroName)
+        if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName)
+            || property.hasMacroApplication(FeatureStateMacro.trackedMacroName)
         {
             return []
         }
 
         property.diagnose(
             attribute: "ObservationIgnored",
-            renamed: ObservableStateMacro.ignoredMacroName,
+            renamed: FeatureStateMacro.ignoredMacroName,
             context: context
         )
         property.diagnose(
             attribute: "ObservationTracked",
-            renamed: ObservableStateMacro.trackedMacroName,
+            renamed: FeatureStateMacro.trackedMacroName,
             context: context
         )
         property.diagnose(
             attribute: "PresentationState",
-            renamed: ObservableStateMacro.presentsMacroName,
+            renamed: FeatureStateMacro.presentsMacroName,
             context: context
         )
 
-        if property.hasMacroApplication(ObservableStateMacro.presentsMacroName)
+        if property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
             || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
         {
             return [
                 AttributeSyntax(
                     attributeName: IdentifierTypeSyntax(
-                        name: .identifier(ObservableStateMacro.ignoredMacroName)
+                        name: .identifier(FeatureStateMacro.ignoredMacroName)
                     )
                 )
             ]
@@ -557,7 +562,7 @@ extension ObservableStateMacro: MemberAttributeMacro {
         return [
             AttributeSyntax(
                 attributeName: IdentifierTypeSyntax(
-                    name: .identifier(ObservableStateMacro.trackedMacroName)
+                    name: .identifier(FeatureStateMacro.trackedMacroName)
                 )
             )
         ]
@@ -576,7 +581,7 @@ extension VariableDeclSyntax {
             context.diagnose(
                 Diagnostic(
                     node: attribute,
-                    message: MacroExpansionErrorMessage("'@\(name)' cannot be used in '@ObservableState'"),
+                    message: MacroExpansionErrorMessage("'@\(name)' cannot be used in '@FeatureState'"),
                     fixIt: .replace(
                         message: MacroExpansionFixItMessage("Use '@\(rename)' instead"),
                         oldNode: attribute,
@@ -596,7 +601,7 @@ extension VariableDeclSyntax {
     }
 }
 
-extension ObservableStateMacro: ExtensionMacro {
+extension FeatureStateMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
         attachedTo declaration: some DeclGroupSyntax,
@@ -636,9 +641,9 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
             return []
         }
 
-        if property.hasMacroApplication(ObservableStateMacro.ignoredMacroName)
-            || property.hasMacroApplication(ObservableStateMacro.presentationStatePropertyWrapperName)
-            || property.hasMacroApplication(ObservableStateMacro.presentsMacroName)
+        if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName)
+            || property.hasMacroApplication(FeatureStateMacro.presentationStatePropertyWrapperName)
+            || property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
             || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
         {
             return []
@@ -655,7 +660,7 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
         let getAccessor: AccessorDeclSyntax =
             """
             get {
-            \(raw: ObservableStateMacro.registrarVariableName).access(self, keyPath: \\.\(identifier))
+            \(raw: FeatureStateMacro.registrarVariableName).access(self, keyPath: \\.\(identifier))
             return _\(identifier)
             }
             """
@@ -663,7 +668,7 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
         let setAccessor: AccessorDeclSyntax =
             """
             set {
-            \(raw: ObservableStateMacro.registrarVariableName).mutate(self, keyPath: \\.\(identifier), &_\(identifier), newValue, _$isIdentityEqual, shouldNotifyObservers)
+            \(raw: FeatureStateMacro.registrarVariableName).mutate(self, keyPath: \\.\(identifier), &_\(identifier), newValue, _$isIdentityEqual, shouldNotifyObservers)
             }
             """
         let modifyAccessor: AccessorDeclSyntax = """
@@ -695,17 +700,17 @@ extension ObservationStateTrackedMacro: PeerMacro {
             return []
         }
 
-        if property.hasMacroApplication(ObservableStateMacro.ignoredMacroName)
-            || property.hasMacroApplication(ObservableStateMacro.presentationStatePropertyWrapperName)
-            || property.hasMacroApplication(ObservableStateMacro.presentsMacroName)
+        if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName)
+            || property.hasMacroApplication(FeatureStateMacro.presentationStatePropertyWrapperName)
+            || property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
             || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
-            || property.hasMacroApplication(ObservableStateMacro.trackedMacroName)
+            || property.hasMacroApplication(FeatureStateMacro.trackedMacroName)
         {
             return []
         }
 
         let storage = DeclSyntax(
-            property.privatePrefixed("_", addingAttribute: ObservableStateMacro.ignoredAttribute)
+            property.privatePrefixed("_", addingAttribute: FeatureStateMacro.ignoredAttribute)
         )
         return [storage]
     }
@@ -727,3 +732,302 @@ public struct ObservationStateIgnoredMacro: AccessorMacro {
 private let knownSupportedPropertyWrappers = [
     "Shared", "SharedReader", "Fetch", "FetchAll", "FetchOne",
 ]
+
+// MARK: - ViewState projection
+
+extension FeatureStateMacro {
+    static let viewStateTypeName = "ViewState"
+    static let viewStateTypesProtocolName = "_$ViewStateTypes"
+    static let viewStateWitnessTypeName = "_$ViewStateWitness"
+    static let viewStateStorageName = "_state"
+    static let domainMacroName = "Domain"
+
+    static func domainAttribute(in attributes: AttributeListSyntax) -> AttributeSyntax? {
+        for element in attributes {
+            guard case .attribute(let attribute) = element else { continue }
+            let name = attribute.attributeName.trimmedDescription
+            if name == domainMacroName || name == "\(moduleName).\(domainMacroName)" {
+                return attribute
+            }
+        }
+        return nil
+    }
+
+    /// The `_$ViewStateTypes` protocol, `_$ViewStateWitness` struct and `ViewState` projection.
+    static func viewStateDeclarations(
+        of declaration: some DeclGroupSyntax,
+        in context: some MacroExpansionContext
+    ) -> [DeclSyntax] {
+        guard let typeName = declaration.asProtocol((any NamedDeclSyntax).self)?.name.trimmed.text
+        else {
+            return []
+        }
+        let inheritedTypeNames = declaration.inheritedTypeNames
+
+        var attributes: [String] = []
+        if let availability = declaration.attributes.availability {
+            attributes.append(availability.trimmedDescription)
+        }
+        attributes.append("@\(moduleName)._IdentifiableIfPossible(\(typeName).self)")
+        attributes.append("@\(moduleName)._EquatableIfPossible(\(typeName).self)")
+
+        let renderer = ViewStateRenderer(
+            typeName: typeName,
+            access: viewStateAccess(of: declaration, in: context),
+            members: ViewStateMember.members(of: declaration.memberBlock.members),
+            attributes: attributes,
+            conformances: "\(moduleName).ViewStateProjection"
+                + (inheritedTypeNames.contains("Sendable") ? ", Sendable" : "")
+        )
+        return renderer.structDeclarations
+    }
+
+    /// The access modifier of the generated declarations, mirroring the state's: an explicit
+    /// modifier, else `fileprivate` inside a file-private declaration (the file-scope `==` of
+    /// `ViewState` must not be more visible than the state), else the default of an enclosing
+    /// extension, else internal.
+    static func viewStateAccess(
+        of declaration: some DeclGroupSyntax,
+        in context: some MacroExpansionContext
+    ) -> String {
+        if let access = declaration.modifiers.accessLevel {
+            return access
+        }
+        let isInFilePrivateScope = context.lexicalContext.contains {
+            $0.asProtocol((any WithModifiersSyntax).self)?.modifiers.accessLevel == "fileprivate "
+        }
+        if isInFilePrivateScope {
+            return "fileprivate "
+        }
+        if let enclosingExtension = context.lexicalContext.first?.as(ExtensionDeclSyntax.self),
+            let access = enclosingExtension.modifiers.accessLevel
+        {
+            return access
+        }
+        return ""
+    }
+}
+
+/// A member of a `@FeatureState` type that shapes its `ViewState`, in declaration order, with
+/// `#if` blocks preserved.
+indirect enum ViewStateMember {
+    /// An instance property that is not `private`/`fileprivate`. `type` is the explicit
+    /// annotation, if any.
+    case property(name: TokenSyntax, type: TypeSyntax?, isDomain: Bool)
+    case ifConfig([IfConfigClause])
+
+    struct IfConfigClause {
+        /// `#if CONDITION`, `#elseif CONDITION` or `#else`.
+        let header: String
+        let members: [ViewStateMember]
+    }
+
+    static func members(of items: MemberBlockItemListSyntax) -> [ViewStateMember] {
+        var members: [ViewStateMember] = []
+        for item in items {
+            if let ifConfig = item.decl.as(IfConfigDeclSyntax.self) {
+                members.append(
+                    .ifConfig(
+                        ifConfig.clauses.map { clause in
+                            var nested: [ViewStateMember] = []
+                            if case .decls(let decls) = clause.elements {
+                                nested = Self.members(of: decls)
+                            }
+                            return IfConfigClause(
+                                header: clause.poundKeyword.text
+                                    + (clause.condition.map { " \($0.trimmedDescription)" } ?? ""),
+                                members: nested
+                            )
+                        }
+                    )
+                )
+            } else if let variable = item.decl.as(VariableDeclSyntax.self) {
+                // `private(set)` and `fileprivate(set)` only restrict the setter.
+                let isPrivate = variable.modifiers.contains {
+                    ($0.name.tokenKind == .keyword(.private) || $0.name.tokenKind == .keyword(.fileprivate))
+                        && $0.detail == nil
+                }
+                guard variable.isInstance, !isPrivate else { continue }
+                let isDomain = FeatureStateMacro.domainAttribute(in: variable.attributes) != nil
+                for binding in variable.bindings {
+                    guard let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier
+                    else { continue }
+                    members.append(
+                        .property(name: name.trimmed, type: binding.typeAnnotation?.type.trimmed, isDomain: isDomain)
+                    )
+                }
+            }
+        }
+        return members
+    }
+}
+
+/// Renders the generated projection declarations for one `@FeatureState` type.
+struct ViewStateRenderer {
+    let typeName: String
+    /// `public `, `package `, `fileprivate ` or empty.
+    let access: String
+    let members: [ViewStateMember]
+    let attributes: [String]
+    let conformances: String
+
+    var structDeclarations: [DeclSyntax] {
+        let body =
+            [
+                "@_spi(Lattice) public let \(FeatureStateMacro.viewStateStorageName): \(typeName)",
+                "\(access)init(_ state: \(typeName)) {",
+                "self._state = state",
+                "}",
+            ] + forwardedProperties + domainStubs
+        return [
+            typesProtocol,
+            witnessStruct,
+            declaration(
+                attributes + ["\(access)struct \(FeatureStateMacro.viewStateTypeName): \(conformances)"],
+                body
+            ),
+        ]
+    }
+
+    /// One associated type per visible property and per inferred-type `@Domain` property (its
+    /// stub needs a type).
+    private var typesProtocol: DeclSyntax {
+        let requirements = render { member in
+            switch member {
+            case .property(let name, let type, let isDomain):
+                guard !isDomain || type == nil else { return [] }
+                return ["associatedtype \(name.text)", "var _$\(name.bareText): \(name.text) { get }"]
+            case .ifConfig:
+                return []
+            }
+        }
+        return declaration(["\(access)protocol \(FeatureStateMacro.viewStateTypesProtocolName)"], requirements)
+    }
+
+    private var witnessStruct: DeclSyntax {
+        let placeholder = "Lattice._$placeholder(\(typeName).self)"
+        let witnesses = render { member in
+            switch member {
+            case .property(let name, let type, let isDomain):
+                if isDomain {
+                    // No `_$project`: the stub keeps the member's own type.
+                    return type == nil ? ["\(access)let _$\(name.bareText) = \(placeholder).\(name.text)"] : []
+                }
+                return ["\(access)let _$\(name.bareText) = Lattice._$project(\(placeholder).\(name.text))"]
+            case .ifConfig:
+                return []
+            }
+        }
+        return declaration(
+            [
+                "\(access)struct \(FeatureStateMacro.viewStateWitnessTypeName): "
+                    + FeatureStateMacro.viewStateTypesProtocolName
+            ],
+            witnesses
+        )
+    }
+
+    private var forwardedProperties: [String] {
+        render { member in
+            guard case .property(let name, _, isDomain: false) = member else { return [] }
+            return [
+                "\(access)var \(name.text): _$ViewStateWitness.\(name.text) {",
+                "Lattice._$project(_state.\(name.text))",
+                "}",
+            ]
+        }
+    }
+
+    private var domainStubs: [String] {
+        render { member in
+            guard case .property(let name, let type, isDomain: true) = member else { return [] }
+            return [
+                "@available(*, unavailable, message: \"'\(name.bareText)' is @Domain state and is not visible to views\")",
+                "\(access)var \(name.text): \(type?.trimmedDescription ?? "_$ViewStateWitness.\(name.text)") {",
+                "fatalError()",
+                "}",
+            ]
+        }
+    }
+
+    /// `header` lines (attributes, then the declaration line) followed by a braced `body`.
+    private func declaration(_ header: [String], _ body: [String]) -> DeclSyntax {
+        let opening = header.joined(separator: "\n") + " {"
+        return "\(raw: ([opening] + body + ["}"]).joined(separator: "\n"))"
+    }
+
+    /// Renders `members` in order, mirroring `#if` blocks. A block that renders no lines in
+    /// every clause is dropped.
+    private func render(_ line: (ViewStateMember) -> [String]) -> [String] {
+        Self.render(members, line)
+    }
+
+    private static func render(
+        _ members: [ViewStateMember],
+        _ line: (ViewStateMember) -> [String]
+    ) -> [String] {
+        var lines: [String] = []
+        for member in members {
+            guard case .ifConfig(let clauses) = member else {
+                lines += line(member)
+                continue
+            }
+            let rendered = clauses.map { (header: $0.header, lines: render($0.members, line)) }
+            guard rendered.contains(where: { !$0.lines.isEmpty }) else { continue }
+            for clause in rendered {
+                lines.append(clause.header)
+                lines += clause.lines
+            }
+            lines.append("#endif")
+        }
+        return lines
+    }
+}
+
+extension TokenSyntax {
+    /// The identifier without backticks.
+    fileprivate var bareText: String { identifier?.name ?? text }
+}
+
+extension DeclModifierListSyntax {
+    /// `public `, `package `, `fileprivate ` (for `private` and `fileprivate`) or an empty string
+    /// for internal; `nil` when no access modifier is written. Generated members are never more
+    /// visible than the state, and file-scope extensions of `ViewState` need `fileprivate` members.
+    fileprivate var accessLevel: String? {
+        for modifier in self where modifier.detail == nil {
+            switch modifier.name.tokenKind {
+            case .keyword(.public), .keyword(.open):
+                return "public "
+            case .keyword(.package):
+                return "package "
+            case .keyword(.fileprivate), .keyword(.private):
+                return "fileprivate "
+            case .keyword(.internal):
+                return ""
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+}
+
+extension DeclGroupSyntax {
+    /// Protocol names in the inheritance clause, looking through compositions, `@unchecked` and
+    /// a `Swift.` qualifier.
+    fileprivate var inheritedTypeNames: Set<String> {
+        var names: Set<String> = []
+        func collect(_ type: TypeSyntax) {
+            if let attributed = type.as(AttributedTypeSyntax.self) {
+                collect(attributed.baseType)
+            } else if let composition = type.as(CompositionTypeSyntax.self) {
+                composition.elements.forEach { collect($0.type) }
+            } else {
+                let name = type.trimmedDescription
+                names.insert(name.hasPrefix("Swift.") ? String(name.dropFirst("Swift.".count)) : name)
+            }
+        }
+        inheritanceClause?.inheritedTypes.forEach { collect($0.type) }
+        return names
+    }
+}

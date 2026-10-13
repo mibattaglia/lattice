@@ -141,14 +141,14 @@ private struct CasePathMutationObservationTestReducer: ViewStateReducer, Sendabl
     }
 }
 
-@ObservableState
+@FeatureState
 private struct ObservationTestViewState: Equatable, Sendable, DefaultValueProvider {
     static let defaultValue = Self(phase: .active(.init(value: "0")))
 
     var phase: ObservationTestPhase
 }
 
-@ObservableState
+@FeatureState
 @CasePathable
 @dynamicMemberLookup
 private enum ObservationTestPhase: Equatable, Sendable {
@@ -156,7 +156,7 @@ private enum ObservationTestPhase: Equatable, Sendable {
     case active(ObservationTestPayload)
 }
 
-@ObservableState
+@FeatureState
 private struct ObservationTestPayload: Equatable, Sendable {
     var value: String
 }

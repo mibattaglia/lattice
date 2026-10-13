@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 struct TestSupportViewState: Equatable, Sendable {}
 
 typealias TestSupportFeature<Action, DomainState> = Feature<Action, DomainState, TestSupportViewState>

@@ -12,12 +12,12 @@ private final class ChangeProbe: @unchecked Sendable {
     func mark() { lock.withLock { hasChanged = true } }
 }
 
-@ObservableState private struct Section: Equatable, Sendable {
+@FeatureState private struct Section: Equatable, Sendable {
     var title: String
     var subtitle: String
 }
 
-@ObservableState private struct DashViewState: Equatable, Sendable, DefaultValueProvider {
+@FeatureState private struct DashViewState: Equatable, Sendable, DefaultValueProvider {
     static let defaultValue = Self(header: Section(title: "h", subtitle: "s"), count: 0)
     var header: Section
     var count: Int
@@ -96,7 +96,7 @@ private struct DashReducer: ViewStateReducer, Sendable {
 }
 
 // When the whole view state is the enum itself:
-@ObservableState private enum RootPhaseViewState: Equatable, Sendable, DefaultValueProvider {
+@FeatureState private enum RootPhaseViewState: Equatable, Sendable, DefaultValueProvider {
     static let defaultValue = Self.loading
     case loading
     case content(String)

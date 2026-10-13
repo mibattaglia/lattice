@@ -44,7 +44,7 @@ struct ViewModelBindingTests {
     }
 }
 
-@ObservableState
+@FeatureState
 private struct BindingTestState: Equatable, Sendable {
     var name: String
 }

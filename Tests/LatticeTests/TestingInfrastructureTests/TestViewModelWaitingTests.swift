@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct WaitingState: Equatable, Sendable {
     var count = 0
 }

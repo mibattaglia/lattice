@@ -9,6 +9,10 @@ public protocol ViewStateProjection {
 }
 
 extension ViewStateProjection where State: Identifiable {
+    /// Pins `Identifiable.ID`. Without it, associated-type inference rejects `id` below when the
+    /// state's `id` is not a forwarded member (for example, declared in an extension).
+    public typealias ID = State.ID
+
     /// Supplies `Identifiable.id` for projections of identifiable states whose `id` is not a
     /// visible member.
     public var id: State.ID { _state.id }

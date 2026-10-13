@@ -78,14 +78,14 @@ private struct CounterPhaseReducer: ViewStateReducer, Sendable {
     }
 }
 
-@ObservableState
+@FeatureState
 private struct CounterPhaseViewState: Equatable, Sendable, DefaultValueProvider {
     static let defaultValue = Self(phase: .active(.init(value: "0")))
 
     var phase: CounterPhase
 }
 
-@ObservableState
+@FeatureState
 @CasePathable
 @dynamicMemberLookup
 private enum CounterPhase: Equatable, Sendable {
@@ -93,7 +93,7 @@ private enum CounterPhase: Equatable, Sendable {
     case active(CounterPhasePayload)
 }
 
-@ObservableState
+@FeatureState
 private struct CounterPhasePayload: Equatable, Sendable {
     var value: String
 }

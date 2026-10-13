@@ -12,16 +12,16 @@ private final class ChangeProbe: @unchecked Sendable {
     func mark() { lock.withLock { hasChanged = true } }
 }
 
-@ObservableState private struct BadgeState: Equatable, Sendable {
+@FeatureState private struct BadgeState: Equatable, Sendable {
     var count: Int
 }
 
-@ObservableState private struct HeaderState: Equatable, Sendable {
+@FeatureState private struct HeaderState: Equatable, Sendable {
     var title: String
     var badge: BadgeState
 }
 
-@ObservableState private struct AppViewState: Equatable, Sendable, DefaultValueProvider {
+@FeatureState private struct AppViewState: Equatable, Sendable, DefaultValueProvider {
     static let defaultValue = Self(
         header: HeaderState(title: "h", badge: BadgeState(count: 0)),
         footer: "f"
@@ -172,7 +172,7 @@ private struct WholesaleAppReducer: ViewStateReducer, Sendable {
 
     @Test func nestedScopeComposes() {
         let vm = makeViewModel()
-        // App > header > badge: chained scope onto a nested @ObservableState slice.
+        // App > header > badge: chained scope onto a nested @FeatureState slice.
         let badge = vm.scope(state: \.header, action: \.header)
             .scope(state: \.badge, action: \.badge)
         #expect(badge.count == 0)

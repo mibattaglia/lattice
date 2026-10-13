@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 struct FeatureState: Equatable {
     var count = 0
     var name = "Dracula"

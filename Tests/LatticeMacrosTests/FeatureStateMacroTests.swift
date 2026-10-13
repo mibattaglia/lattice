@@ -1,17 +1,23 @@
 #if canImport(LatticeMacros)
     import LatticeMacros
     import MacroTesting
+    import SwiftSyntaxMacroExpansion
     import SwiftSyntaxMacros
     import SwiftSyntaxMacrosTestSupport
     import XCTest
 
-    final class ObservableStateMacroTests: XCTestCase {
+    final class FeatureStateMacroTests: XCTestCase {
         override func invokeTest() {
             withMacroTesting(
                 macros: [
-                    ObservableStateMacro.self,
-                    ObservationStateTrackedMacro.self,
-                    ObservationStateIgnoredMacro.self,
+                    // The extension role only runs when the expansion is told which
+                    // conformances are missing.
+                    "FeatureState": MacroSpec(
+                        type: FeatureStateMacro.self,
+                        conformances: ["Lattice.FeatureState", "Observation.Observable"]
+                    ),
+                    "ObservationStateTracked": MacroSpec(type: ObservationStateTrackedMacro.self),
+                    "ObservationStateIgnored": MacroSpec(type: ObservationStateIgnoredMacro.self),
                 ]
             ) {
                 super.invokeTest()
@@ -21,7 +27,7 @@
         func testAvailability() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 @available(iOS 18, *)
                 struct State {
                   var count = 0
@@ -77,15 +83,42 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  protocol _$ViewStateTypes {
+                    associatedtype count
+                    var _$count: count {
+                      get
+                    }
+                  }
+
+                  struct _$ViewStateWitness: _$ViewStateTypes {
+                    let _$count = Lattice._$project(Lattice._$placeholder(State.self).count)
+                  }
+
+                  @available(iOS 18, *)
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    init(_ state: State) {
+                      self._state = state
+                    }
+                    var count: _$ViewStateWitness.count {
+                      Lattice._$project(_state.count)
+                    }
+                  }
+                }
+
+                @available(iOS 18, *) extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """#
             }
         }
 
-        func testObservableState() throws {
+        func testFeatureState() throws {
             assertMacro {
                 #"""
-                @ObservableState
+                @FeatureState
                 struct State {
                   var count = 0
                 }
@@ -139,15 +172,41 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  protocol _$ViewStateTypes {
+                    associatedtype count
+                    var _$count: count {
+                      get
+                    }
+                  }
+
+                  struct _$ViewStateWitness: _$ViewStateTypes {
+                    let _$count = Lattice._$project(Lattice._$placeholder(State.self).count)
+                  }
+
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    init(_ state: State) {
+                      self._state = state
+                    }
+                    var count: _$ViewStateWitness.count {
+                      Lattice._$project(_state.count)
+                    }
+                  }
+                }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """#
             }
         }
 
-        func testObservableState_AccessControl() throws {
+        func testFeatureState_AccessControl() throws {
             assertMacro {
                 #"""
-                @ObservableState
+                @FeatureState
                 public struct State {
                   var count = 0
                 }
@@ -201,12 +260,38 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  public protocol _$ViewStateTypes {
+                    associatedtype count
+                    var _$count: count {
+                      get
+                    }
+                  }
+
+                  public struct _$ViewStateWitness: _$ViewStateTypes {
+                    public let _$count = Lattice._$project(Lattice._$placeholder(State.self).count)
+                  }
+
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  public struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    public init(_ state: State) {
+                      self._state = state
+                    }
+                    public var count: _$ViewStateWitness.count {
+                      Lattice._$project(_state.count)
+                    }
+                  }
+                }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """#
             }
             assertMacro {
                 #"""
-                @ObservableState
+                @FeatureState
                 package struct State {
                   var count = 0
                 }
@@ -260,15 +345,41 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  package protocol _$ViewStateTypes {
+                    associatedtype count
+                    var _$count: count {
+                      get
+                    }
+                  }
+
+                  package struct _$ViewStateWitness: _$ViewStateTypes {
+                    package let _$count = Lattice._$project(Lattice._$placeholder(State.self).count)
+                  }
+
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  package struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    package init(_ state: State) {
+                      self._state = state
+                    }
+                    package var count: _$ViewStateWitness.count {
+                      Lattice._$project(_state.count)
+                    }
+                  }
+                }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """#
             }
         }
 
-        func testObservableStateIgnored() throws {
+        func testFeatureStateIgnored() throws {
             assertMacro {
                 #"""
-                @ObservableState
+                @FeatureState
                 struct State {
                   @ObservationStateIgnored
                   var count = 0
@@ -304,15 +415,41 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  protocol _$ViewStateTypes {
+                    associatedtype count
+                    var _$count: count {
+                      get
+                    }
+                  }
+
+                  struct _$ViewStateWitness: _$ViewStateTypes {
+                    let _$count = Lattice._$project(Lattice._$placeholder(State.self).count)
+                  }
+
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    init(_ state: State) {
+                      self._state = state
+                    }
+                    var count: _$ViewStateWitness.count {
+                      Lattice._$project(_state.count)
+                    }
+                  }
+                }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """
             }
         }
 
-        func testObservableState_Enum() {
+        func testFeatureState_Enum() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 enum Path {
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
@@ -344,14 +481,17 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Enum_Label() {
+        func testFeatureState_Enum_Label() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 enum Path {
                   case feature1(state: String)
                 }
@@ -376,14 +516,17 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Enum_AccessControl() {
+        func testFeatureState_Enum_AccessControl() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public enum Path {
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
@@ -415,11 +558,14 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 package enum Path {
                   case feature1(Feature1.State)
                   case feature2(Feature2.State)
@@ -451,15 +597,18 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Enum_AccessControl_WrappedByExtension() {
+        func testFeatureState_Enum_AccessControl_WrappedByExtension() {
             assertMacro {
                 """
                 public extension Feature {
-                  @ObservableState
+                  @FeatureState
                   enum Path {
                     case feature1(Feature1.State)
                     case feature2(Feature2.State)
@@ -494,12 +643,15 @@
                     }
                   }
                 }
+
+                extension Feature.Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
             assertMacro {
                 """
                 public extension Feature {
-                  @ObservableState
+                  @FeatureState
                   package enum Path {
                     case feature1(Feature1.State)
                     case feature2(Feature2.State)
@@ -534,14 +686,17 @@
                     }
                   }
                 }
+
+                extension Feature.Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Enum_NonObservableCase() {
+        func testFeatureState_Enum_NonObservableCase() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public enum Path {
                   case foo(Int)
                 }
@@ -566,14 +721,17 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Enum_MultipleAssociatedValues() {
+        func testFeatureState_Enum_MultipleAssociatedValues() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public enum Path {
                   case foo(Int, String)
                 }
@@ -597,50 +755,53 @@
                     }
                   }
                 }
+
+                extension Path: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
 
-        func testObservableState_Class() {
+        func testFeatureState_Class() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public class Model {
                 }
                 """
             } diagnostics: {
                 """
-                @ObservableState
-                ┬───────────────
-                ╰─ 🛑 '@ObservableState' cannot be applied to class type 'Model'
+                @FeatureState
+                ┬────────────
+                ╰─ 🛑 '@FeatureState' cannot be applied to class type 'Model'
                 public class Model {
                 }
                 """
             }
         }
 
-        func testObservableState_Actor() {
+        func testFeatureState_Actor() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public actor Model {
                 }
                 """
             } diagnostics: {
                 """
-                @ObservableState
-                ┬───────────────
-                ╰─ 🛑 '@ObservableState' cannot be applied to actor type 'Model'
+                @FeatureState
+                ┬────────────
+                ╰─ 🛑 '@FeatureState' cannot be applied to actor type 'Model'
                 public actor Model {
                 }
                 """
             }
         }
 
-        func testObservableState_Enum_IfConfig() {
+        func testFeatureState_Enum_IfConfig() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 public enum State {
                   case child(ChildFeature.State)
                   #if os(macOS)
@@ -720,6 +881,9 @@
                     }
                   }
                 }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
+                }
                 """
             }
         }
@@ -727,7 +891,7 @@
         func testKnownSupportedPropertyWrappers() {
             assertMacro {
                 """
-                @ObservableState
+                @FeatureState
                 struct State {
                   @Shared var shared: Int
                   @SharedReader var sharedReader: Int
@@ -775,9 +939,68 @@
                   private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
                     lhs != rhs
                   }
+
+                  protocol _$ViewStateTypes {
+                    associatedtype shared
+                    var _$shared: shared {
+                      get
+                    }
+                    associatedtype sharedReader
+                    var _$sharedReader: sharedReader {
+                      get
+                    }
+                    associatedtype fetch
+                    var _$fetch: fetch {
+                      get
+                    }
+                    associatedtype fetchAll
+                    var _$fetchAll: fetchAll {
+                      get
+                    }
+                    associatedtype fetchOne
+                    var _$fetchOne: fetchOne {
+                      get
+                    }
+                  }
+
+                  struct _$ViewStateWitness: _$ViewStateTypes {
+                    let _$shared = Lattice._$project(Lattice._$placeholder(State.self).shared)
+                    let _$sharedReader = Lattice._$project(Lattice._$placeholder(State.self).sharedReader)
+                    let _$fetch = Lattice._$project(Lattice._$placeholder(State.self).fetch)
+                    let _$fetchAll = Lattice._$project(Lattice._$placeholder(State.self).fetchAll)
+                    let _$fetchOne = Lattice._$project(Lattice._$placeholder(State.self).fetchOne)
+                  }
+
+                  @Lattice._IdentifiableIfPossible(State.self)
+                  @Lattice._EquatableIfPossible(State.self)
+                  struct ViewState: Lattice.ViewStateProjection {
+                    @_spi(Lattice) public let _state: State
+                    init(_ state: State) {
+                      self._state = state
+                    }
+                    var shared: _$ViewStateWitness.shared {
+                      Lattice._$project(_state.shared)
+                    }
+                    var sharedReader: _$ViewStateWitness.sharedReader {
+                      Lattice._$project(_state.sharedReader)
+                    }
+                    var fetch: _$ViewStateWitness.fetch {
+                      Lattice._$project(_state.fetch)
+                    }
+                    var fetchAll: _$ViewStateWitness.fetchAll {
+                      Lattice._$project(_state.fetchAll)
+                    }
+                    var fetchOne: _$ViewStateWitness.fetchOne {
+                      Lattice._$project(_state.fetchOne)
+                    }
+                  }
+                }
+
+                extension State: Lattice.FeatureState, Observation.Observable {
                 }
                 """
             }
         }
+
     }
 #endif
