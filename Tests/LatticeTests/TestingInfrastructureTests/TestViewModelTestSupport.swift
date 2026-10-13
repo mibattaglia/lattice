@@ -10,11 +10,11 @@ typealias TestSupportFeature<Action, DomainState> = Feature<Action, DomainState,
 
 @MainActor
 func makeTestViewModel<I: Interactor & Sendable>(
-    initialDomainState: I.DomainState,
+    initialDomainState: I.State,
     interactor: I
-) -> TestViewModel<TestSupportFeature<I.Action, I.DomainState>>
-where I.DomainState: Equatable {
-    TestViewModel<TestSupportFeature<I.Action, I.DomainState>>(
+) -> TestViewModel<TestSupportFeature<I.Action, I.State>>
+where I.State: Equatable {
+    TestViewModel<TestSupportFeature<I.Action, I.State>>(
         initialDomainState: initialDomainState,
         interactor: interactor.eraseToAnyInteractor(),
         areStatesEqual: { $0 == $1 }

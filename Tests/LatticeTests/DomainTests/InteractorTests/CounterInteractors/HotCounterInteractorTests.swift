@@ -10,7 +10,7 @@ final class HotCounterInteractorTests {
 
     @Test func asyncWork() async {
         let model = makeTestViewModel(
-            initialDomainState: HotCounterInteractor.DomainState(count: 0),
+            initialDomainState: HotCounterInteractor.State(count: 0),
             interactor: HotCounterInteractor()
         )
 

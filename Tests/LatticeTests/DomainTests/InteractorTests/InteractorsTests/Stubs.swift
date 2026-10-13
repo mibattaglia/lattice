@@ -2,7 +2,7 @@ import Lattice
 
 /// Takes an input and doubles it
 struct DoubleInteractor: Interactor, Sendable {
-    typealias DomainState = Int
+    typealias State = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }
@@ -15,7 +15,7 @@ struct DoubleInteractor: Interactor, Sendable {
 
 /// Takes an input and triples it
 struct TripleInteractor: Interactor, Sendable {
-    typealias DomainState = Int
+    typealias State = Int
     typealias Action = Int
 
     var body: some InteractorOf<Self> { self }

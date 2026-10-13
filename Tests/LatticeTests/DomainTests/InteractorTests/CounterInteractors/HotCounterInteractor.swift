@@ -4,7 +4,7 @@ import Foundation
 @testable import Lattice
 
 struct HotCounterInteractor: Interactor {
-    struct DomainState: Equatable, Sendable {
+    struct State: Equatable, Sendable {
         var count: Int
     }
 

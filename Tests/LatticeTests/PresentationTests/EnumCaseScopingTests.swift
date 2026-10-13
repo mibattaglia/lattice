@@ -44,7 +44,7 @@ private struct PhaseDomain: Equatable, Sendable {
 }
 
 private struct PhaseInteractor: Interactor, Sendable {
-    typealias DomainState = PhaseDomain
+    typealias State = PhaseDomain
     typealias Action = PhaseAction
     var body: some InteractorOf<Self> {
         Interact { state, action in

@@ -95,7 +95,7 @@ private final class ObservationChangeProbe: @unchecked Sendable {
 }
 
 private struct ObservationTestInteractor: Interactor, Sendable {
-    typealias DomainState = ObservationTestDomainState
+    typealias State = ObservationTestDomainState
     typealias Action = ObservationTestAction
 
     var body: some InteractorOf<Self> { self }

@@ -46,7 +46,7 @@ struct ViewModelReentrancyTests {
 }
 
 private struct CounterPhaseInteractor: Interactor, Sendable {
-    typealias DomainState = CounterPhaseDomainState
+    typealias State = CounterPhaseDomainState
     typealias Action = CounterPhaseAction
 
     var body: some InteractorOf<Self> { self }

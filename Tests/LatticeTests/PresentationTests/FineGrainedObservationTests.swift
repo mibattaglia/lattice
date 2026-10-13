@@ -31,7 +31,7 @@ private struct DashDomain: Equatable, Sendable { var count = 0; var title = "h";
 }
 
 private struct DashInteractor: Interactor, Sendable {
-    typealias DomainState = DashDomain
+    typealias State = DashDomain
     typealias Action = DashAction
     var body: some InteractorOf<Self> { self }
     func interact(state: inout DashDomain, action: DashAction) -> Emission<DashAction> {
@@ -109,7 +109,7 @@ private struct PhaseDomain: Equatable, Sendable { var loaded = false; var text =
 }
 
 private struct PhaseInteractor: Interactor, Sendable {
-    typealias DomainState = PhaseDomain
+    typealias State = PhaseDomain
     typealias Action = PhaseAction
     var body: some InteractorOf<Self> { self }
     func interact(state: inout PhaseDomain, action: PhaseAction) -> Emission<PhaseAction> {

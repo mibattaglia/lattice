@@ -138,8 +138,6 @@ private actor Counter {
 }
 
 private struct EffectInteractor: Interactor, Sendable {
-    typealias DomainState = State
-
     struct State: Equatable, Sendable {
         var triggerCount: Int = 0
         var effectResult: Int = 0

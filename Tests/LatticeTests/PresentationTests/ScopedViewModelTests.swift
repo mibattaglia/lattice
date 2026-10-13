@@ -52,7 +52,7 @@ private struct AppDomain: Equatable, Sendable {
 }
 
 private struct AppInteractor: Interactor, Sendable {
-    typealias DomainState = AppDomain
+    typealias State = AppDomain
     typealias Action = AppAction
     var body: some InteractorOf<Self> {
         Interact { state, action in
