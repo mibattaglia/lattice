@@ -3,17 +3,10 @@ import Observation
 import OrderedCollections
 import SwiftUI
 
-@MainActor
-protocol _ViewModel {
-    associatedtype ViewState: FeatureState
-
-    var viewState: ViewState { get }
-}
-
-/// A generic class that binds a SwiftUI view to your domain/business logic.
+/// A generic class that binds a SwiftUI view to a feature's state and interactor.
 ///
-/// `ViewModel` connects a `Feature` to SwiftUI. Views send user events through
-/// ``sendViewEvent(_:)``, and render from ``viewState``.
+/// `ViewModel` connects a ``Feature`` to SwiftUI. Views send user events through
+/// ``sendViewEvent(_:)`` and read the state's view-facing projection, `State.ViewState`.
 ///
 /// ## Overview
 ///
@@ -22,29 +15,29 @@ protocol _ViewModel {
 /// 1. View calls `sendViewEvent(_:)` with user actions
 /// 2. The ``Interactor`` processes the action synchronously and returns an ``Emission``
 /// 3. State mutations are applied immediately
-/// 4. The ``ViewStateReducer`` transforms domain state to view state
-/// 5. Any async effects from the emission are spawned as tasks inside the originating root send scope
-/// 6. View observes `viewState` changes and re-renders
+/// 4. Any async effects from the emission are spawned as tasks inside the originating root send scope
+/// 5. Views re-render from the members they read
 ///
 /// ## Initialization
 ///
-/// Create a view model by providing the initial domain state and a `Feature`:
+/// Create a view model from the initial state and a `Feature`:
 ///
 /// ```swift
-/// let feature = Feature(
-///     interactor: CounterInteractor(),
-///     reducer: CounterViewStateReducer()
-/// )
 /// let viewModel = ViewModel(
-///     initialDomainState: CounterDomainState(count: 0),
-///     feature: feature
+///     initialState: CounterState(),
+///     feature: Feature(interactor: CounterInteractor())
 /// )
 /// ```
 ///
-/// ## Key Components
+/// ## Reading State
 ///
-/// - ``viewState``: Observable state used by SwiftUI rendering.
-/// - ``sendViewEvent(_:)``: Dispatches actions and returns an ``EventTask`` for any spawned effects.
+/// Views read through `State.ViewState`, the projection `@FeatureState` generates: `@Domain`
+/// members are absent from it, and every member read stays observation-tracked.
+///
+/// - Member reads (`viewModel.title`, `viewModel.badge.count`) are fine-grained: a view
+///   re-renders only when a member it read changes.
+/// - ``viewState`` is the coarse read: the value re-renders on wholesale replacement or an enum
+///   case change, while members read off it stay fine-grained.
 ///
 /// ## SwiftUI Integration
 ///
@@ -53,7 +46,7 @@ protocol _ViewModel {
 /// ```swift
 /// struct CounterView: View {
 ///     @State var viewModel = ViewModel(
-///         initialDomainState: CounterState(count: 0),
+///         initialState: CounterState(),
 ///         feature: Feature(interactor: CounterInteractor())
 ///     )
 ///
@@ -77,116 +70,50 @@ protocol _ViewModel {
 /// ```
 @dynamicMemberLookup
 @MainActor
-public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
+public final class ViewModel<F: FeatureProtocol>: Observable {
     public typealias Action = F.Action
-    public typealias DomainState = F.DomainState
-    public typealias ViewState = F.ViewState
+    public typealias State = F.State
 
-    private var domainState: DomainState
+    private var _state: State
     private var bufferedActions: Deque<BufferedAction<Action>> = []
     private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
     private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
     private var isSending = false
 
-    private var _viewState: ViewState
-
-    private let interactor: AnyInteractor<DomainState, Action>
-    private let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
-    private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
+    private let interactor: AnyInteractor<State, Action>
+    private let areStatesEqual: ((_ lhs: State, _ rhs: State) -> Bool)?
     private nonisolated let taskRegistry = EffectTaskRegistry()
     private nonisolated let cancellationRegistry = EffectCancellationRegistry()
 
     private let _$observationRegistrar = ObservationRegistrar()
 
-    /// Creates a ViewModel for a concrete feature.
+    /// Creates a view model for a concrete feature.
     ///
     /// - Parameters:
-    ///   - initialDomainState: The initial domain state value.
-    ///   - feature: The feature bundle containing interactor/reducer wiring.
-    public convenience init(
-        initialDomainState: DomainState,
-        feature: F
-    ) {
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: feature.makeInitialViewState(initialDomainState),
-            interactor: feature.interactor,
-            viewStateReducer: feature.viewStateReducer,
-            areStatesEqual: feature.areStatesEqual
-        )
+    ///   - initialState: The initial state value.
+    ///   - feature: The feature bundle containing the interactor and the state equality.
+    public init(initialState: State, feature: F) {
+        self._state = initialState
+        self.interactor = feature.interactor
+        self.areStatesEqual = feature.areStatesEqual
     }
 
-    init(
-        initialDomainState: DomainState,
-        initialViewState: @autoclosure () -> ViewState,
-        interactor: AnyInteractor<DomainState, Action>,
-        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    ) {
-        self.domainState = initialDomainState
-        self.interactor = interactor
-        self.viewStateReducer = viewStateReducer
-        self.areStatesEqual = areStatesEqual
+    /// Whole projection. The value itself is coarse: re-renders on wholesale replacement or enum
+    /// case change. Members read off it stay fine-grained (the copy shares every registrar), so
+    /// `switch viewModel.viewState { case .loaded(let l): Text(l.title) }` re-renders on case
+    /// changes and on `title` changes only.
+    public var viewState: State.ViewState { State.ViewState(state) }
 
-        var viewState = initialViewState()
-        viewStateReducer.reduce(initialDomainState, into: &viewState)
-        self._viewState = viewState
+    /// Member read with fine-grained observation; also registers the root, so struct states never
+    /// need `viewState` for observation.
+    public subscript<V>(dynamicMember keyPath: KeyPath<State.ViewState, V>) -> V {
+        State.ViewState(state)[keyPath: keyPath]
     }
 
-    convenience init<I, R>(
-        initialDomainState: DomainState,
-        interactor: I,
-        viewStateReducer: R,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.State == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
-        let initialViewState = viewStateReducer.initialViewState(for: initialDomainState)
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: initialViewState,
-            interactor: interactor.eraseToAnyInteractor(),
-            viewStateReducer: viewStateReducer.eraseToAnyReducer(),
-            areStatesEqual: areStatesEqual
-        )
-    }
-
-    init(
-        initialState: ViewState,
-        interactor: AnyInteractor<ViewState, Action>,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
-    ) where DomainState == ViewState {
-        self.domainState = initialState
-        self.interactor = interactor
-        self.viewStateReducer = BuildViewState<ViewState, ViewState> { domainState, viewState in
-            viewState = domainState
-        }.eraseToAnyReducer()
-        self._viewState = initialState
-        self.areStatesEqual = areStatesEqual
-    }
-
-    public private(set) var viewState: ViewState {
-        get {
-            _$observationRegistrar.access(self, keyPath: \.viewState)
-            return _viewState
-        }
-        set {
-            if _viewState._$id == newValue._$id {
-                _viewState = newValue
-            } else {
-                _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {
-                    _viewState = newValue
-                }
-            }
-        }
-    }
-
-    public subscript<Value>(dynamicMember keyPath: KeyPath<ViewState, Value>) -> Value {
-        self.viewState[keyPath: keyPath]
+    /// Raw state. Internal: `TestViewModel`, `ScopedViewModel` and bindings live in this module.
+    var state: State {
+        _$observationRegistrar.access(self, keyPath: \.state)
+        return _state
     }
 
     /// Sends an action to the interactor and returns a handle for the root send scope.
@@ -240,7 +167,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
             rootScope.bufferedActionCount -= 1
             rootScopes[bufferedAction.rootScopeID] = rootScope
 
-            var workingState = domainState
+            var workingState = _state
             let transition = ActionTransition.apply(
                 bufferedAction.action,
                 source: bufferedAction.source,
@@ -249,7 +176,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
                 using: interactor
             )
 
-            commitProductionTransition(transition)
+            commit(transition)
             spawnEffects(
                 from: transition.emission,
                 rootScopeID: bufferedAction.rootScopeID
@@ -258,32 +185,23 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         }
     }
 
-    private func commitProductionTransition(
-        _ transition: ActionTransition<DomainState, Action>
-    ) {
-        domainState = transition.currentState
-
-        let shouldReduceViewState =
-            transition.source == .emitted
-            || !areStatesEqual(transition.previousState, transition.currentState)
-
-        guard shouldReduceViewState else { return }
-
-        // The reducer must never run while a formal access on `_viewState` is open: an
-        // `@FeatureState` field mutation fires `willSet` to synchronous observers (e.g. SwiftUI
-        // body re-evaluation) mid-reduce, and if one re-reads `viewState` the getter opens a
-        // conflicting read against an open write — a Swift exclusivity trap
-        // (see `ViewModelReentrancyTests`). Reducing into a local working copy avoids the
-        // trap: `@FeatureState` registrars are reference types, so the copy shares the same
-        // registrar tree and per-field notifications/identity are unaffected. The coarse
-        // `\.viewState` fire stays gated on a root `_$id` change and moves after the single commit
-        // store, preserving today's ordering.
-        var workingViewState = _viewState
-        viewStateReducer.reduce(transition.currentState, into: &workingViewState)
-        let oldID = _viewState._$id
-        _viewState = workingViewState
-        if _viewState._$id != oldID {
-            _$observationRegistrar.withMutation(of: self, keyPath: \.viewState) {}
+    /// Stores the state an action produced.
+    ///
+    /// The interactor mutated a working copy whose registrars are shared with `_state`, so
+    /// per-member notifications already fired during `interact(state:action:)`, and an observer
+    /// that re-read this view model synchronously saw the previous committed value. Only a
+    /// wholesale replacement (a new root `_$id`) fires the coarse `\.state` key path.
+    private func commit(_ transition: ActionTransition<State, Action>) {
+        let newState = transition.currentState
+        let isReplacement = newState._$id != _state._$id
+        if isReplacement, let areStatesEqual, areStatesEqual(_state, newState) {
+            // Content-equal wholesale replacement: keep the current value so its registrar tree —
+            // and every observer registered on it — survives. Nothing changed for the view.
+            return
+        }
+        _state = newState
+        if isReplacement {
+            _$observationRegistrar.withMutation(of: self, keyPath: \.state) {}
         }
     }
 
@@ -381,56 +299,5 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     private func pruneRootScopeIfQuiescent(_ rootScopeID: SendScopeID) {
         guard rootScopes[rootScopeID]?.isQuiescent == true else { return }
         rootScopes[rootScopeID] = nil
-    }
-}
-
-extension ViewModel where DomainState: Equatable {
-    convenience init(
-        initialDomainState: DomainState,
-        initialViewState: @autoclosure () -> ViewState,
-        interactor: AnyInteractor<DomainState, Action>,
-        viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
-    ) {
-        self.init(
-            initialDomainState: initialDomainState,
-            initialViewState: initialViewState(),
-            interactor: interactor,
-            viewStateReducer: viewStateReducer,
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
-    }
-
-    convenience init<I, R>(
-        initialDomainState: DomainState,
-        interactor: I,
-        viewStateReducer: R
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.State == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
-        self.init(
-            initialDomainState: initialDomainState,
-            interactor: interactor,
-            viewStateReducer: viewStateReducer,
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
-    }
-
-    convenience init(
-        initialState: ViewState,
-        interactor: AnyInteractor<ViewState, Action>
-    ) where DomainState == ViewState {
-        self.init(
-            initialDomainState: initialState,
-            initialViewState: initialState,
-            interactor: interactor,
-            viewStateReducer: BuildViewState<ViewState, ViewState> { domainState, viewState in
-                viewState = domainState
-            }.eraseToAnyReducer(),
-            areStatesEqual: { lhs, rhs in lhs == rhs }
-        )
     }
 }
