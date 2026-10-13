@@ -5,7 +5,8 @@ import PackageDescription
 let package = Package(
     name: "SearchExamplePackage",
     platforms: [
-        .iOS(.v26)
+        .iOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "SearchExample", targets: ["SearchExample"])
