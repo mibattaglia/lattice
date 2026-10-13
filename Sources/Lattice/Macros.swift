@@ -31,37 +31,6 @@ import Observation
 @attached(extension, conformances: Interactor)
 public macro Interactor<State, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
 
-/// Generates conformance to the ``ViewStateReducer`` protocol.
-///
-/// Apply this macro to a struct to make it a view state reducer:
-///
-/// ```swift
-/// @ViewStateReducer<CounterDomainState, CounterViewState>
-/// struct CounterViewStateReducer: Sendable {
-///     var body: some ViewStateReducerOf<Self> {
-///         BuildViewState { domainState in
-///             CounterViewState(count: domainState.count)
-///         }
-///     }
-/// }
-/// ```
-///
-/// The macro generates:
-/// - `typealias DomainState`
-/// - `typealias ViewState`
-/// - Protocol conformance to `ViewStateReducer`
-@attached(
-    member,
-    names:
-        named(body),
-    named(initialViewState),
-    named(DomainState),
-    named(ViewState)
-)
-@attached(memberAttribute)
-@attached(extension, conformances: ViewStateReducer)
-public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
-
 /// Makes a struct or enum a feature's state: every stored member is observation-tracked, and a
 /// nested `ViewState` projection exposes the members views may read.
 ///
