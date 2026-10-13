@@ -2,9 +2,7 @@ import Foundation
 import Lattice
 import SwiftUI
 
-typealias FineGrainedViewModel = ViewModel<
-    Feature<FineGrainedEvent, FineGrainedDomainState, FineGrainedViewState>
->
+typealias FineGrainedViewModel = ViewModel<Feature<FineGrainedEvent, FineGrainedState>>
 
 struct FineGrainedView: View {
     let viewModel: FineGrainedViewModel
@@ -53,7 +51,7 @@ struct HeaderView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            Text(viewModel.header.title)  // reads only header.title
+            Text(viewModel.title)  // reads only title
                 .font(.title2)
             Text("HeaderView renders: \(renders.count)")
                 .font(.caption)
@@ -73,7 +71,7 @@ struct FooterView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            Text("Count: \(viewModel.footer.count)")  // reads only footer.count
+            Text("Count: \(viewModel.count)")  // reads only count
                 .font(.title2)
             Text("FooterView renders: \(renders.count)")
                 .font(.caption)
@@ -93,8 +91,8 @@ struct PhaseView: View {
     var body: some View {
         renders.count += 1
         return VStack(alignment: .leading) {
-            // Switching over the enum slice registers `\.phase`; only a case change
-            // (idle <-> active) re-renders this switch.
+            // Reading the computed `phase` registers the domain-only `phaseActive` it derives
+            // from; only a toggle (idle <-> active) re-renders this switch.
             switch viewModel.phase {
             case .idle:
                 Text("Phase: idle")

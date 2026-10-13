@@ -17,11 +17,8 @@ private final class ChangeProbe: @unchecked Sendable {
 struct FineGrainedExampleTests {
     private func makeViewModel() -> FineGrainedViewModel {
         ViewModel(
-            initialDomainState: FineGrainedDomainState(),
-            feature: Feature(
-                interactor: FineGrainedInteractor(),
-                reducer: FineGrainedViewStateReducer()
-            )
+            initialState: FineGrainedState(),
+            feature: Feature(interactor: FineGrainedInteractor())
         )
     }
 
@@ -29,22 +26,22 @@ struct FineGrainedExampleTests {
     func bumpingCountDoesNotInvalidateHeader() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.header.title } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.title } onChange: { probe.mark() }
 
         viewModel.sendViewEvent(.bumpCount)
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.footer.count == 1)
+        #expect(viewModel.viewState.count == 1)
     }
 
     @Test
     func changingTitleDoesNotInvalidateFooter() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.footer.count } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.count } onChange: { probe.mark() }
 
         viewModel.sendViewEvent(.setTitle("Updated"))
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.header.title == "Updated")
+        #expect(viewModel.viewState.title == "Updated")
     }
 
     @Test
