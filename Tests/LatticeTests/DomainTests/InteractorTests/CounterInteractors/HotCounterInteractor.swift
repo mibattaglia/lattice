@@ -4,6 +4,7 @@ import Foundation
 @testable import Lattice
 
 struct HotCounterInteractor: Interactor {
+    @FeatureState
     struct State: Equatable, Sendable {
         var count: Int
     }

@@ -1,7 +1,9 @@
+import Observation
 import Testing
 
 @testable import Lattice
 
+@FeatureState
 struct CounterState: Equatable, Sendable {
     var count: Int
 }

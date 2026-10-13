@@ -7,6 +7,9 @@ import Testing
 @FeatureState private struct Child: Equatable { var value: String; var leaf: Leaf }
 @FeatureState private struct Parent: Equatable { var title: String; var child: Child }
 
+/// §6 "Content-equal child rebuild `state.badge = BadgeState(same)`": silent; child `_$id`
+/// preserved. These run on the state value itself; `ViewModelObservationTests` runs the same rows
+/// through a `ViewModel`.
 @Suite struct ObservableStateAssignmentTests {
     @Test func contentEqualRebuildPreservesNestedIdentity() {
         var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
@@ -51,6 +54,21 @@ import Testing
         nonisolated(unsafe) var fired = false
         withObservationTracking { _ = a.child.leaf.n } onChange: { fired = true }
         a.child = Child(value: "x", leaf: Leaf(n: 2))
+        #expect(fired)
+    }
+
+    // A `ViewState` is a copy that shares the state's registrars, so reads through it are
+    // notified exactly like reads on the state.
+    @Test func projectionReadsShareTheStateRegistrars() {
+        var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
+        let viewState = Parent.ViewState(a)
+        nonisolated(unsafe) var fired = false
+        withObservationTracking { _ = viewState.child.leaf.n } onChange: { fired = true }
+
+        a.child = Child(value: "x", leaf: Leaf(n: 1))  // content-equal rebuild
+        #expect(!fired)
+
+        a.child.leaf.n = 2
         #expect(fired)
     }
 }

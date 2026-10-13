@@ -56,7 +56,7 @@ struct TestViewModelAppendTests {
         let task = await model.send(.runSequence)
         await task.finish()
 
-        #expect(model.domainState.log.isEmpty)
+        #expect(model.state.log.isEmpty)
 
         await model.receive(.logged("first")) {
             $0.log = ["first"]
@@ -80,9 +80,9 @@ struct TestViewModelAppendTests {
         await task.cancel()
     }
 
-    private func makeModel() -> TestViewModel<Feature<AppendAction, AppendState, AppendState>> {
+    private func makeModel() -> TestViewModel<Feature<AppendAction, AppendState>> {
         TestViewModel(
-            initialDomainState: AppendState(),
+            initialState: AppendState(),
             feature: Feature(interactor: AppendSequenceInteractor())
         )
     }

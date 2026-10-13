@@ -1,16 +1,11 @@
 import CasePaths
 import Foundation
+import IdentifiedCollections
 import Observation
+import SwiftUI
 import Testing
 
 @testable import Lattice
-
-private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
-}
 
 @FeatureState private struct BadgeState: Equatable, Sendable {
     var count: Int
@@ -19,21 +14,34 @@ private final class ChangeProbe: @unchecked Sendable {
 @FeatureState private struct HeaderState: Equatable, Sendable {
     var title: String
     var badge: BadgeState
+    @Domain var refreshCount = 0
+    var refreshText: String { refreshCount == 0 ? "Never refreshed" : "Refreshed \(refreshCount)x" }
 }
 
-@FeatureState private struct AppViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self(
-        header: HeaderState(title: "h", badge: BadgeState(count: 0)),
-        footer: "f"
-    )
-    var header: HeaderState
-    var footer: String
+@FeatureState private struct RowState: Equatable, Identifiable, Sendable {
+    let id: Int
+    var title: String
+    var count = 0
+
+    mutating func apply(_ action: RowAction) {
+        switch action {
+        case .titleChanged(let title): self.title = title
+        case .incremented: count += 1
+        }
+    }
 }
 
-private struct AppDomain: Equatable, Sendable {
-    var title = "h"
-    var badge = 0
+@FeatureState private struct ListState: Equatable, Sendable {
+    var rows: [RowState] = [RowState(id: 1, title: "one"), RowState(id: 2, title: "two")]
+    var idRows: IdentifiedArrayOf<RowState> = [RowState(id: 1, title: "one"), RowState(id: 2, title: "two")]
+    var selection: RowState?
+}
+
+@FeatureState private struct AppState: Equatable, Sendable {
+    var header = HeaderState(title: "h", badge: BadgeState(count: 0))
     var footer = "f"
+    var detail: HeaderState?
+    var list = ListState()
 }
 
 @CasePathable private enum BadgeAction: Sendable {
@@ -44,64 +52,114 @@ private struct AppDomain: Equatable, Sendable {
     case titleChanged(String)
     case badge(BadgeAction)
     case refreshTapped
+    case rebuilt(String)  // replaces the header wholesale
+}
+
+@CasePathable private enum RowAction: Sendable {
+    case titleChanged(String)
+    case incremented
+}
+
+@CasePathable private enum ListAction: Sendable {
+    case row(RowState.ID, RowAction)
+    case idRow(RowState.ID, RowAction)
+    case selection(RowAction)
+    case select(RowState.ID?)
+    case insertAtFront
+    case remove(RowState.ID)
 }
 
 @CasePathable private enum AppAction: Sendable {
     case header(HeaderAction)
+    case detail(HeaderAction)
+    case list(ListAction)
     case setFooter(String)
+    case showDetail
+    case hideDetail
 }
 
-private struct AppInteractor: Interactor, Sendable {
-    typealias State = AppDomain
-    typealias Action = AppAction
+@Interactor<HeaderState, HeaderAction>
+private struct HeaderInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
-            case .header(.titleChanged(let t)): state.title = t
-            case .header(.badge(.incremented)): state.badge += 1
-            case .header(.refreshTapped):
+            case .titleChanged(let title): state.title = title
+            case .badge(.incremented): state.badge.count += 1
+            case .refreshTapped:
+                state.refreshCount += 1
                 // Async effect: exercises EventTask propagation through the scope.
-                return .perform { .header(.badge(.incremented)) }
-            case .setFooter(let f): state.footer = f
+                return .perform { .badge(.incremented) }
+            case .rebuilt(let title):
+                state = HeaderState(title: title, badge: BadgeState(count: state.badge.count))
             }
             return .none
         }
     }
 }
 
-private struct AppReducer: ViewStateReducer, Sendable {
-    typealias DomainState = AppDomain
-    typealias ViewState = AppViewState
-    // AppViewState: DefaultValueProvider supplies the initial view state.
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState<AppDomain, AppViewState> { s, v in
-            v.header.title = s.title  // in-place
-            v.header.badge.count = s.badge  // in-place
-            v.footer = s.footer
+@Interactor<ListState, ListAction>
+private struct ListInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .row(let id, let action):
+                guard let index = state.rows.firstIndex(where: { $0.id == id }) else { break }
+                state.rows[index].apply(action)
+            case .idRow(let id, let action):
+                state.idRows[id: id]?.apply(action)
+            case .selection(let action):
+                state.selection?.apply(action)
+            case .select(let id):
+                state.selection = id.flatMap { id in state.rows.first { $0.id == id } }
+            case .insertAtFront:
+                state.rows.insert(RowState(id: 0, title: "zero"), at: 0)
+                state.idRows.insert(RowState(id: 0, title: "zero"), at: 0)
+            case .remove(let id):
+                state.rows.removeAll { $0.id == id }
+                state.idRows.remove(id: id)
+            }
+            return .none
         }
     }
 }
 
-/// Rebuilds the header slice wholesale on every reduce, for the coarse-read tests.
-private struct WholesaleAppReducer: ViewStateReducer, Sendable {
-    typealias DomainState = AppDomain
-    typealias ViewState = AppViewState
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState<AppDomain, AppViewState> { s, v in
-            v.header = HeaderState(title: s.title, badge: BadgeState(count: s.badge))  // wholesale
-            v.footer = s.footer
+@Interactor<AppState, AppAction>
+private struct AppInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interactors.When(state: \.header, action: \.header) {
+            HeaderInteractor()
+        }
+        Interactors.When(state: \.list, action: \.list) {
+            ListInteractor()
+        }
+        Interact { state, action in
+            switch action {
+            case .detail(.titleChanged(let title)): state.detail?.title = title
+            case .setFooter(let footer): state.footer = footer
+            case .showDetail: state.detail = HeaderState(title: "d", badge: BadgeState(count: 0))
+            case .hideDetail: state.detail = nil
+            case .header, .detail, .list: break
+            }
+            return .none
         }
     }
+}
+
+private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Element.ID] {
+    elements.map(\.id)
 }
 
 @MainActor
 @Suite struct ScopedViewModelTests {
-    private func makeViewModel() -> ViewModel<Feature<AppAction, AppDomain, AppViewState>> {
-        ViewModel(
-            initialDomainState: AppDomain(),
-            feature: Feature(interactor: AppInteractor(), reducer: AppReducer())
-        )
+    private func makeViewModel() -> ViewModel<Feature<AppAction, AppState>> {
+        ViewModel(initialState: AppState(), feature: Feature(interactor: AppInteractor()))
     }
+
+    private func makeListViewModel() -> ViewModel<Feature<ListAction, ListState>> {
+        ViewModel(initialState: ListState(), feature: Feature(interactor: ListInteractor()))
+    }
+
+    // MARK: Child
 
     @Test func scopedReadReflectsParentState() {
         let vm = makeViewModel()
@@ -126,53 +184,57 @@ private struct WholesaleAppReducer: ViewStateReducer, Sendable {
         #expect(vm.viewState.header.badge.count == 1)
     }
 
+    @Test func scopedComputedMemberReadsDomainMember() {
+        let vm = makeViewModel()
+        let header = vm.scope(state: \.header, action: \.header)
+        let refreshText = ObservationProbe { _ = header.refreshText }
+
+        header.sendViewEvent(.refreshTapped)
+        #expect(refreshText.didFire)
+        #expect(header.refreshText == "Refreshed 1x")
+    }
+
     @Test func scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate() {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.mark() }
+        let title = ObservationProbe { _ = header.title }
 
         vm.sendViewEvent(.setFooter("f2"))  // footer change
-        #expect(!probe.didChange)  // header scope not invalidated
+        #expect(!title.didFire)  // header scope not invalidated
     }
 
     @Test func scopedReadInvalidatesOnSliceChange() {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.mark() }
+        let title = ObservationProbe { _ = header.title }
 
         header.sendViewEvent(.titleChanged("new"))
-        #expect(probe.didChange)
+        #expect(title.didFire)
     }
 
     @Test func wholeSliceReadIsCoarse_inPlaceLeafMutationDoesNotInvalidate() {
-        let vm = makeViewModel()  // in-place reducer
+        let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.viewState } onChange: { probe.mark() }
+        let coarse = ObservationProbe { _ = header.viewState }
 
         header.sendViewEvent(.titleChanged("new"))  // in-place leaf mutation
-        #expect(!probe.didChange)  // container identity unchanged
+        #expect(!coarse.didFire)  // the path to the header is unchanged
         #expect(header.title == "new")  // reads still see the live value
     }
 
     @Test func wholeSliceReadInvalidatesOnWholesaleReplacement() {
-        let vm = ViewModel(
-            initialDomainState: AppDomain(),
-            feature: Feature(interactor: AppInteractor(), reducer: WholesaleAppReducer())
-        )
+        let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.viewState } onChange: { probe.mark() }
+        let coarse = ObservationProbe { _ = header.viewState }
 
-        header.sendViewEvent(.titleChanged("new"))  // reducer rebuilds header wholesale
-        #expect(probe.didChange)
+        header.sendViewEvent(.rebuilt("new"))  // the interactor rebuilds the header wholesale
+        #expect(coarse.didFire)
+        #expect(header.viewState.title == "new")
     }
 
     @Test func nestedScopeComposes() {
         let vm = makeViewModel()
-        // App > header > badge: chained scope onto a nested @FeatureState slice.
+        // App > header > badge: chained scope onto a nested @FeatureState child.
         let badge = vm.scope(state: \.header, action: \.header)
             .scope(state: \.badge, action: \.badge)
         #expect(badge.count == 0)
@@ -225,5 +287,108 @@ private struct WholesaleAppReducer: ViewStateReducer, Sendable {
 
         erasedChildCallback("not a HeaderAction")  // consumer's cast drops it
         #expect(vm.viewState.header.title == "viaAny")
+    }
+
+    // MARK: Optional child
+
+    @Test func optionalChildScopeIsNilWhileAbsentAndLiveWhilePresent() throws {
+        let vm = makeViewModel()
+        #expect(vm.scope(state: \.detail, action: \.detail) == nil)
+
+        vm.sendViewEvent(.showDetail)
+        let detail = try #require(vm.scope(state: \.detail, action: \.detail))
+        let title = ObservationProbe { _ = detail.title }
+
+        detail.sendViewEvent(.titleChanged("dd"))
+        #expect(title.didFire)
+        #expect(detail.title == "dd")
+        #expect(vm.detail?.title == "dd")
+    }
+
+    @Test func optionalChildScopeServesItsSnapshotAfterRemoval() throws {
+        let vm = makeViewModel()
+        vm.sendViewEvent(.showDetail)
+        let detail = try #require(vm.scope(state: \.detail, action: \.detail))
+
+        vm.sendViewEvent(.hideDetail)  // the scope is now stale
+        #expect(detail.title == "d")  // creation snapshot, no trap/crash
+    }
+
+    // MARK: Collections
+
+    @Test func arrayCollectionScopesReFindTheirElementByID() {
+        let vm = makeListViewModel()
+        let rows = vm.scope(state: \.rows, action: \.row)
+        #expect(rows.map(\.id) == [1, 2])
+
+        rows[1].sendViewEvent(.incremented)
+        #expect(rows[1].count == 1)
+        #expect(vm.rows[1].count == 1)
+
+        vm.sendViewEvent(.insertAtFront)  // shifts positions; each scope follows its id
+        #expect(rows[1].id == 2)
+        #expect(rows[1].count == 1)
+        rows[1].sendViewEvent(.titleChanged("deux"))
+        #expect(vm.rows[2].title == "deux")
+    }
+
+    @Test func identifiedArrayCollectionScopesReFindTheirElementByID() {
+        let vm = makeListViewModel()
+        let rows = vm.scope(state: \.idRows, action: \.idRow)
+        #expect(rows.map(\.id) == [1, 2])
+
+        let second = ObservationProbe { _ = rows[1].title }
+        let first = ObservationProbe { _ = rows[0].title }
+        rows[1].sendViewEvent(.titleChanged("deux"))
+        #expect(second.didFire)
+        #expect(!first.didFire)
+
+        vm.sendViewEvent(.insertAtFront)
+        #expect(rows[1].title == "deux")
+        #expect(vm.idRows[id: 2]?.title == "deux")
+    }
+
+    @Test func collectionScopesAreIdentifiableForForEach() {
+        let vm = makeListViewModel()
+        let rows = vm.scope(state: \.idRows, action: \.idRow)
+
+        #expect(identifiers(of: rows) == [1, 2])
+        _ = ForEach(rows) { row in Text(row.title) }
+    }
+
+    @Test func collectionScopeServesItsSnapshotAfterTheElementIsRemoved() {
+        let vm = makeListViewModel()
+        let arrayRows = vm.scope(state: \.rows, action: \.row)
+        let identifiedRows = vm.scope(state: \.idRows, action: \.idRow)
+
+        vm.sendViewEvent(.remove(1))
+        #expect(vm.rows.map(\.id) == [2])
+        #expect(arrayRows[0].title == "one")  // creation snapshot, no trap/crash
+        #expect(identifiedRows[0].title == "one")
+    }
+
+    // MARK: Overloads on ScopedViewModel
+
+    @Test func scopedViewModelScopesIntoCollectionsOptionalsAndClosures() throws {
+        let vm = makeViewModel()
+        let list = vm.scope(state: \.list, action: \.list)
+
+        let rows = list.scope(state: \.rows, action: \.row)
+        rows[0].sendViewEvent(.incremented)
+        #expect(vm.list.rows[0].count == 1)
+
+        let identifiedRows = list.scope(state: \.idRows, action: \.idRow)
+        identifiedRows[1].sendViewEvent(.titleChanged("deux"))
+        #expect(vm.list.idRows[id: 2]?.title == "deux")
+
+        #expect(list.scope(state: \.selection, action: \.selection) == nil)
+        list.sendViewEvent(.select(2))
+        let selection = try #require(list.scope(state: \.selection, action: \.selection))
+        selection.sendViewEvent(.incremented)
+        #expect(vm.list.selection?.count == 1)
+
+        let header = vm.scope(state: \.header, action: \.header)
+        header.scope(state: \.badge, action: { HeaderAction.badge($0) }).sendViewEvent(.incremented)
+        #expect(header.scope(state: \.badge).count == 1)
     }
 }

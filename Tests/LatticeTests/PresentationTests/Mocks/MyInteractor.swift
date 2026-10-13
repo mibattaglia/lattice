@@ -8,22 +8,22 @@ enum MyEvent: Equatable {
     case fetchDataCompleted(Int)
 }
 
-@Interactor<MyDomainState, MyEvent>
+@Interactor<MyScreenState, MyEvent>
 struct MyInteractor: Interactor {
     let dateFactory: @Sendable () -> Date
 
     var body: some InteractorOf<Self> {
-        Interact { domainState, event in
+        Interact { state, event in
             switch event {
             case .incrementCount:
-                domainState.modify(\.success) { content in
+                state.modify(\.success) { content in
                     content.count += 1
                     content.timestamp = dateFactory().timeIntervalSince1970
                 }
                 return .none
             case .load:
-                domainState = MyDomainState.success(
-                    .init(
+                state = .success(
+                    MyContentState(
                         count: 0,
                         timestamp: dateFactory().timeIntervalSince1970,
                         isLoading: false
@@ -32,7 +32,7 @@ struct MyInteractor: Interactor {
                 return .none
 
             case .fetchData:
-                domainState.modify(\.success) { content in
+                state.modify(\.success) { content in
                     content.isLoading = true
                 }
                 return .perform {
@@ -41,7 +41,7 @@ struct MyInteractor: Interactor {
                 }
 
             case .fetchDataCompleted(let count):
-                domainState.modify(\.success) { content in
+                state.modify(\.success) { content in
                     content.isLoading = false
                     content.count = count
                 }

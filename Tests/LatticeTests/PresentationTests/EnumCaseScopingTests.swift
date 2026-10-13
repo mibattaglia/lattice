@@ -5,23 +5,9 @@ import Testing
 
 @testable import Lattice
 
-private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
-}
-
-@FeatureState struct SuccessViewState: Equatable, Sendable {
+@FeatureState struct SuccessState: Equatable, Sendable {
     var title: String
     var count: Int
-}
-
-private struct PhaseDomain: Equatable, Sendable {
-    var isLoaded = false
-    var title = "t"
-    var count = 0
-    var tick = 0
 }
 
 @CasePathable private enum SuccessAction: Sendable {
@@ -36,79 +22,137 @@ private struct PhaseDomain: Equatable, Sendable {
     case success(SuccessAction)
 }
 
-private struct PhaseInteractor: Interactor, Sendable {
-    typealias State = PhaseDomain
-    typealias Action = PhaseAction
+@Interactor<SuccessState, SuccessAction>
+private struct SuccessInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
-            case .load: state.isLoaded = true
-            case .reset: state.isLoaded = false
-            case .tick: state.tick += 1
-            case .success(let action):
-                // Late sends after the case deactivated are dropped here, by design.
-                guard state.isLoaded else { return .none }
-                switch action {
-                case .titleChanged(let t): state.title = t
-                case .incremented: state.count += 1
-                }
+            case .titleChanged(let title): state.title = title
+            case .incremented: state.count += 1
             }
             return .none
         }
     }
 }
 
-/// Fine-grained regime: transitions rebuild the case; steady-state updates mutate the payload
-/// in place through the case.
-private struct PhaseReducer: ViewStateReducer, Sendable {
-    typealias DomainState = PhaseDomain
-    typealias ViewState = PhaseViewState
-    // PhaseViewState: DefaultValueProvider supplies the initial view state.
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState<PhaseDomain, PhaseViewState> { s, v in
-            guard s.isLoaded else {
-                v = .loading
-                return
+/// Transitions replace the case; steady-state updates mutate the payload in place through
+/// `Interactors.When`'s case path, which also drops payload actions while the case is inactive.
+@Interactor<PhaseState, PhaseAction>
+private struct PhaseInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interactors.When(state: \.success, action: \.success) {
+            SuccessInteractor()
+        }
+        Interact { state, action in
+            switch action {
+            case .load: state = .success(SuccessState(title: "t", count: 0))
+            case .reset: state = .loading
+            case .tick:
+                // Reassigns the payload-less case the state is already in.
+                if case .loading = state { state = .loading }
+            case .success: break
             }
-            if v.is(\.success) {
-                v.modify(\.success) {  // in-place: payload registrar fires leaves only
-                    $0.title = s.title
-                    $0.count = s.count
-                }
-            } else {
-                v = .success(SuccessViewState(title: s.title, count: s.count))  // case transition
-            }
+            return .none
+        }
+    }
+}
+
+/// A struct state holding the enum, for enum scoping through a `ScopedViewModel`.
+@FeatureState private struct PhaseHostState: Equatable, Sendable {
+    var phase: PhaseState = .loading
+}
+
+@CasePathable private enum PhaseHostAction: Sendable {
+    case phase(PhaseAction)
+}
+
+@Interactor<PhaseHostState, PhaseHostAction>
+private struct PhaseHostInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interactors.When(state: \.phase, action: \.phase) {
+            PhaseInteractor()
         }
     }
 }
 
 @MainActor
 @Suite struct EnumCaseScopingTests {
-    private func makeViewModel() -> ViewModel<Feature<PhaseAction, PhaseDomain, PhaseViewState>> {
+    private func makeViewModel(
+        areStatesEqual: ((PhaseState, PhaseState) -> Bool)? = { $0 == $1 }
+    ) -> ViewModel<Feature<PhaseAction, PhaseState>> {
         ViewModel(
-            initialDomainState: PhaseDomain(),
-            feature: Feature(interactor: PhaseInteractor(), reducer: PhaseReducer())
+            initialState: .loading,
+            feature: Feature(interactor: PhaseInteractor(), areStatesEqual: areStatesEqual)
         )
     }
 
-    // MARK: Prerequisite fix (_$inert)
+    // MARK: Root observation
 
-    @Test func payloadlessCaseIsStable_unrelatedReduceDoesNotFireCoarse() {
-        let vm = makeViewModel()  // .loading
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
+    // A payload-less case has a stable identity, so reassigning it is not a replacement even
+    // without state equality to swallow it.
+    @Test func payloadlessCaseReassignmentDoesNotFireCoarse() {
+        let vm = makeViewModel(areStatesEqual: nil)  // .loading
+        let rootID = vm.state._$id
+        let root = ObservationProbe { _ = vm.viewState }
 
-        vm.sendViewEvent(.tick)  // domain changes; view state stays .loading
-        #expect(!probe.didChange)  // fails before the _$inert fix
+        vm.sendViewEvent(.tick)
+        #expect(!root.didFire)
+        #expect(vm.state._$id == rootID)
     }
 
-    @Test func caseChangeStillFiresCoarse() {
+    // §6 "Enum case switch / payload edit through When's case path": root fires / leaf-only,
+    // root `_$id` unchanged.
+
+    @Test func enumCaseSwitchFiresRoot() {
         let vm = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { probe.mark() }
+        let root = ObservationProbe { _ = vm.viewState }
 
         vm.sendViewEvent(.load)  // .loading -> .success
-        #expect(probe.didChange)
+        #expect(root.didFire)
+        #expect(vm.viewState[case: \.success]?.title == "t")
+    }
+
+    @Test func payloadEditThroughWhenCasePathIsLeafOnlyAndKeepsRootID() {
+        let vm = makeViewModel()
+        vm.sendViewEvent(.load)
+        let rootID = vm.state._$id
+        let success = vm.scope(state: \.success, action: \.success)
+
+        let title = ObservationProbe { _ = success.title }
+        let count = ObservationProbe { _ = success.count }
+        let root = ObservationProbe { _ = vm.viewState }
+
+        success.sendViewEvent(.incremented)  // in place: only count changes
+        #expect(count.didFire)
+        #expect(!title.didFire)  // sibling leaf not invalidated
+        #expect(!root.didFire)  // switch not re-rendered
+        #expect(vm.state._$id == rootID)
+        #expect(success.count == 1)
+    }
+
+    // A `switch viewModel.viewState` re-renders on case changes and on the payload members it
+    // read, and on nothing else.
+    @Test func switchOverViewStateTracksTheCaseAndThePayloadMembersItRead() {
+        let vm = makeViewModel()
+        vm.sendViewEvent(.load)
+        let readTitle: @MainActor () -> Void = {
+            switch vm.viewState {
+            case .loading: break
+            case .success(let success): _ = success.title
+            }
+        }
+
+        let afterCount = ObservationProbe(readTitle)
+        vm.sendViewEvent(.success(.incremented))
+        #expect(!afterCount.didFire)
+
+        let afterTitle = ObservationProbe(readTitle)
+        vm.sendViewEvent(.success(.titleChanged("new")))
+        #expect(afterTitle.didFire)
+
+        let afterReset = ObservationProbe(readTitle)
+        vm.sendViewEvent(.reset)
+        #expect(afterReset.didFire)
     }
 
     // MARK: Case scoping
@@ -119,28 +163,16 @@ private struct PhaseReducer: ViewStateReducer, Sendable {
         let success = vm.scope(state: \.success, action: \.success)
         #expect(success.title == "t")
 
-        success.sendViewEvent(.titleChanged("new"))  // in-place reduce
+        success.sendViewEvent(.titleChanged("new"))  // in place
         #expect(success.title == "new")  // live re-extraction, not a snapshot
     }
 
     @Test func scopeIfActiveReturnsNilForInactiveCase() {
         let vm = makeViewModel()  // .loading
         #expect(vm.scopeIfActive(state: \.success, action: \.success) == nil)
-    }
 
-    @Test func inPlacePayloadMutationIsFineGrained() {
-        let vm = makeViewModel()
         vm.sendViewEvent(.load)
-        let success = vm.scope(state: \.success, action: \.success)
-
-        let titleProbe = ChangeProbe()
-        withObservationTracking { _ = success.title } onChange: { titleProbe.mark() }
-        let coarseProbe = ChangeProbe()
-        withObservationTracking { _ = vm.viewState } onChange: { coarseProbe.mark() }
-
-        success.sendViewEvent(.incremented)  // in-place: only count changes
-        #expect(!titleProbe.didChange)  // sibling leaf not invalidated
-        #expect(!coarseProbe.didChange)  // switch not re-rendered
+        #expect(vm.scopeIfActive(state: \.success, action: \.success)?.title == "t")
     }
 
     @Test func caseFlipServesCreationSnapshotWithoutCrashing() {
@@ -152,15 +184,16 @@ private struct PhaseReducer: ViewStateReducer, Sendable {
         #expect(success.title == "t")  // creation snapshot, no trap/crash
     }
 
-    @Test func lateSendAfterCaseFlipIsDroppedByInteractor() {
+    @Test func lateSendAfterCaseFlipIsDroppedByWhen() {
         let vm = makeViewModel()
         vm.sendViewEvent(.load)
         let success = vm.scope(state: \.success, action: \.success)
         vm.sendViewEvent(.reset)
 
         success.sendViewEvent(.incremented)  // arrives while .loading
+        #expect(vm.viewState == .loading)
         vm.sendViewEvent(.load)
-        #expect(vm.viewState[case: \.success]?.count == 0)  // guard dropped it
+        #expect(vm.viewState[case: \.success]?.count == 0)
     }
 
     @Test func bindingThroughCaseScope() {
@@ -171,5 +204,24 @@ private struct PhaseReducer: ViewStateReducer, Sendable {
         #expect(binding.wrappedValue == "t")
         binding.wrappedValue = "typed"
         #expect(binding.wrappedValue == "typed")
+    }
+
+    // MARK: Enum child of a scope
+
+    @Test func scopedEnumChildScopesIntoItsActiveCase() {
+        let vm = ViewModel(initialState: PhaseHostState(), feature: Feature(interactor: PhaseHostInteractor()))
+        let phase = vm.scope(state: \.phase, action: \.phase)
+        #expect(phase.scopeIfActive(state: \.success, action: \.success) == nil)
+
+        phase.sendViewEvent(.load)
+        let success = phase.scope(state: \.success, action: \.success)
+        let title = ObservationProbe { _ = success.title }
+        let coarse = ObservationProbe { _ = phase.viewState }
+
+        success.sendViewEvent(.titleChanged("nested"))
+        #expect(title.didFire)
+        #expect(!coarse.didFire)
+        #expect(phase.scopeIfActive(state: \.success, action: \.success)?.title == "nested")
+        #expect(vm.phase[case: \.success]?.title == "nested")
     }
 }

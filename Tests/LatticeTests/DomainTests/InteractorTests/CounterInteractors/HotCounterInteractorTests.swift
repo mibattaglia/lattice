@@ -10,7 +10,7 @@ final class HotCounterInteractorTests {
 
     @Test func asyncWork() async {
         let model = makeTestViewModel(
-            initialDomainState: HotCounterInteractor.State(count: 0),
+            initialState: HotCounterInteractor.State(count: 0),
             interactor: HotCounterInteractor()
         )
 
@@ -50,6 +50,6 @@ final class HotCounterInteractorTests {
         intPublisher.send(completion: .finished)
         await observeTask.finish()
 
-        #expect(model.domainState == .init(count: 5))
+        #expect(model.state == .init(count: 5))
     }
 }

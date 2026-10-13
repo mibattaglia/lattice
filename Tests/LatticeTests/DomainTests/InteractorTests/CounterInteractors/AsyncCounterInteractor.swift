@@ -2,6 +2,7 @@ import Foundation
 
 @testable import Lattice
 
+@FeatureState
 struct AsyncCounterState: Equatable, Sendable {
     var count: Int
 }

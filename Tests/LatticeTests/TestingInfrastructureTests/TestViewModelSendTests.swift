@@ -49,13 +49,13 @@ struct TestViewModelSendTests {
         }
 
         #expect(task.hasEffects)
-        #expect(model.domainState.count == 1)
+        #expect(model.state.count == 1)
 
         await model.receive(.loaded(41)) {
             $0.count = 42
         }
 
-        #expect(model.domainState.count == 42)
+        #expect(model.state.count == 42)
     }
 
     @Test
@@ -77,7 +77,7 @@ struct TestViewModelSendTests {
             $0.count = 42
         }
 
-        #expect(model.domainState.count == 42)
+        #expect(model.state.count == 42)
     }
 
     @Test
@@ -92,7 +92,7 @@ struct TestViewModelSendTests {
             $0.count = 42
         }
 
-        #expect(model.domainState.count == 42)
+        #expect(model.state.count == 42)
     }
 
     @Test
@@ -124,9 +124,9 @@ struct TestViewModelSendTests {
         await expectIssue(line: receiveLine, matching: matchesReceiveIssue) { await model.receive(.increment) }
     }
 
-    private func makeModel() -> TestViewModel<Feature<TestSendAction, TestSendState, TestSendState>> {
+    private func makeModel() -> TestViewModel<Feature<TestSendAction, TestSendState>> {
         TestViewModel(
-            initialDomainState: TestSendState(),
+            initialState: TestSendState(),
             feature: Feature(interactor: TestSendInteractor())
         )
     }

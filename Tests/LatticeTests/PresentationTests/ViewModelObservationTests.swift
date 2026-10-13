@@ -5,159 +5,206 @@ import Testing
 
 @testable import Lattice
 
-@MainActor
-@Suite
-struct ViewModelObservationTests {
-    @Test
-    func directAssignmentReducerInvalidatesPhaseObservation() {
-        let viewModel = makeViewModel(reducer: DirectAssignmentObservationTestReducer())
-        let changeProbe = ObservationChangeProbe()
-
-        withObservationTracking {
-            _ = viewModel.viewState.phase
-        } onChange: {
-            changeProbe.markChanged()
-        }
-
-        viewModel.sendViewEvent(.increment)
-
-        #expect(changeProbe.didChange)
-        #expect(viewModel.viewState.phase.active?.value == "1")
-    }
-
-    // Fine-grained observation: an in-place payload mutation (case unchanged) does NOT fire the
-    // coarse `\.phase` keyPath, so an observer that reads only the *whole* enum is not
-    // invalidated. Real views read the payload leaf (see
-    // `casePathMutationReducerInvalidatesNestedValueObservation`) and do re-render. This matches
-    // the documented precision model: in-place mutations flow through the nested registrar, not
-    // the parent keyPath.
-    @Test
-    func casePathMutationDoesNotInvalidateWholePhaseObservation() {
-        let viewModel = makeViewModel(reducer: CasePathMutationObservationTestReducer())
-        let changeProbe = ObservationChangeProbe()
-
-        withObservationTracking {
-            _ = viewModel.viewState.phase
-        } onChange: {
-            changeProbe.markChanged()
-        }
-
-        viewModel.sendViewEvent(.increment)
-
-        #expect(!changeProbe.didChange)
-        #expect(viewModel.viewState.phase.active?.value == "1")
-    }
-
-    @Test
-    func casePathMutationReducerInvalidatesNestedValueObservation() {
-        let viewModel = makeViewModel(reducer: CasePathMutationObservationTestReducer())
-        let changeProbe = ObservationChangeProbe()
-
-        withObservationTracking {
-            _ = viewModel.viewState.phase.active?.value
-        } onChange: {
-            changeProbe.markChanged()
-        }
-
-        viewModel.sendViewEvent(.increment)
-
-        #expect(changeProbe.didChange)
-        #expect(viewModel.viewState.phase.active?.value == "1")
-    }
-
-    private func makeViewModel<R: ViewStateReducer & Sendable>(
-        reducer: R
-    ) -> ViewModel<Feature<ObservationTestAction, ObservationTestDomainState, ObservationTestViewState>>
-    where R.DomainState == ObservationTestDomainState, R.ViewState == ObservationTestViewState {
-        ViewModel(
-            initialDomainState: .init(count: 0),
-            feature: Feature(
-                interactor: ObservationTestInteractor(),
-                reducer: reducer
-            )
-        )
-    }
-}
-
-private final class ObservationChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-
-    var didChange: Bool {
-        lock.withLock { hasChanged }
-    }
-
-    func markChanged() {
-        lock.withLock {
-            hasChanged = true
-        }
-    }
-}
-
-private struct ObservationTestInteractor: Interactor, Sendable {
-    typealias State = ObservationTestDomainState
-    typealias Action = ObservationTestAction
-
-    var body: some InteractorOf<Self> { self }
-
-    func interact(state: inout ObservationTestDomainState, action: ObservationTestAction) -> Emission<ObservationTestAction> {
-        switch action {
-        case .increment:
-            state.count += 1
-            return .none
-        }
-    }
-}
-
-private struct DirectAssignmentObservationTestReducer: ViewStateReducer, Sendable {
-    typealias DomainState = ObservationTestDomainState
-    typealias ViewState = ObservationTestViewState
-
-    var body: some ViewStateReducerOf<Self> { self }
-
-    func initialViewState(for domainState: ObservationTestDomainState) -> ObservationTestViewState {
-        ObservationTestViewState.defaultValue
-    }
-
-    func reduce(_ domainState: ObservationTestDomainState, into viewState: inout ObservationTestViewState) {
-        viewState.phase = .active(.init(value: "\(domainState.count)"))
-    }
-}
-
-private struct CasePathMutationObservationTestReducer: ViewStateReducer, Sendable {
-    typealias DomainState = ObservationTestDomainState
-    typealias ViewState = ObservationTestViewState
-
-    var body: some ViewStateReducerOf<Self> { self }
-
-    func initialViewState(for domainState: ObservationTestDomainState) -> ObservationTestViewState {
-        ObservationTestViewState.defaultValue
-    }
-
-    func reduce(_ domainState: ObservationTestDomainState, into viewState: inout ObservationTestViewState) {
-        viewState.phase.modify(\.active) { payload in
-            payload.value = "\(domainState.count)"
-        }
-    }
-}
-
-@FeatureState
-private struct ObservationTestViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self(phase: .active(.init(value: "0")))
-
-    var phase: ObservationTestPhase
-}
-
 @FeatureState
 struct ObservationTestPayload: Equatable, Sendable {
     var value: String
 }
 
-private struct ObservationTestDomainState: Equatable, Sendable {
+@FeatureState
+struct ObservedBadgeState: Equatable, Sendable {
+    var label = "Badge"
     var count = 0
 }
 
-@CasePathable
-private enum ObservationTestAction: Sendable {
-    case increment
+@FeatureState
+private struct ObservedState: Equatable, Sendable {
+    var title = "Counter"
+    var badge = ObservedBadgeState()
+    var detail: ObservedBadgeState?
+    var phase: ObservationTestPhase = .active(ObservationTestPayload(value: "0"))
+}
+
+private enum ObservedAction: Sendable {
+    case mutate(@Sendable (inout ObservedState) -> Void)
+}
+
+@Interactor<ObservedState, ObservedAction>
+private struct ObservedInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .mutate(let mutation): mutation(&state)
+            }
+            return .none
+        }
+    }
+}
+
+@MainActor
+@Suite
+struct ViewModelObservationTests {
+    private func makeViewModel(
+        areStatesEqual: ((ObservedState, ObservedState) -> Bool)? = { $0 == $1 }
+    ) -> ViewModel<Feature<ObservedAction, ObservedState>> {
+        ViewModel(
+            initialState: ObservedState(),
+            feature: Feature(interactor: ObservedInteractor(), areStatesEqual: areStatesEqual)
+        )
+    }
+
+    // MARK: Enum members
+
+    @Test
+    func directAssignmentOfEnumMemberInvalidatesPhaseObservation() {
+        let viewModel = makeViewModel()
+        let phase = ObservationProbe { _ = viewModel.phase }
+
+        viewModel.sendViewEvent(.mutate { $0.phase = .active(ObservationTestPayload(value: "1")) })
+
+        #expect(phase.didFire)
+        #expect(viewModel.phase[case: \.active]?.value == "1")
+    }
+
+    // Fine-grained observation: an in-place payload mutation (case unchanged) does NOT fire the
+    // coarse `\.phase` key path, so an observer that reads only the *whole* enum is not
+    // invalidated. Real views read the payload leaf (see
+    // `casePathMutationInvalidatesNestedValueObservation`) and do re-render.
+    @Test
+    func casePathMutationDoesNotInvalidateWholePhaseObservation() {
+        let viewModel = makeViewModel()
+        let phase = ObservationProbe { _ = viewModel.phase }
+
+        viewModel.sendViewEvent(.mutate { $0.phase.modify(\.active) { $0.value = "1" } })
+
+        #expect(!phase.didFire)
+        #expect(viewModel.phase[case: \.active]?.value == "1")
+    }
+
+    @Test
+    func casePathMutationInvalidatesNestedValueObservation() {
+        let viewModel = makeViewModel()
+        let value = ObservationProbe { _ = viewModel.phase[case: \.active]?.value }
+
+        viewModel.sendViewEvent(.mutate { $0.phase.modify(\.active) { $0.value = "1" } })
+
+        #expect(value.didFire)
+        #expect(viewModel.phase[case: \.active]?.value == "1")
+    }
+
+    // MARK: Root gate
+
+    // §6 "Wholesale replacement `state = State(...)` with different content": root fires, every
+    // leaf re-reads.
+    @Test
+    func wholesaleReplacementWithDifferentContentFiresRootAndEveryLeaf() {
+        let viewModel = makeViewModel()
+        let root = ObservationProbe { _ = viewModel.viewState }
+        let title = ObservationProbe { _ = viewModel.title }
+        let badgeCount = ObservationProbe { _ = viewModel.badge.count }
+
+        viewModel.sendViewEvent(.mutate { $0 = ObservedState(title: "Other") })
+
+        #expect(root.didFire)
+        #expect(title.didFire)
+        #expect(badgeCount.didFire)
+        #expect(viewModel.title == "Other")
+    }
+
+    // §6 "Wholesale replacement with equal content (`areStatesEqual` available)": nothing fires;
+    // registrars preserved.
+    @Test
+    func wholesaleReplacementWithEqualContentIsSilentAndPreservesRegistrars() {
+        let viewModel = makeViewModel()
+        let rootID = viewModel.state._$id
+        let badgeID = viewModel.state.badge._$id
+        let root = ObservationProbe { _ = viewModel.viewState }
+        let title = ObservationProbe { _ = viewModel.title }
+        let badgeCount = ObservationProbe { _ = viewModel.badge.count }
+
+        viewModel.sendViewEvent(.mutate { $0 = ObservedState() })  // equal content, new registrars
+
+        #expect(!root.didFire)
+        #expect(!title.didFire)
+        #expect(!badgeCount.didFire)
+        #expect(viewModel.state._$id == rootID)
+        #expect(viewModel.state.badge._$id == badgeID)
+
+        // The observers registered before the replacement still track the kept registrars.
+        viewModel.sendViewEvent(.mutate { $0.badge.count += 1 })
+        #expect(badgeCount.didFire)
+        #expect(!root.didFire)
+    }
+
+    @Test
+    func wholesaleReplacementWithEqualContentFiresRootWithoutStateEquality() {
+        let viewModel = makeViewModel(areStatesEqual: nil)
+        let root = ObservationProbe { _ = viewModel.viewState }
+
+        viewModel.sendViewEvent(.mutate { $0 = ObservedState() })
+
+        #expect(root.didFire)
+    }
+
+    // MARK: Children
+
+    // §6 "Content-equal child rebuild `state.badge = BadgeState(same)`": silent; child `_$id`
+    // preserved.
+    @Test
+    func contentEqualChildRebuildIsSilentAndPreservesTheChildID() {
+        let viewModel = makeViewModel()
+        let badgeID = viewModel.state.badge._$id
+        let root = ObservationProbe { _ = viewModel.viewState }
+        let badge = ObservationProbe { _ = viewModel.badge }
+        let count = ObservationProbe { _ = viewModel.badge.count }
+
+        viewModel.sendViewEvent(.mutate { $0.badge = ObservedBadgeState() })
+
+        #expect(!root.didFire)
+        #expect(!badge.didFire)
+        #expect(!count.didFire)
+        #expect(viewModel.state.badge._$id == badgeID)
+    }
+
+    // §6 "Child rebuilt with different content": parent `\.badge` fires; observers that walked
+    // through `badge` re-read; root silent.
+    @Test
+    func childRebuiltWithDifferentContentFiresObserversThroughTheChild() {
+        let viewModel = makeViewModel()
+        let root = ObservationProbe { _ = viewModel.viewState }
+        let count = ObservationProbe { _ = viewModel.badge.count }
+        let label = ObservationProbe { _ = viewModel.badge.label }  // unchanged, read through badge
+        let title = ObservationProbe { _ = viewModel.title }
+
+        viewModel.sendViewEvent(.mutate { $0.badge = ObservedBadgeState(count: 99) })
+
+        #expect(count.didFire)
+        #expect(label.didFire)
+        #expect(!title.didFire)
+        #expect(!root.didFire)
+        #expect(viewModel.badge.count == 99)
+    }
+
+    // §6 "Optional child `nil → value`; then `detail?.count += 1`": fires; then leaf-only.
+    @Test
+    func optionalChildInsertionFiresThenInPlaceLeafMutationIsLeafOnly() {
+        let viewModel = makeViewModel()
+        let detail = ObservationProbe { _ = viewModel.detail?.count }
+        let title = ObservationProbe { _ = viewModel.title }
+
+        viewModel.sendViewEvent(.mutate { $0.detail = ObservedBadgeState(count: 1) })
+
+        #expect(detail.didFire)
+        #expect(!title.didFire)
+
+        let count = ObservationProbe { _ = viewModel.detail?.count }
+        let label = ObservationProbe { _ = viewModel.detail?.label }
+        let root = ObservationProbe { _ = viewModel.viewState }
+
+        viewModel.sendViewEvent(.mutate { $0.detail?.count += 1 })
+
+        #expect(count.didFire)
+        #expect(!label.didFire)
+        #expect(!root.didFire)
+        #expect(viewModel.detail?.count == 2)
+    }
 }

@@ -64,7 +64,7 @@ struct TestViewModelExhaustivityTests {
             $0.values = [1, 2]
         }
 
-        #expect(model.domainState.values == [1, 2])
+        #expect(model.state.values == [1, 2])
     }
 
     @Test
@@ -74,7 +74,7 @@ struct TestViewModelExhaustivityTests {
         _ = await model.send(.startSequence)
         await model.skipReceivedActions()
 
-        #expect(model.domainState.values == [1, 2])
+        #expect(model.state.values == [1, 2])
     }
 
     @Test
@@ -88,10 +88,10 @@ struct TestViewModelExhaustivityTests {
     }
 
     private func makeModel()
-        -> TestViewModel<Feature<ExhaustivityAction, ExhaustivityState, ExhaustivityState>>
+        -> TestViewModel<Feature<ExhaustivityAction, ExhaustivityState>>
     {
         TestViewModel(
-            initialDomainState: ExhaustivityState(),
+            initialState: ExhaustivityState(),
             feature: Feature(interactor: ExhaustivityInteractor())
         )
     }

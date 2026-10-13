@@ -20,11 +20,11 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterState(count: 0),
+            initialState: CounterState(count: 0),
             interactor: debounced
         )
 
-        #expect(model.domainState == .init(count: 0))
+        #expect(model.state == .init(count: 0))
 
         // Send action - state changes IMMEDIATELY (effect-level debouncing)
         _ = await model.send(.increment) {
@@ -32,7 +32,7 @@ struct DebounceInteractorTests {
         }
 
         // State already changed
-        #expect(model.domainState == .init(count: 1))
+        #expect(model.state == .init(count: 1))
     }
 
     @Test
@@ -47,7 +47,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterState(count: 0),
+            initialState: CounterState(count: 0),
             interactor: debounced
         )
 
@@ -57,7 +57,7 @@ struct DebounceInteractorTests {
         _ = await model.send(.increment) { $0.count = 3 }
 
         // All three increments processed immediately
-        #expect(model.domainState == .init(count: 3))
+        #expect(model.state == .init(count: 3))
     }
 
     @Test
@@ -73,7 +73,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: EffectInteractor.State(),
+            initialState: EffectInteractor.State(),
             interactor: debounced
         )
 
@@ -83,7 +83,7 @@ struct DebounceInteractorTests {
         let task3 = await model.send(.trigger) { $0.triggerCount = 3 }
 
         // All state changes happened immediately
-        #expect(model.domainState.triggerCount == 3)
+        #expect(model.state.triggerCount == 3)
 
         // But NO effects have executed yet
         #expect(await effectExecutionCount.value == 0)
@@ -101,7 +101,7 @@ struct DebounceInteractorTests {
         await model.receive(.effectCompleted(3)) {
             $0.effectResult = 3
         }
-        #expect(model.domainState.effectResult == 3)
+        #expect(model.state.effectResult == 3)
     }
 
     @Test
@@ -117,7 +117,7 @@ struct DebounceInteractorTests {
         }
 
         let model = makeTestViewModel(
-            initialDomainState: CounterState(count: 0),
+            initialState: CounterState(count: 0),
             interactor: debounced
         )
 
@@ -126,7 +126,7 @@ struct DebounceInteractorTests {
         _ = await model.send(.increment) { $0.count = 1 }
 
         // All processed immediately since .none emissions pass through
-        #expect(model.domainState.count == 1)
+        #expect(model.state.count == 1)
     }
 }
 
@@ -138,6 +138,7 @@ private actor Counter {
 }
 
 private struct EffectInteractor: Interactor, Sendable {
+    @FeatureState
     struct State: Equatable, Sendable {
         var triggerCount: Int = 0
         var effectResult: Int = 0

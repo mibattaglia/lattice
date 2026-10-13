@@ -4,10 +4,6 @@ import Testing
 @testable import Lattice
 
 @FeatureState
-private struct AppendViewState: Equatable, Sendable {
-    var log: [String] = []
-}
-
 private struct AppendState: Equatable, Sendable {
     var log: [String] = []
 }
@@ -63,20 +59,10 @@ private struct AppendInteractor {
 @MainActor
 struct ViewModelAppendTests {
 
-    private func makeViewModel()
-        -> ViewModel<Feature<AppendAction, AppendState, AppendViewState>>
-    {
+    private func makeViewModel() -> ViewModel<Feature<AppendAction, AppendState>> {
         ViewModel(
-            initialDomainState: AppendState(),
-            feature: Feature(
-                interactor: AppendInteractor(),
-                reducer: BuildViewState(
-                    initial: { _ in AppendViewState() },
-                    reducerBlock: { domainState, viewState in
-                        viewState.log = domainState.log
-                    }
-                )
-            )
+            initialState: AppendState(),
+            feature: Feature(interactor: AppendInteractor())
         )
     }
 
