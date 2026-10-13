@@ -1,30 +1,44 @@
 import Lattice
 import Observation
 
-/// View state with a nested `@ObservableState` child. The reducer rebuilds
+/// The feature's one state, with a nested `@FeatureState` child. The interactor rebuilds
 /// `child` wholesale on every tick (assignment, not field mutation), which is
 /// exactly the pattern that triggers the content-equal registrar leak described
 /// in specs/observable-state-identity-preserving-merge.md.
-@ObservableState
-struct TimerLeakViewState: Equatable {
+@FeatureState
+struct TimerLeakState: Equatable, Sendable {
     var tickCount: Int = 0
-    var child: TimerChildViewState = TimerChildViewState(value: "value-0", rows: [])
+    @Domain var displayedValue: String = "value-0"
+    @Domain var isRunning: Bool = false
+    var child: TimerChildState = TimerChildState(value: "value-0")
 }
 
-@ObservableState
-struct TimerChildViewState: Equatable {
+@FeatureState
+struct TimerChildState: Equatable, Sendable {
     var value: String
-    /// A wide subtree of nested `@ObservableState` rows. The child is rebuilt
+    /// A wide subtree of nested `@FeatureState` rows. The child is rebuilt
     /// wholesale every tick, so every content-equal tick orphans one registrar
     /// per row that the view is tracking — the leak rate scales with `rows.count`.
     /// The array lives *inside* the assigned struct on purpose: the fix's
     /// constrained `mutate` overload short-circuits the content-equal child
     /// assignment before the array is ever touched.
-    var rows: [TimerRowViewState]
+    var rows: [TimerRowState]
 }
 
-@ObservableState
-struct TimerRowViewState: Equatable, Identifiable {
+extension TimerChildState {
+    /// A child whose `TimerLeakConstants.rowCount` rows all show `value`.
+    init(value: String) {
+        self.init(
+            value: value,
+            rows: (0..<TimerLeakConstants.rowCount).map { id in
+                TimerRowState(id: id, value: value)
+            }
+        )
+    }
+}
+
+@FeatureState
+struct TimerRowState: Equatable, Identifiable, Sendable {
     let id: Int
     var value: String
 }
