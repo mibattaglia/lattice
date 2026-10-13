@@ -1,8 +1,10 @@
 # Unified Feature State
 
-Status: ⬜ Planned — breaking change (next major). Supersedes the `DomainState`/`ViewState` split
-described in [view-model.md](../view-model.md), [view-state-reducer.md](../view-state-reducer.md)
-and the `@ObservableState`/`@ViewStateReducer` sections of [macros.md](../macros.md).
+Status: ✅ Complete — breaking change (next major). Supersedes the `DomainState`/`ViewState` split
+described in [view-model.md](../view-model.md), `view-state-reducer.md` (replaced by
+[feature-state.md](../feature-state.md)) and the `@ObservableState`/`@ViewStateReducer` sections
+of [macros.md](../macros.md). Deviations and known gaps found during implementation are in
+[§12](#12-implementation-notes).
 
 Every contract in this document was compiled against Swift 6.4 (Xcode 26.4, Swift 6 language
 mode) in standalone spikes before being written down; see [§11](#11-references).
@@ -356,6 +358,10 @@ under the same clauses. Enum computed properties are forwarded exactly like stru
 | `$viewModel.loaded.query.sending(...)` | through `LoadedState.ViewState` | through the raw payload |
 | `Interactors.When(state: \.loaded, ...)` | unchanged | unchanged |
 
+> Caveat: the coarse plain-payload row holds for single-payload cases only. A multi-payload case
+> such as `.failed(message:retryCount:)` returns the `_$inert` tag, so a content change inside it
+> never fires the root; see [Known gaps](#known-gaps-deferred-by-owner).
+
 The coarse path is correct by necessity — a plain payload has no registrars, so a fresh root id is
 the only change signal — and is what the Search and Todos examples do today. Convention: a payload
 struct the feature owns is `@FeatureState`; primitive and foreign payloads stay plain. The macro
@@ -687,7 +693,7 @@ stored visible properties the interactor keeps in sync.
 
 Each phase is a PR on the feature branch; the package builds and tests pass at every phase end.
 
-### Phase 1 — Runtime and macro ⬜
+### Phase 1 — Runtime and macro ✅
 
 - Add `FeatureState` (rename `ObservableState`), `ViewStateProjection`, `ViewStateCollection`, `Projection.swift`.
 - Rename `ObservableStateMacro.swift` → `FeatureStateMacro.swift`; add struct/enum projection codegen (§4.1–4.2), `DomainMacro`, `IdentifiableIfPossibleMacro`, `EquatableIfPossibleMacro`, `NoOpExtensionMacro`; register in `Plugin.swift`; declare in `Macros.swift`.
@@ -695,21 +701,21 @@ Each phase is a PR on the feature branch; the package builds and tests pass at e
 - Tests: `FeatureStateMacroTests`, negative compile script + fixtures, projection runtime tests (`_$project` typing, `ViewStateCollection`, enum round-trip incl. `indirect`).
 - `Package.swift` ← `Package@swift-6.2.swift`; `scripts/rebuild-macro.sh`.
 
-### Phase 2 — Presentation layer ⬜
+### Phase 2 — Presentation layer ✅
 
 - Delete `Presentation/ViewStateReducer/*`, `Observation/DefaultValueProvider.swift`, `ViewStateReducerMacro.swift`, their tests and mocks.
 - Rewrite `Feature.swift` (§5.1), `ViewModel.swift` (§5.2), `ScopedViewModel.swift` (§5.3), `ViewModelBinding.swift` (§5.4), `TestViewModel.swift` (§5.5).
 - Migrate `PresentationTests` and `TestingInfrastructureTests` (§8 Observation row; `Mocks/` collapse to one `@FeatureState` per fixture).
 
-### Phase 3 — Interactor rename ⬜
+### Phase 3 — Interactor rename ✅
 
 - `Interactor.DomainState` → `State` across `Interactor.swift`, `Interactors/*`, `InteractorMacro.swift`, `InteractorMacroTests`, `DomainTests`.
 
-### Phase 4 — Examples ⬜
+### Phase 4 — Examples ✅
 
 - Per package: merge `*DomainState` + `*ViewState` into one `@FeatureState`; delete the reducer; views switch on `viewModel.viewState`; Todos derives its filtered list as a computed member and passes `areStatesEqual:` ignoring ids in tests.
 
-### Phase 5 — Documentation ⬜
+### Phase 5 — Documentation ✅
 
 - README, `AGENTS.md`, `skills/**` (+ `scripts/sync-skills.sh`), `skills/skill-rules.json`; `specs/`: replace `view-state-reducer.md`, update `view-model.md`, `macros.md`, `fine-grained-observation.md`, `scoped-view-composition.md`, `enum-case-scoping.md`, `testing-infrastructure.md`, `README.md`; mark this plan complete.
 
@@ -729,3 +735,42 @@ Each phase is a PR on the feature branch; the package builds and tests pass at e
 - Dead ends recorded there, not to be retried: generic `@dynamicMemberLookup` passthrough (leaks), `@available(unavailable)` on constrained overloads (not chosen), `static let` witnesses (Swift 6 concurrency errors), `some Any` witnesses (no inference), `Never`-typed `@Domain` stubs (masked message), overload-selected `Sendable` macro (circular reference), raw-enum + mirror `scopeIfActive` overloads (ambiguous).
 - Swift 6.4 crash behind the §10 file-layout rule: minimal repro, `swiftc` command, crash signature and measured count table in `/tmp/lattice-unified-state/reports/swift-crash-repro.md`.
 - Techniques: Point-Free, *Advanced macro technique #1: Static type information* (overloaded attached macros) and *#2: Type inference* (nested protocol + witness). TCA 2 (`ComposableArchitecture2`): `ValueLocation` identity-on-replacement, `StoreEnumeration` mirror enums, explicit `scope` as the nesting API.
+
+## 12. Implementation notes
+
+Deviations from the text above that the implementation recorded, by spec section. Each cites the
+commit whose body records it; the multi-binding note is recorded in a test, and the §7 note was
+found while writing the docs.
+
+- §3.2: the `ViewStateProjection` `Identifiable` extension also pins `typealias ID = State.ID`;
+  without it an `id` declared outside the type body fails associated-type inference (approved;
+  34427b5).
+- §4.1: for a `private`/`fileprivate` state the generated declarations are `fileprivate`, so the
+  file-scope `==` that `_EquatableIfPossible` adds is not more visible than the state (34427b5).
+- §4.1: a multi-binding `var` is still rejected by the observation accessor macro, which supports
+  one variable per declaration; only multi-binding `let`s expand per binding (recorded in
+  `FeatureStateMacroTests.testViewState_Struct_MemberVisibility`).
+- §4.4: `@Domain` is also diagnosed on functions, subscripts and nested types ("another
+  non-property declaration"). After a reserved-name error no `ViewState` is generated and only
+  the `Observable` conformance is added; after the `@Domain id` error the unavailable `id` stub
+  is left out, so no further conformance error follows (e53d503).
+- §5.5: `TestViewModel.init(initialState:feature:)` takes defaulted `fileID:file:line:column:`
+  parameters so the missing-equality issue is reported at the caller's location (d910401).
+- §8: `MacroSpec`-based snapshots need swift-macro-testing 0.7.0 (`Package.resolved` only;
+  f054836). `scripts/negative-compile-checks.sh` lists one or more expected diagnostics per flag
+  with the number of distinct sites that must report each, runs on bash 3.2, and `LEAK_CASE`
+  also asserts that a raw-enum case path is rejected, with compiler wording verified on Swift 6.4
+  only (0f59798). The projection benchmark compiles only without `DEBUG`; run it with
+  `swift test -c release --filter ProjectionReadBenchmark` (b6b6be1).
+- §10: the file-layout rule is stricter than first proposed (only keeping other `@FeatureState`
+  types out of a `@CasePathable` enum's file): crashes were also measured with lone enum states
+  next to `@CasePathable` enums, `@Observable` classes or `@Interactor` types (8635953).
+- Outside the plan: the Search and TimerLeak example manifests now declare `.macOS(.v14)`, and the
+  stale Search and Todos `Package.resolved` pins were refreshed, so every example builds with
+  `swift build` (8b1904b, 6731d70).
+- §7: the canonical example's `.perform { … try await … }` does not compile, because
+  `Emission.perform` takes a non-throwing closure; the README's version uses `try?` (69e0ab6).
+
+### Known gaps (deferred by owner)
+
+- Multi-payload enum cases never fire the root on a content change: `FeatureStateCase.getCase` (FeatureStateMacro.swift) mints `_$id(for:)` only for single-payload cases; a multi-payload case such as `.failed(message:retryCount:)` returns the `_$inert` tag, so `.failed("a", 1) → .failed("b", 2)` commits silently and a `switch viewModel.viewState` reading that payload renders stale data (contradicts §4.2 coarse-path wording; predates this change; no example uses multi-payload cases).
