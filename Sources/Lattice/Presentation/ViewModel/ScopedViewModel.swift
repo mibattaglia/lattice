@@ -20,8 +20,8 @@ import SwiftUI
 /// container's identity and will **not** re-render on an in-place leaf mutation — exactly the
 /// same distinction as `viewModel.title` (fine-grained) versus `viewModel.viewState` (coarse).
 /// Member access at any depth stays fine-grained because each hop invokes a live
-/// `@ObservableState` getter; the rule is the chain of getters you actually read, not how deep
-/// the slice is. (`@ObservableState` shares its observation registrar across value copies, so
+/// `@FeatureState` getter; the rule is the chain of getters you actually read, not how deep
+/// the slice is. (`@FeatureState` shares its observation registrar across value copies, so
 /// reading members off a stored copy still tracks the live state — only reading the *whole*
 /// container value is coarse.)
 ///
@@ -34,7 +34,7 @@ import SwiftUI
 /// that runs in the parent's `deinit`.
 @dynamicMemberLookup
 @MainActor
-public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable> {
+public struct ScopedViewModel<ChildState: FeatureState, ChildAction: Sendable> {
     private let _state: @MainActor () -> ChildState
     private let _send: @MainActor (ChildAction) -> EventTask
 
@@ -57,7 +57,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
     /// Accesses a member of the child slice with fine-grained observation.
     ///
     /// This is the **fine-grained** read: `model.title` (or deeper, `model.badge.count`) walks
-    /// the live `@ObservableState` getter chain and re-renders the view on in-place mutations
+    /// the live `@FeatureState` getter chain and re-renders the view on in-place mutations
     /// of that member. Prefer this over ``viewState`` in views.
     public subscript<Value>(dynamicMember keyPath: KeyPath<ChildState, Value>) -> Value {
         _state()[keyPath: keyPath]
@@ -117,11 +117,11 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         /// is sugar over the closure-based ``scope(state:action:)`` overload.
         ///
         /// - Parameters:
-        ///   - stateKeyPath: A key path to a nested `@ObservableState` slice of the view state.
+        ///   - stateKeyPath: A key path to a nested `@FeatureState` slice of the view state.
         ///   - actionCasePath: A case key path that embeds the child action into this feature's
         ///     action.
         /// - Returns: A ``ScopedViewModel`` over the child slice and action.
-        public func scope<ChildState: ObservableState, ChildAction: Sendable>(
+        public func scope<ChildState: FeatureState, ChildAction: Sendable>(
             state stateKeyPath: KeyPath<ViewState, ChildState>,
             action actionCasePath: CaseKeyPath<Action, ChildAction>
         ) -> ScopedViewModel<ChildState, ChildAction> {
@@ -136,11 +136,11 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         /// parent.
         ///
         /// - Parameters:
-        ///   - stateKeyPath: A key path from the child slice to a nested `@ObservableState`
+        ///   - stateKeyPath: A key path from the child slice to a nested `@FeatureState`
         ///     grandchild slice.
         ///   - embed: A case key path that embeds the grandchild action into the child action.
         /// - Returns: A ``ScopedViewModel`` over the grandchild slice and action.
-        public func scope<GrandState: ObservableState, GrandAction: Sendable>(
+        public func scope<GrandState: FeatureState, GrandAction: Sendable>(
             state stateKeyPath: KeyPath<ChildState, GrandState>,
             action embed: CaseKeyPath<ChildAction, GrandAction>
         ) -> ScopedViewModel<GrandState, GrandAction> {
@@ -168,10 +168,10 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         /// drop actions that no longer apply to the current state.
         ///
         /// - Parameters:
-        ///   - casePath: A case key path to an `@ObservableState` payload of the view state enum.
+        ///   - casePath: A case key path to a `@FeatureState` payload of the view state enum.
         ///   - embed: A case key path that embeds the child action into this feature's action.
         /// - Returns: A scope over the case's payload, or `nil` if the case is not active.
-        public func scopeIfActive<Child: ObservableState, ChildAction: Sendable>(
+        public func scopeIfActive<Child: FeatureState, ChildAction: Sendable>(
             state casePath: CaseKeyPath<ViewState, Child>,
             action embed: CaseKeyPath<Action, ChildAction>
         ) -> ScopedViewModel<Child, ChildAction>? {
@@ -198,7 +198,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
         ///
         /// Body evaluation is synchronous on the main actor, so within a matched case this cannot
         /// trap. Use ``scopeIfActive(state:action:)`` when the case may legitimately be inactive.
-        public func scope<Child: ObservableState, ChildAction: Sendable>(
+        public func scope<Child: FeatureState, ChildAction: Sendable>(
             state casePath: CaseKeyPath<ViewState, Child>,
             action embed: CaseKeyPath<Action, ChildAction>,
             fileID: StaticString = #fileID,
@@ -220,7 +220,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
     extension ScopedViewModel where ChildState: CasePathable {
         /// Projects this scope onto the payload of an enum case of the child slice, if active.
         /// See ``ViewModel/scopeIfActive(state:action:)``.
-        public func scopeIfActive<CaseState: ObservableState, CaseAction: Sendable>(
+        public func scopeIfActive<CaseState: FeatureState, CaseAction: Sendable>(
             state casePath: CaseKeyPath<ChildState, CaseState>,
             action embed: CaseKeyPath<ChildAction, CaseAction>
         ) -> ScopedViewModel<CaseState, CaseAction>? {
@@ -235,7 +235,7 @@ public struct ScopedViewModel<ChildState: ObservableState, ChildAction: Sendable
 
         /// Projects this scope onto the payload of the currently active enum case of the child
         /// slice, trapping if the case is not active. See ``ViewModel/scope(state:action:fileID:line:)``.
-        public func scope<CaseState: ObservableState, CaseAction: Sendable>(
+        public func scope<CaseState: FeatureState, CaseAction: Sendable>(
             state casePath: CaseKeyPath<ChildState, CaseState>,
             action embed: CaseKeyPath<ChildAction, CaseAction>,
             fileID: StaticString = #fileID,
@@ -264,10 +264,10 @@ extension ViewModel {
     /// is not `@CasePathable`, or when the mapping is not a plain case embedding.
     ///
     /// - Parameters:
-    ///   - stateKeyPath: A key path to a nested `@ObservableState` slice of the view state.
+    ///   - stateKeyPath: A key path to a nested `@FeatureState` slice of the view state.
     ///   - embed: A closure that maps a child action into this feature's action.
     /// - Returns: A ``ScopedViewModel`` over the child slice and action.
-    public func scope<ChildState: ObservableState, ChildAction: Sendable>(
+    public func scope<ChildState: FeatureState, ChildAction: Sendable>(
         state stateKeyPath: KeyPath<ViewState, ChildState>,
         action embed: @escaping @MainActor (ChildAction) -> Action
     ) -> ScopedViewModel<ChildState, ChildAction> {
@@ -280,10 +280,10 @@ extension ViewModel {
     /// Projects this view model onto a read-only child slice, for child views that display
     /// state but send no actions.
     ///
-    /// - Parameter stateKeyPath: A key path to a nested `@ObservableState` slice of the view
+    /// - Parameter stateKeyPath: A key path to a nested `@FeatureState` slice of the view
     ///   state.
     /// - Returns: A ``ScopedViewModel`` whose action type is `Never`.
-    public func scope<ChildState: ObservableState>(
+    public func scope<ChildState: FeatureState>(
         state stateKeyPath: KeyPath<ViewState, ChildState>
     ) -> ScopedViewModel<ChildState, Never> {
         ScopedViewModel(

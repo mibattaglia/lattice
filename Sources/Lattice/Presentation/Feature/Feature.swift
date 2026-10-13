@@ -7,7 +7,7 @@ import Foundation
 public protocol FeatureProtocol {
     associatedtype Action: Sendable
     associatedtype DomainState: Sendable
-    associatedtype ViewState: ObservableState
+    associatedtype ViewState: FeatureState
 
     var interactor: AnyInteractor<DomainState, Action> { get }
     var viewStateReducer: AnyViewStateReducer<DomainState, ViewState> { get }
@@ -45,7 +45,7 @@ public protocol FeatureProtocol {
 /// )
 /// ```
 public struct Feature<Action, DomainState, ViewState>
-where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
+where Action: Sendable, DomainState: Sendable, ViewState: FeatureState {
     public let interactor: AnyInteractor<DomainState, Action>
     public let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
     public let makeInitialViewState: (DomainState) -> ViewState

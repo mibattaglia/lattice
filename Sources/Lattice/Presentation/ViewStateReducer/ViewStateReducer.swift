@@ -3,7 +3,7 @@ import Foundation
 /// A type that transforms domain **state** into **view state** via in-place mutation.
 ///
 /// `ViewStateReducer` mutates an existing view state based on domain state, preserving
-/// `_$id` stability for `@ObservableState` types. This enables efficient SwiftUI observation
+/// `_$id` stability for `@FeatureState` types. This enables efficient SwiftUI observation
 /// where only changed properties trigger view updates.
 ///
 /// ## Purpose

@@ -1,16 +1,15 @@
 import Foundation
+import Observation
 
 #if canImport(IdentifiedCollections)
     import IdentifiedCollections
 #endif
 
-/// A type that emits notifications to observers when underlying data changes.
-///
-/// Conforming to this protocol signals to other APIs that the value type supports observation.
-/// However, applying the ``ObservableState`` protocol by itself to a type doesn’t add observation
-/// functionality to the type. Instead, always use the ``ObservableState()`` macro when adding
-/// observation support to a type.
-public protocol ObservableState: Observable {
+/// A value type whose observation is tracked per member and whose view-facing surface is
+/// `ViewState`. Apply the `@FeatureState` macro; never conform manually.
+public protocol FeatureState: Observable {
+    /// The macro-generated projection views read through. Omits `@Domain` members.
+    associatedtype ViewState: ViewStateProjection where ViewState.State == Self
     var _$id: ObservableStateID { get }
     mutating func _$willModify()
 }
@@ -59,11 +58,11 @@ public struct ObservableStateID: Equatable, Hashable, Sendable {
 
     @inlinable
     public static func _$id<T>(for value: T) -> Self {
-        (value as? any ObservableState)?._$id ?? Self()
+        (value as? any FeatureState)?._$id ?? Self()
     }
 
     @inlinable
-    public static func _$id(for value: some ObservableState) -> Self {
+    public static func _$id(for value: some FeatureState) -> Self {
         value._$id
     }
 
@@ -111,7 +110,7 @@ public struct ObservableStateID: Equatable, Hashable, Sendable {
 }
 
 @inlinable
-public func _$isIdentityEqual<T: ObservableState>(
+public func _$isIdentityEqual<T: FeatureState>(
     _ lhs: T, _ rhs: T
 ) -> Bool {
     lhs._$id == rhs._$id
@@ -122,7 +121,7 @@ public func _$isIdentityEqual<C: Collection>(
     _ lhs: C,
     _ rhs: C
 ) -> Bool
-where C.Element: ObservableState {
+where C.Element: FeatureState {
     lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0._$id == $1._$id }
 }
 
@@ -137,7 +136,7 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
     guard !_isPOD(T.self) else { return false }
 
     func openCollection<C: Collection>(_ lhs: C, _ rhs: Any) -> Bool {
-        guard C.Element.self is any ObservableState.Type else {
+        guard C.Element.self is any FeatureState.Type else {
             return false
         }
 
@@ -166,7 +165,7 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
         }
     }
 
-    if let lhs = lhs as? any ObservableState, let rhs = rhs as? any ObservableState {
+    if let lhs = lhs as? any FeatureState, let rhs = rhs as? any FeatureState {
         return lhs._$id == rhs._$id
     } else if let lhs = lhs as? any Collection {
         return openCollection(lhs, rhs)
@@ -178,6 +177,6 @@ public func _$isIdentityEqual<T>(_ lhs: T, _ rhs: T) -> Bool {
 @inlinable
 public func _$willModify<T>(_: inout T) {}
 @inlinable
-public func _$willModify<T: ObservableState>(_ value: inout T) {
+public func _$willModify<T: FeatureState>(_ value: inout T) {
     value._$willModify()
 }

@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor
 protocol _ViewModel {
-    associatedtype ViewState: ObservableState
+    associatedtype ViewState: FeatureState
 
     var viewState: ViewState { get }
 }
@@ -270,11 +270,11 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
         guard shouldReduceViewState else { return }
 
         // The reducer must never run while a formal access on `_viewState` is open: an
-        // `@ObservableState` field mutation fires `willSet` to synchronous observers (e.g. SwiftUI
+        // `@FeatureState` field mutation fires `willSet` to synchronous observers (e.g. SwiftUI
         // body re-evaluation) mid-reduce, and if one re-reads `viewState` the getter opens a
         // conflicting read against an open write — a Swift exclusivity trap
         // (see `ViewModelReentrancyTests`). Reducing into a local working copy avoids the
-        // trap: `@ObservableState` registrars are reference types, so the copy shares the same
+        // trap: `@FeatureState` registrars are reference types, so the copy shares the same
         // registrar tree and per-field notifications/identity are unaffected. The coarse
         // `\.viewState` fire stays gated on a root `_$id` change and moves after the single commit
         // store, preserving today's ordering.

@@ -63,7 +63,7 @@ public macro Interactor<State, Action>() = #externalMacro(module: "LatticeMacros
 public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
 
 /// Defines and implements conformance of the Observable protocol.
-@attached(extension, conformances: Observable, ObservableState)
+@attached(extension, conformances: Observable, FeatureState)
 @attached(
     member, names: named(_$id), named(_$observationRegistrar), named(_$willModify),
     named(shouldNotifyObservers))
