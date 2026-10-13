@@ -44,13 +44,13 @@ import Foundation
         /// 5. Non-matching actions pass through with `.none` emission
         public struct When<ParentState: Sendable, ParentAction: Sendable, Child: Interactor & Sendable>:
             Interactor, Sendable
-        where Child.DomainState: Sendable, Child.Action: Sendable {
-            public typealias DomainState = ParentState
+        where Child.State: Sendable, Child.Action: Sendable {
+            public typealias State = ParentState
             public typealias Action = ParentAction
 
             enum StatePath: @unchecked Sendable {
-                case keyPath(WritableKeyPath<ParentState, Child.DomainState>)
-                case casePath(AnyCasePath<ParentState, Child.DomainState>)
+                case keyPath(WritableKeyPath<ParentState, Child.State>)
+                case casePath(AnyCasePath<ParentState, Child.State>)
             }
 
             private let toChildState: StatePath
@@ -77,7 +77,7 @@ import Foundation
                 state toChildState: WritableKeyPath<ParentState, ChildState>,
                 action toChildAction: CaseKeyPath<ParentAction, ChildAction>,
                 @InteractorBuilder<ChildState, ChildAction> child: () -> Child
-            ) where ChildState == Child.DomainState, ChildAction == Child.Action {
+            ) where ChildState == Child.State, ChildAction == Child.Action {
                 self.init(
                     toChildState: .keyPath(toChildState),
                     toChildAction: AnyCasePath(toChildAction),
@@ -95,7 +95,7 @@ import Foundation
                 state toChildState: CaseKeyPath<ParentState, ChildState>,
                 action toChildAction: CaseKeyPath<ParentAction, ChildAction>,
                 @InteractorBuilder<ChildState, ChildAction> child: () -> Child
-            ) where ChildState == Child.DomainState, ChildAction == Child.Action {
+            ) where ChildState == Child.State, ChildAction == Child.Action {
                 self.init(
                     toChildState: .casePath(AnyCasePath(toChildState)),
                     toChildAction: AnyCasePath(toChildAction),
@@ -132,7 +132,7 @@ import Foundation
     /// Convenience alias for `Interactors.When`.
     public typealias WhenInteractor<ParentState: Sendable, ParentAction: Sendable, Child: Interactor & Sendable> =
         Interactors.When<ParentState, ParentAction, Child>
-    where Child.DomainState: Sendable, Child.Action: Sendable
+    where Child.State: Sendable, Child.Action: Sendable
 
     // MARK: - Interactor Modifier
 
@@ -159,11 +159,11 @@ import Foundation
         ///   - child: A closure that returns the child interactor.
         /// - Returns: A combined interactor that handles both parent and child domains.
         public func when<ChildState, ChildAction, Child: Interactor & Sendable>(
-            state toChildState: WritableKeyPath<DomainState, ChildState>,
+            state toChildState: WritableKeyPath<State, ChildState>,
             action toChildAction: CaseKeyPath<Action, ChildAction>,
             @InteractorBuilder<ChildState, ChildAction> child: () -> Child
-        ) -> Interactors.Merge<Interactors.When<DomainState, Action, Child>, Self>
-        where Child.DomainState == ChildState, Child.Action == ChildAction {
+        ) -> Interactors.Merge<Interactors.When<State, Action, Child>, Self>
+        where Child.State == ChildState, Child.Action == ChildAction {
             Interactors.Merge(
                 Interactors.When(state: toChildState, action: toChildAction, child: child),
                 self
@@ -193,11 +193,11 @@ import Foundation
         ///   - child: A closure that returns the child interactor.
         /// - Returns: A combined interactor that handles both parent and child domains.
         public func when<ChildState, ChildAction, Child: Interactor & Sendable>(
-            state toChildState: CaseKeyPath<DomainState, ChildState>,
+            state toChildState: CaseKeyPath<State, ChildState>,
             action toChildAction: CaseKeyPath<Action, ChildAction>,
             @InteractorBuilder<ChildState, ChildAction> child: () -> Child
-        ) -> Interactors.Merge<Interactors.When<DomainState, Action, Child>, Self>
-        where Child.DomainState == ChildState, Child.Action == ChildAction {
+        ) -> Interactors.Merge<Interactors.When<State, Action, Child>, Self>
+        where Child.State == ChildState, Child.Action == ChildAction {
             Interactors.Merge(
                 Interactors.When(state: toChildState, action: toChildAction, child: child),
                 self

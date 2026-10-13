@@ -17,7 +17,7 @@ import Observation
 /// ```
 ///
 /// The macro generates:
-/// - `typealias DomainState`
+/// - `typealias State`
 /// - `typealias Action`
 /// - Protocol conformance to `Interactor`
 @attached(
@@ -25,11 +25,11 @@ import Observation
     names:
         named(body),
     named(Action),
-    named(DomainState)
+    named(State)
 )
 @attached(memberAttribute)
 @attached(extension, conformances: Interactor)
-public macro Interactor<DomainState, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
+public macro Interactor<State, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
 
 /// Generates conformance to the ``ViewStateReducer`` protocol.
 ///

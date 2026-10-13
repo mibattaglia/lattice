@@ -24,8 +24,8 @@ extension Interactors {
     ///
     /// - Note: State changes happen immediately. Only effects are debounced.
     public struct Debounce<C: Clock, Child: Interactor & Sendable>: Interactor, Sendable
-    where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable {
-        public typealias DomainState = Child.DomainState
+    where Child.State: Sendable, Child.Action: Sendable, C.Duration: Sendable {
+        public typealias State = Child.State
         public typealias Action = Child.Action
 
         private let child: Child
@@ -46,7 +46,7 @@ extension Interactors {
 
         public var body: some InteractorOf<Self> { self }
 
-        public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+        public func interact(state: inout State, action: Action) -> Emission<Action> {
             let emission = child.interact(state: &state, action: action)
 
             switch emission.kind {
@@ -92,7 +92,7 @@ extension Interactors.Debounce where C == ContinuousClock {
 }
 
 public typealias DebounceInteractor<C: Clock & Sendable, Child: Interactor & Sendable> = Interactors.Debounce<C, Child>
-where Child.DomainState: Sendable, Child.Action: Sendable, C.Duration: Sendable
+where Child.State: Sendable, Child.Action: Sendable, C.Duration: Sendable
 
 extension Interactors.Debounce {
     private actor Sleeper {

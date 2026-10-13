@@ -6,7 +6,7 @@ extension Interactors {
     /// `CollectInteractors` enables creating interactors inline using the builder syntax.
     public struct CollectInteractors<State: Sendable, Action: Sendable, Interactors: Interactor>: Interactor,
         @unchecked Sendable
-    where State == Interactors.DomainState, Action == Interactors.Action {
+    where State == Interactors.State, Action == Interactors.Action {
         private let interactors: Interactors
 
         public init(@InteractorBuilder<State, Action> _ build: () -> Interactors) {

@@ -138,7 +138,7 @@ extension InteractorMacro: MemberMacro {
             }
 
         let argumentsArray = Array(generics.arguments)
-        let domainStateType = argumentsArray[0].argument.trimmedDescription
+        let stateType = argumentsArray[0].argument.trimmedDescription
         let eventType = argumentsArray[1].argument.trimmedDescription
         var decls: [DeclSyntax] = []
 
@@ -146,13 +146,13 @@ extension InteractorMacro: MemberMacro {
             existingTypeAliases,
             context: context,
             aliasType: .init(
-                rawValue: "DomainState",
-                typeName: domainStateType
+                rawValue: "State",
+                typeName: stateType
             )
         ) {
             decls.append(
                 """
-                typealias DomainState = \(raw: domainStateType)
+                typealias State = \(raw: stateType)
                 """
             )
         }

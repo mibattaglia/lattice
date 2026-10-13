@@ -15,8 +15,8 @@ extension Interactors {
     /// emissions merged together.
     ///
     /// - Note: For merging more than two interactors, see ``MergeMany``.
-    public struct Merge<I0: Interactor, I1: Interactor<I0.DomainState, I0.Action>>: Interactor, @unchecked Sendable
-    where I0.DomainState: Sendable, I0.Action: Sendable {
+    public struct Merge<I0: Interactor, I1: Interactor<I0.State, I0.Action>>: Interactor, @unchecked Sendable
+    where I0.State: Sendable, I0.Action: Sendable {
         private let i0: I0
         private let i1: I1
 
@@ -30,9 +30,9 @@ extension Interactors {
             self.i1 = i1
         }
 
-        public var body: some Interactor<I0.DomainState, I0.Action> { self }
+        public var body: some Interactor<I0.State, I0.Action> { self }
 
-        public func interact(state: inout I0.DomainState, action: I0.Action) -> Emission<I0.Action> {
+        public func interact(state: inout I0.State, action: I0.Action) -> Emission<I0.Action> {
             let emission0 = i0.interact(state: &state, action: action)
             let emission1 = i1.interact(state: &state, action: action)
             return .merge([emission0, emission1])

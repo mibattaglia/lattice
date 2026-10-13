@@ -142,7 +142,7 @@ public final class ViewModel<F: FeatureProtocol>: Observable, _ViewModel {
     where
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         R.DomainState == DomainState, R.ViewState == ViewState
     {
         let initialViewState = viewStateReducer.initialViewState(for: initialDomainState)
@@ -408,7 +408,7 @@ extension ViewModel where DomainState: Equatable {
     where
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         R.DomainState == DomainState, R.ViewState == ViewState
     {
         self.init(

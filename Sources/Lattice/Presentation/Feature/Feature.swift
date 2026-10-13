@@ -59,7 +59,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     where
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         R.DomainState == DomainState, R.ViewState == ViewState
     {
         self.interactor = interactor.eraseToAnyInteractor()
@@ -74,7 +74,7 @@ where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
     )
     where
         I: Interactor & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         DomainState == ViewState
     {
         self.interactor = interactor.eraseToAnyInteractor()
@@ -99,7 +99,7 @@ extension Feature where DomainState: Equatable {
     where
         I: Interactor & Sendable,
         R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         R.DomainState == DomainState, R.ViewState == ViewState
     {
         self.init(interactor: interactor, reducer: reducer, areStatesEqual: { $0 == $1 })
@@ -110,7 +110,7 @@ extension Feature where DomainState: Equatable {
     )
     where
         I: Interactor & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
+        I.State == DomainState, I.Action == Action,
         DomainState == ViewState
     {
         self.init(interactor: interactor, areStatesEqual: { $0 == $1 })

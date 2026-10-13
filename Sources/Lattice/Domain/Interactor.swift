@@ -35,23 +35,23 @@ import Foundation
 /// For advanced scenarios, implement `interact(state:action:)` directly:
 ///
 /// ```swift
-/// func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+/// func interact(state: inout State, action: Action) -> Emission<Action> {
 ///     // Custom processing logic
 ///     return .none
 /// }
 /// ```
 ///
 /// - Note: Custom `interact(state:action:)` implementations take precedence over `body`.
-public protocol Interactor<DomainState, Action> {
+public protocol Interactor<State, Action> {
     /// The type of state produced downstream.
-    associatedtype DomainState: Sendable
+    associatedtype State: Sendable
     /// The type of actions received upstream.
     associatedtype Action: Sendable
     /// The concrete type returned by the result-builder `body` property.
     associatedtype Body: Interactor
 
     /// A declarative description of this interactor constructed with ``InteractorBuilder``.
-    @InteractorBuilder<DomainState, Action>
+    @InteractorBuilder<State, Action>
     var body: Body { get }
 
     /// Processes an action by mutating state and returning an emission.
@@ -60,23 +60,23 @@ public protocol Interactor<DomainState, Action> {
     ///   - state: The current state, passed as `inout` for mutation.
     ///   - action: The action to process.
     /// - Returns: An ``Emission`` describing actions to emit.
-    func interact(state: inout DomainState, action: Action) -> Emission<Action>
+    func interact(state: inout State, action: Action) -> Emission<Action>
 }
 
-extension Interactor where Body.DomainState == Never {
+extension Interactor where Body.State == Never {
     public var body: Body {
         fatalError("'\(Self.self)' has no body.")
     }
 }
 
-extension Interactor where Body: Interactor<DomainState, Action> {
+extension Interactor where Body: Interactor<State, Action> {
     /// The default implementation forwards to the `body` interactor.
-    public func interact(state: inout DomainState, action: Action) -> Emission<Action> {
+    public func interact(state: inout State, action: Action) -> Emission<Action> {
         body.interact(state: &state, action: action)
     }
 }
 
-/// A convenience alias that exposes the `DomainState` and `Action` associated types of an
+/// A convenience alias that exposes the `State` and `Action` associated types of an
 /// ``Interactor``.
 ///
 /// Use this alias in `body` return types:
@@ -85,7 +85,7 @@ extension Interactor where Body: Interactor<DomainState, Action> {
 ///     Interact(initialValue: MyState()) { ... }
 /// }
 /// ```
-public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Action>
+public typealias InteractorOf<I: Interactor> = Interactor<I.State, I.Action>
 
 /// A type-erased wrapper around any ``Interactor``.
 ///
@@ -99,7 +99,7 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.DomainState, I.Actio
 public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
     private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
 
-    public init<I: Interactor & Sendable>(_ base: I) where I.DomainState == State, I.Action == Action {
+    public init<I: Interactor & Sendable>(_ base: I) where I.State == State, I.Action == Action {
         self.interactFunc = { state, action in base.interact(state: &state, action: action) }
     }
 
@@ -120,7 +120,7 @@ extension Interactor where Self: Sendable {
     ///     LoggingInteractor().eraseToAnyInteractor()
     /// ]
     /// ```
-    public func eraseToAnyInteractor() -> AnyInteractor<DomainState, Action> {
+    public func eraseToAnyInteractor() -> AnyInteractor<State, Action> {
         AnyInteractor(self)
     }
 }
@@ -137,9 +137,9 @@ public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked
         self.wrapped = wrapped
     }
 
-    public var body: some Interactor<I.DomainState, I.Action> { self }
+    public var body: some Interactor<I.State, I.Action> { self }
 
-    public func interact(state: inout I.DomainState, action: I.Action) -> Emission<I.Action> {
+    public func interact(state: inout I.State, action: I.Action) -> Emission<I.Action> {
         wrapped.interact(state: &state, action: action)
     }
 }
@@ -156,7 +156,7 @@ extension Interactor {
     /// Erases this interactor to `AnyInteractor` using an unchecked sendable wrapper.
     ///
     /// This is a convenience that combines `uncheckedSendable()` and `eraseToAnyInteractor()`.
-    public func eraseToAnyInteractorUnchecked() -> AnyInteractor<DomainState, Action> {
+    public func eraseToAnyInteractorUnchecked() -> AnyInteractor<State, Action> {
         UncheckedSendableInteractor(self).eraseToAnyInteractor()
     }
 }
