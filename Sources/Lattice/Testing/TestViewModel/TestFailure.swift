@@ -212,6 +212,19 @@ extension TestFailure {
     static func noInFlightEffectsToSkip() -> Self {
         Self("There were no in-flight emissions to skip.")
     }
+
+    static func missingStateEquality<State>(_ stateType: State.Type) -> Self {
+        Self(
+            """
+            TestViewModel cannot compare '\(State.self)' values: the feature has no state \
+            equality.
+
+            Make the state 'Equatable', build the feature with \
+            'Feature(interactor:areStatesEqual:)', or create the model with \
+            'TestViewModel(initialState:feature:areStatesEqual:)'.
+            """
+        )
+    }
 }
 
 private func describe<T>(_ value: T) -> String {
