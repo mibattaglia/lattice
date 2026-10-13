@@ -21,6 +21,10 @@ typealias PhaseExampleViewModel = ViewModel<Feature<PhaseEvent, PhaseState>>
 /// - Ticks while `.loading` (or `.idle`): nothing advances. A tick changes only the `.active`
 ///   payload, and a payloadless case keeps a stable (`_$inert`) identity across commits, so a
 ///   tick that leaves `.loading` showing never counts as a wholesale replacement.
+///
+/// The state is the enum itself, so each case carries its own data: `Tick:` counts the ticks
+/// since Start, and Reset and Stop drop their payload, so the next Load or Start begins from
+/// the defaults.
 struct PhaseExampleView: View {
     let viewModel: PhaseExampleViewModel
     private final class Renders { var count = 0 }
