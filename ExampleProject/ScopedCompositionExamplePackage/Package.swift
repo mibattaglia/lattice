@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "ScopedCompositionExample", targets: ["ScopedCompositionExample"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "lattice", path: "../..")
     ],
     targets: [
         .target(

@@ -11,7 +11,7 @@ let package = Package(
         .library(name: "SearchExample", targets: ["SearchExample"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "lattice", path: "../..")
     ],
     targets: [
         .target(

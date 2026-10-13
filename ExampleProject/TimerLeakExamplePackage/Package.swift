@@ -11,7 +11,7 @@ let package = Package(
         .library(name: "TimerLeakExample", targets: ["TimerLeakExample"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "lattice", path: "../..")
     ],
     targets: [
         .target(
