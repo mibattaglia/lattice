@@ -86,15 +86,7 @@ private struct CounterPhaseViewState: Equatable, Sendable, DefaultValueProvider 
 }
 
 @FeatureState
-@CasePathable
-@dynamicMemberLookup
-private enum CounterPhase: Equatable, Sendable {
-    case idle
-    case active(CounterPhasePayload)
-}
-
-@FeatureState
-private struct CounterPhasePayload: Equatable, Sendable {
+struct CounterPhasePayload: Equatable, Sendable {
     var value: String
 }
 

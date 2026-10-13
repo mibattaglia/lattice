@@ -12,16 +12,9 @@ private final class ChangeProbe: @unchecked Sendable {
     func mark() { lock.withLock { hasChanged = true } }
 }
 
-@FeatureState private struct SuccessViewState: Equatable, Sendable {
+@FeatureState struct SuccessViewState: Equatable, Sendable {
     var title: String
     var count: Int
-}
-
-@CasePathable
-@FeatureState private enum PhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self.loading
-    case loading
-    case success(SuccessViewState)
 }
 
 private struct PhaseDomain: Equatable, Sendable {

@@ -95,12 +95,7 @@ private struct DashReducer: ViewStateReducer, Sendable {
     }
 }
 
-// When the whole view state is the enum itself:
-@FeatureState private enum RootPhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self.loading
-    case loading
-    case content(String)
-}
+// When the whole view state is the enum itself (`RootPhaseViewState`):
 
 private struct PhaseDomain: Equatable, Sendable { var loaded = false; var text = "" }
 

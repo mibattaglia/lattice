@@ -149,15 +149,7 @@ private struct ObservationTestViewState: Equatable, Sendable, DefaultValueProvid
 }
 
 @FeatureState
-@CasePathable
-@dynamicMemberLookup
-private enum ObservationTestPhase: Equatable, Sendable {
-    case idle
-    case active(ObservationTestPayload)
-}
-
-@FeatureState
-private struct ObservationTestPayload: Equatable, Sendable {
+struct ObservationTestPayload: Equatable, Sendable {
     var value: String
 }
 

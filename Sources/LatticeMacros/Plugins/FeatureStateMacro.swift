@@ -308,6 +308,7 @@ extension FeatureStateMacro: MemberMacro {
         guard !declaration.isEnum
         else {
             return try enumExpansion(of: node, providingMembersOf: declaration, in: context)
+                + viewStateDeclarations(of: declaration, in: context)
         }
 
         guard let identified = declaration.asProtocol((any NamedDeclSyntax).self) else {
@@ -741,6 +742,7 @@ extension FeatureStateMacro {
     static let viewStateWitnessTypeName = "_$ViewStateWitness"
     static let viewStateStorageName = "_state"
     static let domainMacroName = "Domain"
+    static let casePathableMacroName = "CasePathable"
 
     static func domainAttribute(in attributes: AttributeListSyntax) -> AttributeSyntax? {
         for element in attributes {
@@ -771,7 +773,7 @@ extension FeatureStateMacro {
         attributes.append("@\(moduleName)._IdentifiableIfPossible(\(typeName).self)")
         attributes.append("@\(moduleName)._EquatableIfPossible(\(typeName).self)")
 
-        let renderer = ViewStateRenderer(
+        var renderer = ViewStateRenderer(
             typeName: typeName,
             access: viewStateAccess(of: declaration, in: context),
             members: ViewStateMember.members(of: declaration.memberBlock.members),
@@ -779,7 +781,21 @@ extension FeatureStateMacro {
             conformances: "\(moduleName).ViewStateProjection"
                 + (inheritedTypeNames.contains("Sendable") ? ", Sendable" : "")
         )
-        return renderer.structDeclarations
+        guard let enumDecl = declaration.as(EnumDeclSyntax.self) else {
+            return renderer.structDeclarations
+        }
+        // `@CasePathable` is propagated with the spelling the state uses; it is visible here,
+        // so CasePaths is imported wherever the mirror is generated.
+        if let casePathable = enumDecl.attributes.first(where: {
+            guard case .attribute(let attribute) = $0 else { return false }
+            let name = attribute.attributeName.trimmedDescription
+            return name == casePathableMacroName || name == "CasePaths.\(casePathableMacroName)"
+        }) {
+            renderer.attributes.append(casePathable.trimmedDescription)
+        }
+        return renderer.enumDeclarations(
+            isIndirect: enumDecl.modifiers.contains { $0.name.tokenKind == .keyword(.indirect) }
+        )
     }
 
     /// The access modifier of the generated declarations, mirroring the state's: an explicit
@@ -814,6 +830,7 @@ indirect enum ViewStateMember {
     /// An instance property that is not `private`/`fileprivate`. `type` is the explicit
     /// annotation, if any.
     case property(name: TokenSyntax, type: TypeSyntax?, isDomain: Bool)
+    case enumCase(ViewStateCase)
     case ifConfig([IfConfigClause])
 
     struct IfConfigClause {
@@ -856,10 +873,44 @@ indirect enum ViewStateMember {
                         .property(name: name.trimmed, type: binding.typeAnnotation?.type.trimmed, isDomain: isDomain)
                     )
                 }
+            } else if let caseDecl = item.decl.as(EnumCaseDeclSyntax.self) {
+                let isIndirect = caseDecl.modifiers.contains { $0.name.tokenKind == .keyword(.indirect) }
+                for element in caseDecl.elements {
+                    members.append(
+                        .enumCase(
+                            ViewStateCase(
+                                name: element.name.trimmed,
+                                isIndirect: isIndirect,
+                                payloads: (element.parameterClause?.parameters ?? []).map { parameter in
+                                    ViewStateCase.Payload(
+                                        label: parameter.firstName.flatMap {
+                                            $0.tokenKind == .wildcard ? nil : $0.trimmed
+                                        },
+                                        type: parameter.type.trimmed
+                                    )
+                                }
+                            )
+                        )
+                    )
+                }
             }
         }
         return members
     }
+}
+
+struct ViewStateCase {
+    struct Payload {
+        let label: TokenSyntax?
+        let type: TypeSyntax
+    }
+
+    let name: TokenSyntax
+    let isIndirect: Bool
+    let payloads: [Payload]
+
+    /// The associated type naming the projected type of the payload at `index`.
+    func witnessName(_ index: Int) -> String { "\(name.bareText)_\(index)" }
 }
 
 /// Renders the generated projection declarations for one `@FeatureState` type.
@@ -868,7 +919,7 @@ struct ViewStateRenderer {
     /// `public `, `package `, `fileprivate ` or empty.
     let access: String
     let members: [ViewStateMember]
-    let attributes: [String]
+    var attributes: [String]
     let conformances: String
 
     var structDeclarations: [DeclSyntax] {
@@ -889,14 +940,56 @@ struct ViewStateRenderer {
         ]
     }
 
-    /// One associated type per visible property and per inferred-type `@Domain` property (its
-    /// stub needs a type).
+    func enumDeclarations(isIndirect: Bool) -> [DeclSyntax] {
+        let cases = render { member in
+            guard case .enumCase(let enumCase) = member else { return [] }
+            let indirect = enumCase.isIndirect ? "indirect " : ""
+            guard !enumCase.payloads.isEmpty else { return ["\(indirect)case \(enumCase.name.text)"] }
+            let payloads = enumCase.payloads.indices.map { index in
+                labeled(enumCase.payloads[index], "_$ViewStateWitness.\(enumCase.witnessName(index))")
+            }
+            return ["\(indirect)case \(enumCase.name.text)(\(payloads.joined(separator: ", ")))"]
+        }
+        let initCases = render { member in
+            guard case .enumCase(let enumCase) = member else { return [] }
+            return switchCase(enumCase, body: "self =") { index in "Lattice._$project(p\(index))" }
+        }
+        let stateCases = render { member in
+            guard case .enumCase(let enumCase) = member else { return [] }
+            return switchCase(enumCase, body: "return") { index in
+                "Lattice._$unproject(p\(index), to: (\(enumCase.payloads[index].type.trimmedDescription)).self)"
+            }
+        }
+        let body =
+            cases
+            + ["\(access)init(_ state: \(typeName)) {", "switch state {"] + initCases + ["}", "}"]
+            + ["@_spi(Lattice) public var \(FeatureStateMacro.viewStateStorageName): \(typeName) {", "switch self {"]
+            + stateCases + ["}", "}"]
+            + forwardedProperties + domainStubs
+        let indirect = isIndirect ? "indirect " : ""
+        return [
+            typesProtocol,
+            witnessStruct,
+            declaration(
+                attributes + ["\(access)\(indirect)enum \(FeatureStateMacro.viewStateTypeName): \(conformances)"],
+                body
+            ),
+        ]
+    }
+
+    /// One associated type per visible property, per inferred-type `@Domain` property (its stub
+    /// needs a type) and per enum payload.
     private var typesProtocol: DeclSyntax {
         let requirements = render { member in
             switch member {
             case .property(let name, let type, let isDomain):
                 guard !isDomain || type == nil else { return [] }
                 return ["associatedtype \(name.text)", "var _$\(name.bareText): \(name.text) { get }"]
+            case .enumCase(let enumCase):
+                return enumCase.payloads.indices.flatMap { index in
+                    let witness = enumCase.witnessName(index)
+                    return ["associatedtype \(witness)", "var _$\(witness): \(witness) { get }"]
+                }
             case .ifConfig:
                 return []
             }
@@ -914,6 +1007,12 @@ struct ViewStateRenderer {
                     return type == nil ? ["\(access)let _$\(name.bareText) = \(placeholder).\(name.text)"] : []
                 }
                 return ["\(access)let _$\(name.bareText) = Lattice._$project(\(placeholder).\(name.text))"]
+            case .enumCase(let enumCase):
+                return enumCase.payloads.indices.map { index in
+                    let payloadType = enumCase.payloads[index].type.trimmedDescription
+                    return "\(access)let _$\(enumCase.witnessName(index)) = "
+                        + "Lattice._$project(Lattice._$placeholder((\(payloadType)).self))"
+                }
             case .ifConfig:
                 return []
             }
@@ -954,6 +1053,25 @@ struct ViewStateRenderer {
     private func declaration(_ header: [String], _ body: [String]) -> DeclSyntax {
         let opening = header.joined(separator: "\n") + " {"
         return "\(raw: ([opening] + body + ["}"]).joined(separator: "\n"))"
+    }
+
+    private func labeled(_ payload: ViewStateCase.Payload, _ value: String) -> String {
+        payload.label.map { "\($0.text): \(value)" } ?? value
+    }
+
+    private func switchCase(
+        _ enumCase: ViewStateCase,
+        body: String,
+        payload: (Int) -> String
+    ) -> [String] {
+        let name = enumCase.name.text
+        guard !enumCase.payloads.isEmpty else { return ["case .\(name):", "\(body) .\(name)"] }
+        let bindings = enumCase.payloads.indices.map { "p\($0)" }.joined(separator: ", ")
+        let arguments = enumCase.payloads.indices.map { labeled(enumCase.payloads[$0], payload($0)) }
+        return [
+            "case let .\(name)(\(bindings)):",
+            "\(body) .\(name)(\(arguments.joined(separator: ", ")))",
+        ]
     }
 
     /// Renders `members` in order, mirroring `#if` blocks. A block that renders no lines in
