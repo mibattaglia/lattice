@@ -1,6 +1,6 @@
 ---
 name: lattice-case-paths
-description: Ergonomic enum access and generic algorithms for Lattice actions and view state using CasePaths.
+description: Ergonomic enum access and generic algorithms for Lattice actions and enum states using CasePaths.
 license: MIT
 metadata:
   short-description: CasePaths ergonomics for Lattice enums.
@@ -10,12 +10,12 @@ metadata:
 
 ## Goal
 
-Use CasePaths to make Lattice enums (Actions, ViewState enums, Effect-like enums) concise to read, write, and test. Prefer case key paths over verbose pattern matching when you need to probe, embed, or mutate associated values.
+Use CasePaths to make Lattice enums (Actions, `@FeatureState` enum states and their `ViewState` mirrors, Effect-like enums) concise to read, write, and test. Prefer case key paths over verbose pattern matching when you need to probe, embed, or mutate associated values.
 
 ## When to use
 
 - Action enums with associated values that you want to inspect or transform.
-- ViewState enums driving SwiftUI rendering or navigation.
+- Enum states driving SwiftUI rendering or navigation.
 - Tests that need to surgically modify an associated value without re-creating the whole enum.
 
 ## Quick start
@@ -81,20 +81,22 @@ let progress = state.loading
 
 ## SwiftUI + ViewModel bindings
 
-When a ViewState is a `CasePathable` enum, the Lattice `@Bindable` APIs can derive bindings to case payloads. This keeps SwiftUI code small and intent-driven.
+When a feature's state is a `@CasePathable` `@FeatureState` enum, `@FeatureState` generates a `ViewState` mirror enum and carries `@CasePathable` onto it. The Lattice `@Bindable` APIs derive bindings to case payloads through that mirror, so `@Domain` members of a payload stay hidden. This keeps SwiftUI code small and intent-driven.
 
 ```swift
-@ObservableState
 @CasePathable
+@FeatureState
 enum ScreenState: Sendable, Equatable {
     case list(ListState)
     case detail(DetailState)
 }
 
-@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ScreenState>>
+@Bindable var viewModel: ViewModel<Feature<ScreenAction, ScreenState>>
 
 let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged)
 ```
+
+`ListState` and `DetailState` are `@FeatureState` structs declared in another file (see "File layout" below).
 
 Use a fallback value when the case may be inactive:
 
@@ -104,7 +106,7 @@ let titleBinding = $viewModel.detail.title.sending(\.detailTitleChanged, default
 
 ## Enum-case scoping
 
-Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when view state itself is a `CasePathable` enum, `scope(state: CaseKeyPath, action: CaseKeyPath)` projects onto the active case's payload:
+Case key paths also drive `ViewModel` scoping. `scope(state: KeyPath, action: CaseKeyPath)` embeds child actions through an action case, and when the state itself is a `@CasePathable` `@FeatureState` enum, `scope(state: CaseKeyPath, action: CaseKeyPath)` projects onto the active case's payload. The state case path is rooted at the `ViewState` mirror:
 
 ```swift
 switch viewModel.viewState {
@@ -117,7 +119,8 @@ case .detail:
 
 - The trapping `scope` is for use inside a matched `switch` case; it `fatalError`s if the case is inactive.
 - `scopeIfActive(state:action:)` returns `nil` instead, for conditional contexts.
-- In reducers, mutate the active payload in place with `modify` (`viewState.modify(\.detail) { ... }`) so case scopes observe the change fine-grained; rebuilding the whole case value is a wholesale replacement.
+- Only `@FeatureState` payloads can be scoped; a plain payload (`String`, a DTO) is read or bound through the mirror as is.
+- In interactors, mutate the active payload in place, with `modify` on the raw state (`state.modify(\.detail) { ... }`) or `Interactors.When(state: \.detail, action: \.detail)`, so case scopes observe the change fine-grained; assigning a new case value is a wholesale replacement.
 
 ## Testing buffered receives
 
@@ -129,8 +132,13 @@ await model.receive(\.loadResponse) {
 }
 ```
 
+## File layout
+
+A known Swift 6.4 compiler bug can crash the compiler (segfault in `TypeCheckPrimaryFileRequest`) when a source file holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums such as actions, `@Observable` classes, `@Interactor` types, …). Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration; files whose `@FeatureState` types are all structs are not affected. This is a temporary workaround for the compiler bug, not a design rule.
+
 ## Gotchas
 
 - Case paths are for enums only. Use regular key paths for structs.
-- For view state, prefer enums with simple associated values and keep domain state in the interactor.
+- For enum states, make payload structs the feature owns `@FeatureState` and keep their domain-only members `@Domain`; keep primitive and foreign payloads plain.
+- `@FeatureState` carries `@CasePathable` onto the `ViewState` mirror, but not `@dynamicMemberLookup`: read a payload off `viewModel.viewState` with `switch` or `[case: \.detail]`.
 - `sending(_:)` on a case binding crashes if that case is inactive; use `sending(_:default:)` when the view may read outside the active case.

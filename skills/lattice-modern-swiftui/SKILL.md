@@ -10,34 +10,34 @@ metadata:
 
 ## Goal
 
-Build SwiftUI views that are thin, deterministic, and easy to preview by routing all feature logic through Lattice's `ViewModel`, `Interactor`, and `ViewStateReducer`.
+Build SwiftUI views that are thin, deterministic, and easy to preview by routing all feature logic through Lattice's `ViewModel` and `Interactor`, and by reading one `@FeatureState` state through its generated `ViewState` projection.
 
 ## Core rules
 
-- Views send user events through `sendViewEvent(_:)` and read from `viewState`.
+- Views send user events through `sendViewEvent(_:)` and read members of the state's `ViewState` (`viewModel.title`), or `viewModel.viewState` to `switch` over an enum state.
 - `sendViewEvent(_:)` returns an `EventTask` scoped to that root send. Await `finish()` in `.task`, `.refreshable`, or explicit `Task` blocks when the UI must wait for downstream work.
-- Keep view state simple (strings, numbers, colors, booleans). Use a `ViewStateReducer` to transform domain state.
+- Keep visible members simple (strings, numbers, colors, booleans). Compute them on the state from `@Domain` raw values instead of transforming data in the view.
 - Move multi-line logic out of view closures into methods named after user actions.
-- Use `Feature(interactor:)` only when `DomainState == ViewState`; otherwise model an explicit reducer.
-- If a reducer-backed view state does not conform to `DefaultValueProvider`, implement `initialViewState(for:)`.
+- `@Domain` members cannot be read from views, scopes, or bindings; expose a computed member instead.
 
-## View wiring patterns
-
-### Feature with ViewStateReducer (DomainState -> ViewState)
+## View wiring pattern
 
 ```swift
+@FeatureState
+struct CounterState: Sendable, Equatable {
+    @Domain var count = 0
+    var displayText: String { "Count: \(count)" }
+}
+
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(count: 0),
-        feature: Feature(
-            interactor: CounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(),
+        feature: Feature(interactor: CounterInteractor())
     )
 
     var body: some View {
         VStack {
-            Text(viewModel.viewState.displayText)
+            Text(viewModel.displayText)
             HStack {
                 Button("-") { decrementButtonTapped() }
                 Button("+") { incrementButtonTapped() }
@@ -55,25 +55,7 @@ struct CounterView: View {
 }
 ```
 
-### Feature without reducer (DomainState == ViewState)
-
-```swift
-@ObservableState
-struct CounterState: Sendable, Equatable {
-    var count = 0
-}
-
-struct CounterView: View {
-    @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(),
-        feature: Feature(interactor: CounterInteractor())
-    )
-
-    var body: some View {
-        Text("Count: \(viewModel.viewState.count)")
-    }
-}
-```
+`viewModel.displayText` is observed on its own: the view re-renders when `count` changes because `displayText` reads it, and not when unrelated members change.
 
 ## Async actions from the view
 
@@ -101,12 +83,12 @@ Use `@Bindable` to derive bindings that send actions on write. Avoid `Binding(ge
 Action enums must be `@CasePathable` to use `sending`.
 
 ```swift
-@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ViewState>>
+@Bindable var viewModel: ViewModel<Feature<FormAction, FormState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
-For enum view state case bindings, use `sending(_:default:)` when the case may not be active.
+For enum state case bindings, use `sending(_:default:)` when the case may not be active.
 
 ## Scoped child views
 
@@ -114,7 +96,7 @@ Pass child views a `ScopedViewModel` instead of the parent's `ViewModel` type. C
 
 ```swift
 struct DashboardView: View {
-    @State private var viewModel: ViewModel<DashboardFeature>
+    @State private var viewModel: ViewModel<Feature<DashboardAction, DashboardState>>
 
     var body: some View {
         VStack {
@@ -126,7 +108,7 @@ struct DashboardView: View {
 }
 
 struct HeaderView: View {
-    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+    let model: ScopedViewModel<HeaderState, HeaderAction>
 
     var body: some View {
         Text(model.title) // fine-grained: re-renders only when `title` changes
@@ -142,9 +124,10 @@ Rules:
 - Create scopes inline in `body`. Never store a scope in `@State` or another long-lived property; it retains the parent view model.
 - Case-path action embedding requires the parent action to be `@CasePathable`; use the closure overload `scope(state:action: { .child($0) })` otherwise.
 - `scope(state:)` with no action produces a read-only scope (`ChildAction == Never`) for display-only children.
+- Collections of `Identifiable` children scope element by element: `ForEach(viewModel.scope(state: \.rows, action: \.row)) { row in RowView(model: row) }`.
 - `model.sendViewEvent(_:)` returns the parent's `EventTask`; await `finish()` for async boundaries just like on `ViewModel`.
 
-### Enum view state
+### Enum state
 
 Switch over the enum and scope onto the matched case's payload:
 
@@ -157,21 +140,24 @@ case .success:
 }
 ```
 
-The trapping `scope(state:action:)` is safe inside a matched `switch` case (body evaluation is synchronous). Outside a matched case, use `scopeIfActive(state:action:)`, which returns `nil` when the case is inactive.
+The trapping `scope(state:action:)` is safe inside a matched `switch` case (body evaluation is synchronous). Outside a matched case, use `scopeIfActive(state:action:)`, which returns `nil` when the case is inactive. The payload must be `@FeatureState` to be scoped.
 
 ## Presentation
 
-Keep navigation and presentation decisions in ViewState. Use optional state or enum cases, then drive SwiftUI modifiers from view state.
+Keep navigation and presentation decisions in the state. Use optional children or enum cases, derive presentation flags as computed members, and drive SwiftUI modifiers from them:
 
 ```swift
-@ObservableState
-struct ScreenViewState: Sendable, Equatable {
-    var destination: DestinationViewState?
+@FeatureState
+struct ScreenState: Sendable, Equatable {
+    var detail: DetailState?
+    var isShowingDetail: Bool { detail != nil }
 }
 
-@Bindable var viewModel: ViewModel<Feature<Action, DomainState, ScreenViewState>>
+@Bindable var viewModel: ViewModel<Feature<ScreenAction, ScreenState>>
 
-.sheet(item: $viewModel.destination) { destination in
-    DestinationView(viewState: destination)
+.sheet(isPresented: $viewModel.isShowingDetail.sending(\.detailPresentationChanged)) {
+    if let detail = viewModel.scope(state: \.detail, action: \.detail) {
+        DetailView(model: detail)
+    }
 }
 ```

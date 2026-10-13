@@ -14,7 +14,7 @@ Write deterministic tests for Lattice features with the current step-wise testin
 
 ## Core tools
 
-- `TestViewModel<F>` for domain-state-first, step-wise feature tests.
+- `TestViewModel<F>` for state-first, step-wise feature tests. `model.state` is the raw state, `@Domain` members included.
 - `TestEventTask` for root-send-scope completion and cancellation.
 - `TestClock` from `Clocks` for debounce and time-based behavior.
 - `exhaustivity`, `skipReceivedActions()`, and `skipInFlightEffects()` for buffered receives and long-lived work.
@@ -33,11 +33,8 @@ final class CounterInteractorTests {
     @Test
     func increment() async {
         let model = TestViewModel(
-            initialDomainState: CounterState(count: 0),
-            feature: Feature(
-                interactor: CounterInteractor(),
-                reducer: CounterViewStateReducer()
-            )
+            initialState: CounterState(count: 0),
+            feature: Feature(interactor: CounterInteractor())
         )
 
         let task = await model.send(.increment) {
@@ -52,6 +49,25 @@ final class CounterInteractorTests {
 These assertion APIs are non-throwing: use `send`, `receive`, `finish`, and
 `TestEventTask.finish()` directly without `try`.
 
+## State equality
+
+Assertions compare states with the feature's `areStatesEqual`:
+
+- `Feature(interactor:)` supplies `==` for an `Equatable` state.
+- For a state that is not `Equatable`, or a comparison that ignores generated values such as IDs, build the feature with `Feature(interactor:areStatesEqual:)`.
+- `TestViewModel(initialState:feature:areStatesEqual:)` covers a feature without an equality; the feature's own equality takes precedence over it.
+- With no equality at all, `TestViewModel` reports an issue at `init` and every state assertion fails.
+
+```swift
+let model = TestViewModel(
+    initialState: TodosState(),
+    feature: Feature(
+        interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
+        areStatesEqual: todosStatesAreEqualIgnoringIDs
+    )
+)
+```
+
 ## Async emission output
 
 ```swift
@@ -59,11 +75,8 @@ These assertion APIs are non-throwing: use `send`, `receive`, `finish`, and
 @MainActor
 func asyncIncrement() async {
     let model = TestViewModel(
-        initialDomainState: CounterState(count: 0),
-        feature: Feature(
-            interactor: AsyncCounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(count: 0),
+        feature: Feature(interactor: AsyncCounterInteractor())
     )
 
     let task = await model.send(.asyncIncrement)
@@ -95,27 +108,24 @@ Assert the synchronous mutation first, advance the clock, then `receive(...)` th
 
 ## Production ViewModel tests
 
-Only test production `ViewModel` behavior when you need to validate view-state mapping or event wiring.
+Only test production `ViewModel` behavior when you need to validate computed presentation members, observation, or event wiring. Reads go through the `ViewState` projection, exactly as in a view.
 
 ```swift
-@Test func viewStateMapping() async {
-    let feature = Feature(
-        interactor: CounterInteractor(),
-        reducer: CounterViewStateReducer()
-    )
+@Test func countTextFollowsTheCount() async {
+    let feature = Feature(interactor: CounterInteractor())
     let viewModel = ViewModel(
-        initialDomainState: CounterState(count: 0),
+        initialState: CounterState(count: 0),
         feature: feature
     )
 
     await viewModel.sendViewEvent(.increment).finish()
-    #expect(viewModel.viewState.countText == "1")
+    #expect(viewModel.countText == "1")
 }
 ```
 
 ## Tips
 
-- Prefer `TestViewModel` for feature behavior and reserve production `ViewModel` tests for reducer/wiring coverage.
+- Prefer `TestViewModel` for feature behavior and reserve production `ViewModel` tests for presentation-member, observation and wiring coverage.
 - Keep assertions local to `send` and `receive` blocks so the test documents the intended state transition at each step.
 - Import `Clocks` anywhere you use `TestClock`.
 - Use `task.cancel()` or `skipInFlightEffects()` for intentionally unbounded emission work.

@@ -1,6 +1,6 @@
 ---
 name: lattice
-description: Build Swift application features using Lattice interactors, features, view models, and view state reducers.
+description: Build Swift application features using Lattice interactors, features, view models, and @FeatureState state.
 license: MIT
 metadata:
   short-description: Build features with Lattice.
@@ -10,31 +10,34 @@ metadata:
 
 ## Goal
 
-Build Swift features using Lattice's Interactor + Feature + ViewModel + ViewStateReducer architecture.
+Build Swift features using Lattice's Interactor + Feature + ViewModel architecture over one `@FeatureState` state per feature.
 For new feature setup, use the bootstrap checklist in `resources/bootstrapping.md`.
 
 ## State modeling rules
 
-- `DomainState` is business logic state. It can hold raw values and domain-aligned external models.
-- `ViewState` is render instructions only. Keep raw formatting concerns out of views.
+- A feature has one `@FeatureState` state, and its interactor is the only code that mutates it.
+- Views read the state through the generated `State.ViewState` projection. Visible members are render instructions; derive display values as computed members on the state.
+- Mark business-logic members (raw values, workflow flags, domain-aligned external models) `@Domain`. They stay observation-tracked, so computed members that read them re-render, but views, scopes and bindings cannot read them.
 - Interactors own side effects and external data access via dependencies.
-- `ViewStateReducer` is a synchronous, stateless translation from domain data to presentation values.
-- Prefer Interactor + reducer layering; use `Feature(interactor:)` only when `DomainState == ViewState`.
+- Keep raw formatting concerns out of views.
 
 ## Quick start
 
 1. Add the `swift-lattice` package dependency.
 2. Add the `Lattice` product to your target's dependencies.
-3. `import Lattice` as needed.
-4. `@Interactor<DomainState, Action>` and `@ViewStateReducer<DomainState, ViewState>` require explicit generic arguments.
+3. `import Lattice` as needed. A file that declares a `@FeatureState` type also needs `Observation` in scope (`import Foundation` or `import SwiftUI` provides it).
+4. `@Interactor<State, Action>` requires explicit generic arguments.
 
 ## Build a basic feature
 
 ```swift
+import Foundation
 import Lattice
 
+@FeatureState
 struct CounterState: Sendable, Equatable {
-    var count = 0
+    @Domain var count = 0
+    var countText: String { String(count) }
 }
 
 enum CounterAction: Sendable {
@@ -60,7 +63,7 @@ struct CounterInteractor: Sendable {
 ```
 
 - Do name actions after user intent (`incrementButtonTapped`), not the state change.
-- Do keep domain state in the interactor; view state is derived.
+- Do keep raw values `@Domain` and expose display values as computed members; there is no separate view-state type or reducer.
 
 ## Connect to SwiftUI
 
@@ -68,34 +71,16 @@ struct CounterInteractor: Sendable {
 import Lattice
 import SwiftUI
 
-@ObservableState
-struct CounterViewState: Sendable, Equatable, DefaultValueProvider {
-    static let defaultValue = CounterViewState(countText: "0")
-    var countText = "0"
-}
-
-@ViewStateReducer<CounterState, CounterViewState>
-struct CounterViewStateReducer: Sendable {
-    var body: some ViewStateReducerOf<Self> {
-        BuildViewState { domainState, viewState in
-            viewState.countText = String(domainState.count)
-        }
-    }
-}
-
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(),
-        feature: Feature(
-            interactor: CounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(),
+        feature: Feature(interactor: CounterInteractor())
     )
 
     var body: some View {
         HStack {
             Button("-") { viewModel.sendViewEvent(.decrementButtonTapped) }
-            Text(viewModel.viewState.countText)
+            Text(viewModel.countText)
             Button("+") { viewModel.sendViewEvent(.incrementButtonTapped) }
         }
     }
@@ -103,12 +88,10 @@ struct CounterView: View {
 ```
 
 - Do keep view methods thin; move multi-line logic to private methods named after user actions.
-- Do use `@ObservableState` on view state types.
-- `BuildViewState { domainState, viewState in ... }` is the standard reducer style.
-- If view state does not conform to `DefaultValueProvider`, provide `initialViewState(for:)`.
+- Do read members (`viewModel.countText`): each read is observed on its own. `viewModel.viewState` is the coarse read of the whole projection, for a `switch` over an enum state.
+- Reading a `@Domain` member from a view does not compile: `'count' is unavailable: 'count' is @Domain state and is not visible to views`.
 - `sendViewEvent(_:)` returns an `EventTask`; use `finish()` when the view must await root-scope completion, and `cancel()` when lifecycle-bound work should stop.
-- If `DomainState == ViewState`, initialize `Feature` with only an interactor.
-- Pass `areStatesEqual:` when `DomainState` is not `Equatable` or when version/identity comparison is more appropriate than full equality.
+- `Feature(interactor:)` compares states with `==` when the state is `Equatable`. Pass `areStatesEqual:` when the state is not `Equatable` or when a version/identity comparison is the right boundary.
 - Don't push formatting (`Date` to text, enum display labels, color decisions) into SwiftUI views.
 
 ## Async work
@@ -161,17 +144,18 @@ enum FormAction: Sendable {
     case nameChanged(String)
 }
 
-@Bindable var viewModel: ViewModel<Feature<FormAction, FormState, FormViewState>>
+@Bindable var viewModel: ViewModel<Feature<FormAction, FormState>>
 
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
 - Actions must be `@CasePathable` to use `sending`.
-- For enum view state case bindings, use `sending(_:default:)` when case presence is conditional.
+- Binding key paths are rooted at `FormState.ViewState`, so a `@Domain` member cannot be bound.
+- For enum state case bindings, use `sending(_:default:)` when case presence is conditional.
 
 ## Child features
 
-Model child state in domain, and use `ViewStateReducer` to derive view state as needed.
+Model a child feature as a nested `@FeatureState` member of the parent state (or as an enum-case payload).
 Prefer composing interactors rather than nesting logic in views.
 Use `when(state:action:child:)` or `Interactors.When` for scoped child handling.
 
@@ -185,7 +169,7 @@ HeaderView(model: viewModel.scope(state: \.header, action: \.header))
 
 // Child view
 struct HeaderView: View {
-    let model: ScopedViewModel<HeaderViewState, HeaderAction>
+    let model: ScopedViewModel<HeaderState, HeaderAction>
 
     var body: some View {
         Text(model.title)
@@ -194,10 +178,15 @@ struct HeaderView: View {
 }
 ```
 
-- Do read members through the scope (`model.title`) for fine-grained observation; don't read the whole `model.viewState` (coarse, identity-only).
+- Do read members through the scope (`model.title`) for fine-grained observation; don't read the whole `model.viewState` (coarse: it re-renders only when the child is replaced).
 - Do create scopes inline in `body`; don't store them (`@State` etc.) — a scope retains its parent view model.
-- For enum view state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive.
+- Optional children scope to `ScopedViewModel?`; a collection of `Identifiable` children (`Array` or `IdentifiedArrayOf`) scopes to one scope per element for `ForEach` (`scope(state: \.rows, action: \.row)` with `case row(RowState.ID, RowAction)`).
+- For an enum state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch viewModel.viewState` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive. Both go through the `@CasePathable` `ViewState` mirror, so the payload must be `@FeatureState`.
 - Details and more overloads (closure embedding, read-only, nested scopes, bindings) in `resources/advanced-composition.md`.
+
+## File layout for enum states
+
+A known Swift 6.4 compiler bug can crash the compiler (segfault in `TypeCheckPrimaryFileRequest`) when a source file holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …). Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration; put its payload structs, actions and interactor in other files. Files whose `@FeatureState` types are all structs are not affected. This is a temporary workaround for the compiler bug, not a design rule.
 
 ## References
 - See `resources/advanced-composition.md` for composition, navigation, and stream guidance.

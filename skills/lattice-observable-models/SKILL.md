@@ -14,13 +14,13 @@ Prefer Lattice's `Interactor` + `ViewModel` architecture for feature logic, whil
 
 ## Primary rule
 
-If logic affects domain state, side effects, or async work, model it in the `Interactor`. Views should only translate user events into actions via `sendViewEvent(_:)`.
+If logic affects the feature's state, side effects, or async work, model it in the `Interactor`. Views should only translate user events into actions via `sendViewEvent(_:)`.
 Use the `EventTask` returned from `sendViewEvent(_:)` when the UI needs to await or cancel feature work; do not build a second `@Observable` coordinator just to manage async interactor behavior.
 
 ## When a local observable model is acceptable
 
 - View-only state (focus, selection, animation flags).
-- Temporary UI state that is not part of the feature's domain state.
+- Temporary UI state that is not part of the feature's `@FeatureState` state.
 - UI helpers that do not trigger emissions or side effects.
 
 ## Patterns
@@ -43,11 +43,8 @@ struct CounterInteractor: Sendable {
 
 struct CounterView: View {
     @State private var viewModel = ViewModel(
-        initialDomainState: CounterState(count: 0),
-        feature: Feature(
-            interactor: CounterInteractor(),
-            reducer: CounterViewStateReducer()
-        )
+        initialState: CounterState(count: 0),
+        feature: Feature(interactor: CounterInteractor())
     )
 
     var body: some View {

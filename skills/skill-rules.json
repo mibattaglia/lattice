@@ -6,21 +6,21 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Lattice architecture: Interactor, Feature, ViewModel, ViewStateReducer, Emission",
+      "description": "Lattice architecture: Interactor, Feature, ViewModel, FeatureState, @Domain, ViewState projection, Emission",
       "promptTriggers": {
-        "keywords": ["lattice", "interactor", "viewmodel", "view state reducer", "emission", "scope", "scopedviewmodel"],
+        "keywords": ["lattice", "interactor", "viewmodel", "featurestate", "feature state", "@domain", "viewstate projection", "emission", "scope", "scopedviewmodel"],
         "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)", "(scope|compose).*?(view|child)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/Lattice/**"],
-        "contentPatterns": ["@Interactor", "ViewModel", "ViewStateReducer", "ScopedViewModel"]
+        "contentPatterns": ["@Interactor", "ViewModel", "@FeatureState", "@Domain", "ScopedViewModel"]
       }
     },
     "lattice-case-paths": {
       "type": "domain",
       "enforcement": "suggest",
       "priority": "medium",
-      "description": "CasePaths ergonomics for Lattice actions and view state",
+      "description": "CasePaths ergonomics for Lattice actions, enum states and their ViewState mirrors",
       "promptTriggers": {
         "keywords": ["case paths", "casepathable", "case path", "enum", "associated value", "scopeifactive", "enum scoping"],
         "intentPatterns": ["(bind|extract|embed|scope).*?case"]
@@ -55,7 +55,7 @@
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/**"],
-        "contentPatterns": ["@Observable", "ObservableState"]
+        "contentPatterns": ["@Observable", "@FeatureState"]
       }
     },
     "lattice-testing": {
