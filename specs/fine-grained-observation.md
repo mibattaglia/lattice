@@ -2,10 +2,7 @@
 
 Status: ✅ Complete — depends on
 [`observable-state-identity-preserving-merge.md`](./observable-state-identity-preserving-merge.md)
-landing first. **Breaking change** (see "Behavior change" below); no opt-in surface. Updated for
-the [unified feature state](./plans/unified-feature-state.md): observation runs on the feature's
-one `@FeatureState` state, read through its generated `ViewState` projection, and the coarse fire
-is gated in the view model's commit step.
+landing first. **Breaking change** (see "Behavior change" below); no opt-in surface.
 
 ## Problem
 
@@ -168,17 +165,6 @@ private func commit(_ transition: ActionTransition<State, Action>) {
   ([`ViewModelBinding.swift`](../Sources/Lattice/Presentation/ViewModel/ViewModelBinding.swift))
   are fine-grained automatically, because they read through the nested tracked getters of the
   `ViewState` projection.
-
-> **History.** The gate first shipped in a `_modify` accessor on the stored state. That accessor
-> held a formal write access open across the whole action, so a synchronous observer that
-> re-read the view model mid-mutation (e.g. SwiftUI body re-evaluation triggered by a tracked
-> `willSet`) trapped with a Swift exclusivity error. The accessor was removed: the interactor now
-> mutates a local working copy, and the commit is a single plain store followed by the gate.
-> `ViewModelReentrancyTests` is the regression. The unified feature state then removed the
-> projection step that ran between the interactor and the commit, and added the `areStatesEqual`
-> root gate. The observable behavior described in this section is unchanged.
-
-No macro changes and no action-loop changes were needed.
 
 ## Usage
 

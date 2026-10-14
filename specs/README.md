@@ -26,7 +26,6 @@ Design specs, with the reasoning behind the observation and composition behavior
 - [Fine-Grained Observation (Spec A)](./fine-grained-observation.md): the coarse key path fires only on a root identity change. ✅ Complete
 - [Scoped View Composition (Spec B)](./scoped-view-composition.md): `scope(state:action:)` and `ScopedViewModel`. ✅ Implemented
 - [Enum-Case Scoping (Spec C)](./enum-case-scoping.md): case scopes through the `@CasePathable` `ViewState` mirror. ✅ Implemented
-- [Unified Feature State](./plans/unified-feature-state.md): the plan that replaced the separate domain and view states with one `@FeatureState`. ✅ Complete
 
 ## System Map
 

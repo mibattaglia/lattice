@@ -2,11 +2,7 @@
 
 Status: ✅ Implemented — depends on
 [`observable-state-identity-preserving-merge.md`](./observable-state-identity-preserving-merge.md)
-**and** [`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A). Updated for the
-[unified feature state](./plans/unified-feature-state.md): scopes project `@FeatureState`
-children through key paths rooted at `State.ViewState`, reads go through `Child.ViewState` (so a
-child's `@Domain` members stay hidden), and optional children and collections of children have
-their own overloads.
+**and** [`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A).
 
 ## Problem
 

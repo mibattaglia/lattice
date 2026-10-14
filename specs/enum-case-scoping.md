@@ -4,10 +4,7 @@ Status: ✅ Implemented — depends on
 [`scoped-view-composition.md`](./scoped-view-composition.md) (Spec B), which in turn depends on
 [`fine-grained-observation.md`](./fine-grained-observation.md) (Spec A, ✅) and
 [`observable-state-identity-preserving-merge.md`](./observable-state-identity-preserving-merge.md)
-(✅). Included one small **prerequisite fix** to enum `_$id` generation. Updated for the
-[unified feature state](./plans/unified-feature-state.md): enum states scope and bind through
-their generated `@CasePathable` `ViewState` mirror, and the raw-enum `scopeIfActive` overload is
-removed.
+(✅). Included one small **prerequisite fix** to enum `_$id` generation.
 
 ## Problem
 

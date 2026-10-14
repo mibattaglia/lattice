@@ -2,8 +2,6 @@
 
 A feature has one `State`. `@FeatureState` makes that struct or enum observation-tracked per member and generates a nested `ViewState` projection that views read through. `@Domain` hides a member from the projection at compile time while keeping it tracked, so a visible computed member that depends on a hidden stored member still re-renders fine-grained. The feature's interactor is the only code that mutates the state.
 
-This replaces the earlier split into a domain state, a separate view state, and a reducer between them. The design record, including the migration table, is the [unified feature state plan](./plans/unified-feature-state.md).
-
 Key source files:
 
 - [FeatureState.swift](../Sources/Lattice/Observation/FeatureState.swift): `FeatureState`, `ObservableStateID`, `_$isIdentityEqual`
@@ -261,7 +259,7 @@ After a reserved-name error no `ViewState` is generated and only the `Observatio
 - Compile cost is about 8 ms per `@FeatureState` type, including plugin spawn.
 - A multi-binding stored `var` (`var a = 0, b = 0`) is rejected by the observation accessor macro, which supports one variable per declaration. Multi-binding `let`s are projected per binding.
 - Multi-payload enum cases never fire the root on a content change. A case such as `failed(message:retryCount:)` gets the stable `_$inert` identity of a payload-less case, so `.failed("a", 1) → .failed("b", 2)` commits silently and a `switch viewModel.viewState` that reads the payload renders stale data. Single-payload cases are not affected. This gap is known and deferred; give such a case a single payload (for example a `@FeatureState` struct) when its content changes must reach views.
-- Known Swift 6.4 compiler bug: a source file that holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …) can crash the compiler with a segfault in `TypeCheckPrimaryFileRequest`, apparently from type-checking the extensions that the attached macros on the generated `ViewState` declarations synthesize. Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration. Files whose `@FeatureState` types are all structs are not affected. This is a temporary layout rule that works around the compiler bug, not a design choice; the repro is referenced from §11 of the [plan](./plans/unified-feature-state.md#11-references).
+- Known Swift 6.4 compiler bug: a source file that holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …) can crash the compiler with a segfault in `TypeCheckPrimaryFileRequest`, apparently from type-checking the extensions that the attached macros on the generated `ViewState` declarations synthesize. Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration. Files whose `@FeatureState` types are all structs are not affected. This is a temporary layout rule that works around the compiler bug, not a design choice.
 
 ## Related Specs
 
@@ -270,4 +268,3 @@ After a reserved-name error no `ViewState` is generated and only the `Observatio
 - [Fine-Grained Observation](./fine-grained-observation.md)
 - [Scoped View Composition](./scoped-view-composition.md)
 - [Enum-Case Scoping](./enum-case-scoping.md)
-- [Unified Feature State plan](./plans/unified-feature-state.md)

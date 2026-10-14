@@ -1,10 +1,6 @@
 # Identity-Preserving Assignment for `@FeatureState` Members
 
-Status: ✅ Implemented (minimal, source- and behavior-compatible). Updated for the
-[unified feature state](./plans/unified-feature-state.md): the overload is constrained on
-`FeatureState` (the protocol this spec originally targeted was renamed), assignments come from
-the interactor, and the view model applies the same rule to the root state (see "Root
-replacement" below).
+Status: ✅ Implemented (minimal, source- and behavior-compatible).
 
 ## Problem
 
