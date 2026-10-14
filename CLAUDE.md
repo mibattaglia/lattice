@@ -34,7 +34,7 @@
 - Run focused debounce tests: `swift test --filter EmissionDebounceTests` and `swift test --filter DebounceInteractorTests`
 
 ## Macro notes
-- `@FeatureState` and `@Domain` are implemented in `Sources/LatticeMacros/Plugins/FeatureStateMacro.swift` and `FeatureStateSupportMacros.swift`, declared in `Sources/Lattice/Macros.swift`, and registered in `Sources/LatticeMacros/Plugins/Plugin.swift`.
+- `@FeatureState` and `@Domain` are implemented in `Sources/LatticeMacros/Plugins/` (`FeatureStateMacro.swift`, `ObservationStateMacros.swift`, the `ViewState` projection in `FeatureStateMacro+ViewState.swift`, `ViewStateMember.swift` and `ViewStateRenderer.swift`, and `FeatureStateSupportMacros.swift`), declared in `Sources/Lattice/Macros.swift`, and registered in `Sources/LatticeMacros/Plugins/Plugin.swift`.
 - Macro tests are `MacroTesting` snapshots (`assertMacro`); the extension role only expands with `MacroSpec(type:conformances:)`.
 - Swift 6.4 compiler bug: a file that holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …) can crash the compiler (segfault in `TypeCheckPrimaryFileRequest`). Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration; files whose `@FeatureState` types are all structs are not affected. This is a temporary workaround for the compiler bug, not a design rule.
 

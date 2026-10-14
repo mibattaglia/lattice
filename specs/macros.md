@@ -8,6 +8,10 @@ Key source files:
 - [Plugin.swift](../Sources/LatticeMacros/Plugins/Plugin.swift)
 - [InteractorMacro.swift](../Sources/LatticeMacros/Plugins/InteractorMacro.swift)
 - [FeatureStateMacro.swift](../Sources/LatticeMacros/Plugins/FeatureStateMacro.swift)
+- [ObservationStateMacros.swift](../Sources/LatticeMacros/Plugins/ObservationStateMacros.swift)
+- [FeatureStateMacro+ViewState.swift](../Sources/LatticeMacros/Plugins/FeatureStateMacro+ViewState.swift)
+- [ViewStateMember.swift](../Sources/LatticeMacros/Plugins/ViewStateMember.swift)
+- [ViewStateRenderer.swift](../Sources/LatticeMacros/Plugins/ViewStateRenderer.swift)
 - [FeatureStateSupportMacros.swift](../Sources/LatticeMacros/Plugins/FeatureStateSupportMacros.swift)
 
 ## Public Macros
