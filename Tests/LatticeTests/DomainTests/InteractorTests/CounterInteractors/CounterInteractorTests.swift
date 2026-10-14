@@ -15,7 +15,7 @@ final class CounterInteractorTests {
         _ = await model.send(.increment) { $0.count = 2 }
         _ = await model.send(.increment) { $0.count = 3 }
 
-        #expect(model.domainState == .init(count: 3))
+        #expect(model.state == .init(count: 3))
     }
 
     @Test
@@ -29,7 +29,7 @@ final class CounterInteractorTests {
         _ = await model.send(.decrement) { $0.count = 1 }
         _ = await model.send(.decrement) { $0.count = 0 }
 
-        #expect(model.domainState == .init(count: 0))
+        #expect(model.state == .init(count: 0))
     }
 
     @Test
@@ -41,14 +41,14 @@ final class CounterInteractorTests {
         _ = await model.send(.increment) { $0.count = 3 }
         _ = await model.send(.reset) { $0.count = 0 }
 
-        #expect(model.domainState == .init(count: 0))
+        #expect(model.state == .init(count: 0))
     }
 
     private func makeModel()
-        -> TestViewModel<TestSupportFeature<CounterAction, CounterState>>
+        -> TestViewModel<Feature<CounterAction, CounterState>>
     {
         makeTestViewModel(
-            initialDomainState: CounterState(count: 0),
+            initialState: CounterState(count: 0),
             interactor: CounterInteractor()
         )
     }

@@ -1,7 +1,7 @@
 import CasePaths
 import Foundation
 
-/// Child actions nest the same way the view-state slices do:
+/// Child actions nest the same way the state slices do:
 /// `BadgeAction` ⊂ `HeaderAction` ⊂ `DashboardAction` ⊂ `ScopedCompositionEvent`.
 @CasePathable
 enum BadgeAction: Equatable, Sendable {

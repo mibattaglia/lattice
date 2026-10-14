@@ -2,9 +2,9 @@ import Lattice
 import SwiftUI
 
 struct TimerLeakView: View {
-    private var viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakDomainState, TimerLeakViewState>>
+    private var viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakState>>
 
-    init(viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakDomainState, TimerLeakViewState>>) {
+    init(viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakState>>) {
         self.viewModel = viewModel
     }
 
@@ -16,10 +16,10 @@ struct TimerLeakView: View {
 
                 Text(
                     """
-                    Throwaway demo for the @ObservableState registrar leak,
+                    Throwaway demo for the @FeatureState registrar leak,
                     mirroring HybrdLiveWorkout's metric grid: a TimelineView
                     re-renders the rows continuously on a date schedule (reusing
-                    view identities), reading each row's nested @ObservableState
+                    view identities), reading each row's nested @FeatureState
                     leaf every frame. A ~50 Hz timer rebuilds the child (\
                     \(TimerLeakConstants.rowCount) rows) wholesale underneath; the
                     rebuild is content-equal, so each previously-tracked registrar
@@ -33,7 +33,7 @@ struct TimerLeakView: View {
                 // TimelineView drives continuous re-rendering via `context.date`,
                 // exactly like LiveWorkoutBottomSheetView's metric timeline. Each
                 // re-render re-reads the current rows from the view model and
-                // re-observes their registrars; the reducer's wholesale child
+                // re-observes their registrars; the interactor's wholesale child
                 // rebuild orphans the previous ones.
                 TimelineView(.animation) { context in
                     ScrollView {
@@ -59,7 +59,7 @@ struct TimerLeakView: View {
 /// `date` input changes every frame, so this body re-runs (and re-observes the
 /// current registrar) on every TimelineView tick.
 private struct RowView: View {
-    let row: TimerRowViewState
+    let row: TimerRowState.ViewState
     let date: Date
 
     var body: some View {

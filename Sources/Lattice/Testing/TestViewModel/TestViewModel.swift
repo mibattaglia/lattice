@@ -8,7 +8,7 @@ import OrderedCollections
     import CasePaths
 #endif
 
-/// A domain-state-first testing model for a Lattice feature.
+/// A state-first testing model for a Lattice feature.
 ///
 /// `TestViewModel` mirrors the production execution helpers used by ``ViewModel``, but buffers
 /// actions emitted from emissions until tests explicitly receive or skip them.
@@ -17,15 +17,18 @@ import OrderedCollections
 ///
 /// - ``send(_:assert:fileID:file:line:column:)`` asserts the immediately visible mutation.
 /// - ``receive(_:timeout:assert:fileID:file:line:column:)`` advances through buffered emission output.
-/// - ``domainState`` reflects the last asserted or received state, not hidden buffered state.
+/// - ``state`` reflects the last asserted or received state, not hidden buffered state.
 /// - ``finish(timeout:fileID:file:line:column:)`` waits for emissions, but does not implicitly drain receives.
+///
+/// Assertions compare states with the feature's ``FeatureProtocol/areStatesEqual``, or with the
+/// equality passed to ``init(initialState:feature:areStatesEqual:)`` when the feature has none.
 @MainActor
 public final class TestViewModel<F: FeatureProtocol> {
     public typealias Action = F.Action
-    public typealias DomainState = F.DomainState
+    public typealias State = F.State
 
-    /// The most recently asserted or committed domain state.
-    public private(set) var domainState: DomainState
+    /// The most recently asserted or committed state.
+    public private(set) var state: State
 
     /// Controls whether pending receives must be handled before later assertions.
     public var exhaustivity: Exhaustivity = .on
@@ -33,11 +36,11 @@ public final class TestViewModel<F: FeatureProtocol> {
     /// The default timeout used by APIs that accept an optional timeout.
     public var timeout: Duration = .seconds(1)
 
-    private var assertedState: DomainState
-    private var latestState: DomainState
+    private var assertedState: State
+    private var latestState: State
 
     private var bufferedActions: Deque<BufferedAction<Action>> = []
-    private var pendingReceives: Deque<PendingReceive<DomainState, Action>> = []
+    private var pendingReceives: Deque<PendingReceive<State, Action>> = []
     private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
     private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
     private var inFlightEffects: OrderedDictionary<EffectID, InFlightEffectRecord<Action>> = [:]
@@ -46,31 +49,62 @@ public final class TestViewModel<F: FeatureProtocol> {
     private var isSending = false
     private let effectDidStart = AsyncStream.makeStream(of: Void.self)
 
-    private let interactor: AnyInteractor<DomainState, Action>
-    private let areStatesEqual: (_ lhs: DomainState, _ rhs: DomainState) -> Bool
+    private let interactor: AnyInteractor<State, Action>
+    private let areStatesEqual: ((_ lhs: State, _ rhs: State) -> Bool)?
     private nonisolated let taskRegistry = EffectTaskRegistry()
     private nonisolated let cancellationRegistry = EffectCancellationRegistry()
 
     /// Creates a test model for a concrete feature.
+    ///
+    /// Assertions compare states with the feature's ``FeatureProtocol/areStatesEqual``. If the
+    /// feature has none, an issue is reported here and every state assertion fails; use
+    /// ``init(initialState:feature:areStatesEqual:)`` for such a feature.
     public convenience init(
-        initialDomainState: DomainState,
-        feature: F
+        initialState: State,
+        feature: F,
+        fileID: StaticString = #fileID,
+        file filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
     ) {
         self.init(
-            initialDomainState: initialDomainState,
+            initialState: initialState,
             interactor: feature.interactor,
             areStatesEqual: feature.areStatesEqual
         )
+        if feature.areStatesEqual == nil {
+            reportTestFailure(
+                TestFailure.missingStateEquality(State.self),
+                at: TestIssueLocation(fileID: fileID, filePath: filePath, line: line, column: column)
+            )
+        }
     }
 
-    init(
-        initialDomainState: DomainState,
-        interactor: AnyInteractor<DomainState, Action>,
-        areStatesEqual: @escaping (_ lhs: DomainState, _ rhs: DomainState) -> Bool
+    /// Creates a test model for a concrete feature, comparing states with `areStatesEqual` when
+    /// the feature has no ``FeatureProtocol/areStatesEqual`` of its own.
+    ///
+    /// Use it for a state that is not `Equatable`. The feature's equality takes precedence, so a
+    /// custom comparison for an `Equatable` state belongs in `Feature(interactor:areStatesEqual:)`.
+    public convenience init(
+        initialState: State,
+        feature: F,
+        areStatesEqual: @escaping (_ lhs: State, _ rhs: State) -> Bool
     ) {
-        self.domainState = initialDomainState
-        self.assertedState = initialDomainState
-        self.latestState = initialDomainState
+        self.init(
+            initialState: initialState,
+            interactor: feature.interactor,
+            areStatesEqual: feature.areStatesEqual ?? areStatesEqual
+        )
+    }
+
+    private init(
+        initialState: State,
+        interactor: AnyInteractor<State, Action>,
+        areStatesEqual: ((_ lhs: State, _ rhs: State) -> Bool)?
+    ) {
+        self.state = initialState
+        self.assertedState = initialState
+        self.latestState = initialState
         self.interactor = interactor
         self.areStatesEqual = areStatesEqual
     }
@@ -88,7 +122,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     @discardableResult
     public func send(
         _ action: Action,
-        assert update: ((inout DomainState) throws -> Void)? = nil,
+        assert update: ((inout State) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -160,7 +194,7 @@ public final class TestViewModel<F: FeatureProtocol> {
             try assertStateChange(
                 operation: "send(\(describe(action)))",
                 previousState: previousState,
-                actualState: domainState,
+                actualState: state,
                 assert: update
             )
         } catch let failure as TestFailure {
@@ -186,7 +220,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     public func receive(
         _ expectedAction: Action,
         timeout duration: Duration? = nil,
-        assert update: ((inout DomainState) throws -> Void)? = nil,
+        assert update: ((inout State) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -229,7 +263,7 @@ public final class TestViewModel<F: FeatureProtocol> {
     public func receive(
         _ isMatching: (_ action: Action) -> Bool,
         timeout duration: Duration? = nil,
-        assert update: ((inout DomainState) throws -> Void)? = nil,
+        assert update: ((inout State) throws -> Void)? = nil,
         fileID: StaticString = #fileID,
         file filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -259,7 +293,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         public func receive<Value>(
             _ actionCase: KeyPath<Action.AllCasePaths, AnyCasePath<Action, Value>>,
             timeout duration: Duration? = nil,
-            assert update: ((inout DomainState) throws -> Void)? = nil,
+            assert update: ((inout State) throws -> Void)? = nil,
             fileID: StaticString = #fileID,
             file filePath: StaticString = #filePath,
             line: UInt = #line,
@@ -286,7 +320,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         private func receive<Value>(
             _ actionCase: AnyCasePath<Action, Value>,
             timeout duration: Duration? = nil,
-            assert update: ((inout DomainState) throws -> Void)? = nil
+            assert update: ((inout State) throws -> Void)? = nil
         ) async throws {
             try await receive(
                 matching: { actionCase.extract(from: $0) != nil },
@@ -438,14 +472,14 @@ public final class TestViewModel<F: FeatureProtocol> {
     }
 
     private func commitTestTransition(
-        _ transition: ActionTransition<DomainState, Action>
+        _ transition: ActionTransition<State, Action>
     ) {
         latestState = transition.currentState
 
         switch transition.source {
         case .sent:
             assertedState = transition.currentState
-            domainState = transition.currentState
+            state = transition.currentState
 
         case .emitted:
             pendingReceives.append(
@@ -583,7 +617,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         unexpectedActionFailure: ((Action, Bool) -> TestFailure)? = nil,
         missingActionFailure: (() -> TestFailure)? = nil,
         timeout: Duration?,
-        assert update: ((inout DomainState) throws -> Void)?
+        assert update: ((inout State) throws -> Void)?
     ) async throws {
         try await waitForPendingReceive(
             matching: predicate,
@@ -659,7 +693,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         matching predicate: (Action) -> Bool,
         expectedActionDescription: String,
         unexpectedActionFailure: ((Action, Bool) -> TestFailure)?,
-        assert update: ((inout DomainState) throws -> Void)?
+        assert update: ((inout State) throws -> Void)?
     ) throws {
         if case .off = exhaustivity {
             while let firstPendingReceive = pendingReceives.first,
@@ -667,7 +701,7 @@ public final class TestViewModel<F: FeatureProtocol> {
             {
                 let skippedPendingReceive = pendingReceives.removeFirst()
                 assertedState = skippedPendingReceive.resultingState
-                domainState = skippedPendingReceive.resultingState
+                state = skippedPendingReceive.resultingState
             }
         }
 
@@ -692,7 +726,7 @@ public final class TestViewModel<F: FeatureProtocol> {
             )
         }
 
-        let previousState = domainState
+        let previousState = state
 
         try assertStateChange(
             operation: "receive(\(expectedActionDescription))",
@@ -702,7 +736,7 @@ public final class TestViewModel<F: FeatureProtocol> {
         )
 
         assertedState = pendingReceive.resultingState
-        domainState = pendingReceive.resultingState
+        state = pendingReceive.resultingState
     }
 
     private func skipPendingReceives(strict: Bool) throws {
@@ -713,7 +747,7 @@ public final class TestViewModel<F: FeatureProtocol> {
 
         guard let latestPendingReceive = pendingReceives.last else { return }
         assertedState = latestPendingReceive.resultingState
-        domainState = latestPendingReceive.resultingState
+        state = latestPendingReceive.resultingState
         pendingReceives.removeAll()
     }
 
@@ -738,10 +772,14 @@ public final class TestViewModel<F: FeatureProtocol> {
 
     private func assertStateChange(
         operation: String,
-        previousState: DomainState,
-        actualState: DomainState,
-        assert update: ((inout DomainState) throws -> Void)?
+        previousState: State,
+        actualState: State,
+        assert update: ((inout State) throws -> Void)?
     ) throws {
+        guard let areStatesEqual else {
+            throw TestFailure.missingStateEquality(State.self)
+        }
+
         var expectedState = previousState
 
         do {

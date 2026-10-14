@@ -2,16 +2,13 @@ import Lattice
 import SwiftUI
 
 public struct TimerLeakExampleAppView: View {
-    @State private var viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakDomainState, TimerLeakViewState>>
+    @State private var viewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakState>>
 
     public init() {
-        let feature = Feature(
-            interactor: TimerLeakInteractor(),
-            reducer: TimerLeakViewStateReducer()
-        )
+        let feature = Feature(interactor: TimerLeakInteractor())
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: TimerLeakDomainState(),
+                initialState: TimerLeakState(),
                 feature: feature
             )
         )

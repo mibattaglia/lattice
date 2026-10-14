@@ -21,7 +21,7 @@ extension Interactors {
     ///
     /// - Note: For merging exactly two interactors, see ``Merge``.
     public struct MergeMany<Element: Interactor>: Interactor, @unchecked Sendable
-    where Element.DomainState: Sendable, Element.Action: Sendable {
+    where Element.State: Sendable, Element.Action: Sendable {
         private let interactors: [Element]
 
         /// Creates a merged interactor from an array of child interactors.
@@ -31,9 +31,9 @@ extension Interactors {
             self.interactors = interactors
         }
 
-        public var body: some Interactor<Element.DomainState, Element.Action> { self }
+        public var body: some Interactor<Element.State, Element.Action> { self }
 
-        public func interact(state: inout Element.DomainState, action: Element.Action) -> Emission<Element.Action> {
+        public func interact(state: inout Element.State, action: Element.Action) -> Emission<Element.Action> {
             let emissions = interactors.map { interactor in
                 interactor.interact(state: &state, action: action)
             }

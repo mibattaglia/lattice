@@ -29,9 +29,9 @@ struct TodosTests {
             appendTodo(title: "Second", order: 1, in: &state)
         }
 
-        #expect(model.domainState.todos.count == 2)
-        let firstId = model.domainState.todos[0].id
-        let secondId = model.domainState.todos[1].id
+        #expect(model.state.todos.count == 2)
+        let firstId = model.state.todos[0].id
+        let secondId = model.state.todos[1].id
 
         let task = try await model.send(.setTodoCompletion(id: firstId, isComplete: true)) {
             $0.todos[0].isComplete = true
@@ -42,9 +42,9 @@ struct TodosTests {
             $0.nextOrder = 1
         }
 
-        #expect(model.domainState.todos.count == 1)
-        #expect(model.domainState.todos.first?.id == firstId)
-        #expect(model.domainState.todos.first?.isComplete == true)
+        #expect(model.state.todos.count == 1)
+        #expect(model.state.todos.first?.id == firstId)
+        #expect(model.state.todos.first?.isComplete == true)
 
         try await model.send(.newTodoTextChanged("Third")) {
             $0.newTodoText = "Third"
@@ -53,13 +53,13 @@ struct TodosTests {
             appendTodo(title: "Third", order: 1, in: &state)
         }
 
-        let idsBeforeMove = model.domainState.todos.map(\.id)
+        let idsBeforeMove = model.state.todos.map(\.id)
         try await model.send(.moveTodos(ids: [idsBeforeMove[1]], destination: 0)) { state in
             state.todos.swapAt(0, 1)
             normalizeTodoOrder(&state)
         }
 
-        #expect(model.domainState.todos.first?.id == idsBeforeMove[1])
+        #expect(model.state.todos.first?.id == idsBeforeMove[1])
 
         await clock.advance(by: .milliseconds(300))
         try await task.finish()
@@ -67,9 +67,9 @@ struct TodosTests {
             applyAutoSort(&state)
         }
 
-        #expect(model.domainState.todos.map(\.id) == [idsBeforeMove[1], idsBeforeMove[0]])
-        #expect(model.domainState.todos[0].isComplete == false)
-        #expect(model.domainState.todos[1].isComplete == true)
+        #expect(model.state.todos.map(\.id) == [idsBeforeMove[1], idsBeforeMove[0]])
+        #expect(model.state.todos[0].isComplete == false)
+        #expect(model.state.todos[1].isComplete == true)
     }
 
     @Test
@@ -90,15 +90,15 @@ struct TodosTests {
             appendTodo(title: "Second", order: 1, in: &state)
         }
 
-        let firstId = model.domainState.todos[0].id
-        let secondId = model.domainState.todos[1].id
+        let firstId = model.state.todos[0].id
+        let secondId = model.state.todos[1].id
 
         let task = try await model.send(.setTodoCompletion(id: firstId, isComplete: true)) {
             $0.todos[0].isComplete = true
         }
 
         #expect(task.hasEffects)
-        #expect(model.domainState.todos.map(\.id) == [firstId, secondId])
+        #expect(model.state.todos.map(\.id) == [firstId, secondId])
 
         await clock.advance(by: .milliseconds(300))
         try await task.finish()
@@ -106,7 +106,7 @@ struct TodosTests {
             applyAutoSort(&state)
         }
 
-        #expect(model.domainState.todos.map(\.id) == [secondId, firstId])
+        #expect(model.state.todos.map(\.id) == [secondId, firstId])
     }
 
     @Test
@@ -117,11 +117,10 @@ struct TodosTests {
             makeTodo(title: "Done", isComplete: true, order: 1),
         ]
         let feature = Feature(
-            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
-            reducer: TodosViewStateReducer()
+            interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300))
         )
         let viewModel = ViewModel(
-            initialDomainState: TodosDomainState(
+            initialState: TodosState(
                 todos: todos,
                 filter: .all,
                 newTodoText: "",
@@ -131,53 +130,46 @@ struct TodosTests {
         )
 
         viewModel.sendViewEvent(.setFilter(.active))
-        guard case .loaded(let activeContent) = viewModel.viewState else {
-            Issue.record("Expected loaded view state")
-            return
-        }
-        #expect(activeContent.todos.count == 1)
-        #expect(activeContent.todos.first?.title == "Active")
+        let activeTodos = viewModel.filteredTodos
+        #expect(activeTodos.count == 1)
+        #expect(activeTodos.first?.title == "Active")
 
         viewModel.sendViewEvent(.setFilter(.completed))
-        guard case .loaded(let completedContent) = viewModel.viewState else {
-            Issue.record("Expected loaded view state")
-            return
-        }
-        #expect(completedContent.todos.count == 1)
-        #expect(completedContent.todos.first?.title == "Done")
+        let completedTodos = viewModel.filteredTodos
+        #expect(completedTodos.count == 1)
+        #expect(completedTodos.first?.title == "Done")
     }
 
     private func makeViewModel(
         clock: TestClock
-    ) -> ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>> {
+    ) -> ViewModel<Feature<TodosEvent, TodosState>> {
         ViewModel(
-            initialDomainState: TodosDomainState(),
+            initialState: TodosState(),
             feature: makeTodosFeature(clock: clock)
         )
     }
 
     private func makeTestViewModel(
         clock: TestClock
-    ) -> TestViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>> {
+    ) -> TestViewModel<Feature<TodosEvent, TodosState>> {
         TestViewModel(
-            initialDomainState: TodosDomainState(),
+            initialState: TodosState(),
             feature: makeTodosFeature(clock: clock)
         )
     }
 
     private func makeTodosFeature(
         clock: TestClock
-    ) -> Feature<TodosEvent, TodosDomainState, TodosViewState> {
+    ) -> Feature<TodosEvent, TodosState> {
         Feature(
             interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
-            reducer: TodosViewStateReducer(),
-            areStatesEqual: todosDomainStatesAreEqualIgnoringIDs
+            areStatesEqual: todosStatesAreEqualIgnoringIDs
         )
     }
 
-    private func todosDomainStatesAreEqualIgnoringIDs(
-        _ lhs: TodosDomainState,
-        _ rhs: TodosDomainState
+    private func todosStatesAreEqualIgnoringIDs(
+        _ lhs: TodosState,
+        _ rhs: TodosState
     ) -> Bool {
         guard lhs.filter == rhs.filter,
             lhs.newTodoText == rhs.newTodoText,
@@ -197,7 +189,7 @@ struct TodosTests {
     private func appendTodo(
         title: String,
         order: Int,
-        in state: inout TodosDomainState
+        in state: inout TodosState
     ) {
         state.todos.append(
             .init(
@@ -211,21 +203,21 @@ struct TodosTests {
         state.nextOrder = order + 1
     }
 
-    private func normalizeTodoOrder(_ state: inout TodosDomainState) {
+    private func normalizeTodoOrder(_ state: inout TodosState) {
         for index in state.todos.indices {
             state.todos[index].order = index
         }
         state.nextOrder = state.todos.count
     }
 
-    private func applyAutoSort(_ state: inout TodosDomainState) {
+    private func applyAutoSort(_ state: inout TodosState) {
         state.todos.sort(by: sortedTodos)
         normalizeTodoOrder(&state)
     }
 
     private func sortedTodos(
-        _ lhs: TodosDomainState.TodoItem,
-        _ rhs: TodosDomainState.TodoItem
+        _ lhs: TodosState.TodoItem,
+        _ rhs: TodosState.TodoItem
     ) -> Bool {
         if lhs.isComplete != rhs.isComplete {
             return lhs.isComplete == false
@@ -233,8 +225,8 @@ struct TodosTests {
         return lhs.order < rhs.order
     }
 
-    private func makeTodo(title: String, isComplete: Bool, order: Int) -> TodosDomainState.TodoItem {
-        TodosDomainState.TodoItem(
+    private func makeTodo(title: String, isComplete: Bool, order: Int) -> TodosState.TodoItem {
+        TodosState.TodoItem(
             id: UUID(),
             title: title,
             isComplete: isComplete,

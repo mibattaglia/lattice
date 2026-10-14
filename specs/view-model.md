@@ -1,6 +1,6 @@
 # ViewModel
 
-`ViewModel` is Lattice's production bridge between SwiftUI and a `Feature`. It is a `@MainActor` reference type that owns runtime execution, publishes `viewState`, and gives views a single entry point for sending actions with `sendViewEvent(_:)`.
+`ViewModel` is Lattice's production bridge between SwiftUI and a `Feature`. It is a `@MainActor` reference type that owns the feature's state and runtime execution, exposes that state to views through the `State.ViewState` projection, and gives views a single entry point for sending actions with `sendViewEvent(_:)`.
 
 Key source files:
 
@@ -8,49 +8,49 @@ Key source files:
 - [Feature.swift](../Sources/Lattice/Presentation/Feature/Feature.swift)
 - [EventTask.swift](../Sources/Lattice/Presentation/ViewModel/EventTask.swift)
 - [ViewModelBinding.swift](../Sources/Lattice/Presentation/ViewModel/ViewModelBinding.swift)
+- [ScopedViewModel.swift](../Sources/Lattice/Presentation/ViewModel/ScopedViewModel.swift)
 - [ViewModelTests.swift](../Tests/LatticeTests/PresentationTests/ViewModelTests.swift)
+- [ViewModelObservationTests.swift](../Tests/LatticeTests/PresentationTests/ViewModelObservationTests.swift)
 
 ## Responsibilities
 
-- Hold the authoritative production `DomainState`.
-- Publish SwiftUI-facing `viewState`.
+- Hold the authoritative production state, a `@FeatureState` value.
+- Expose it to views through `State.ViewState`, so `@Domain` members stay hidden.
 - Run the feature's interactor on the main actor.
-- Reduce domain state into view state after relevant transitions.
+- Commit each new state so that only the observers of changed members re-render.
 - Start, track, and cancel effect work through root send scopes.
-- Expose SwiftUI bindings that turn view-state writes into actions.
+- Expose SwiftUI bindings that turn writes into actions, and scopes for child views.
 
 ## Relationship To Feature
 
 `ViewModel` is parameterized by `F: FeatureProtocol`, which gives it:
 
-- A type-erased interactor.
-- A type-erased view-state reducer.
-- A closure for building the initial view state.
-- A domain-state equality function used to decide whether sent actions need a fresh reduction.
+- `F.Action` and `F.State` (a `FeatureState & Sendable` type).
+- A type-erased interactor, `AnyInteractor<State, Action>`.
+- An optional state equality, `areStatesEqual: ((State, State) -> Bool)?`.
 
-`Feature(interactor:)` is the lightweight path for `DomainState == ViewState`. In that case the feature supplies an identity reducer automatically. See [Feature.swift](../Sources/Lattice/Presentation/Feature/Feature.swift).
+`Feature(interactor:)` supplies `==` as the equality when the state is `Equatable` and `nil` otherwise. `Feature(interactor:areStatesEqual:)` takes a custom comparison. See [Feature.swift](../Sources/Lattice/Presentation/Feature/Feature.swift).
 
 ## Initialization
 
-The main initializer takes `initialDomainState` plus a `Feature`.
+The initializer is `ViewModel(initialState:feature:)`. It stores the initial state as given; there is no separate view state to build.
 
-Initialization happens in two steps:
+```swift
+let viewModel = ViewModel(
+    initialState: CounterState(),
+    feature: Feature(interactor: CounterInteractor())
+)
+```
 
-1. The feature builds an initial `ViewState` value through `makeInitialViewState`.
-2. The reducer immediately runs once against the initial domain state before that value is stored as published `viewState`.
+## Reading State
 
-That second reduction matters because the initial factory is a construction hook, not a guarantee that the reducer has already fully projected the state.
+Views read the state through `State.ViewState`, the projection `@FeatureState` generates:
 
-## Published State
+- `viewModel.member` (`subscript(dynamicMember: KeyPath<State.ViewState, V>)`) is the fine-grained read. It registers the root and then each member it walks through on the state's own registrars, so `viewModel.badge.count` re-renders only when `count` changes, `badge` is replaced with different content, or the whole state is replaced.
+- `viewState: State.ViewState` is the whole projection. The value itself is coarse: it re-renders on a wholesale replacement or an enum case change. Members read off it stay fine-grained (the projection shares every registrar with the state), so `switch viewModel.viewState { case .loaded(let l): Text(l.title) }` re-renders on case changes and on `title` changes only.
+- The raw `state` is internal. `TestViewModel`, `ScopedViewModel` and the bindings live in the same module and use it; views cannot.
 
-`viewState` is the only public state surface. Production `domainState` stays private to the view model.
-
-The setter uses observation-aware behavior:
-
-- If the new top-level `_$id` matches the existing `viewState`, the value is assigned directly.
-- If the identity changes, the observation registrar wraps the mutation so SwiftUI can observe it correctly.
-
-This works with `@ObservableState` and lets nested in-place mutations preserve identity where appropriate. See [ObservableState.swift](../Sources/Lattice/Observation/ObservableState.swift).
+A `@Domain` member is rejected at every read site with `'x' is unavailable: 'x' is @Domain state and is not visible to views`. See [FeatureState](./feature-state.md).
 
 ## Sending Actions
 
@@ -65,14 +65,16 @@ When a view sends an action, the view model:
 
 If the action produces no effect work, the returned `EventTask` has no underlying task and `hasEffects` is `false`.
 
-## View-State Recalculation Rules
+## Commit Rules
 
-After every transition the view model commits the new domain state, then decides whether to run the reducer again.
+For each drained action, the interactor mutates a working copy of the state. The copy shares every observation registrar with the stored state, so member notifications fire during `interact(state:action:)`, and an observer that re-reads the view model synchronously sees the previous committed value.
 
-- For `.sent` actions, the reducer runs only when `areStatesEqual(previousState, currentState)` is `false`.
-- For `.emitted` actions, the reducer always runs.
+The view model then commits the result:
 
-That distinction is deliberate. Sent actions can skip redundant reductions when they are domain-state no-ops, while emitted actions always get a chance to refresh presentation state even if the domain-state equality function says the states match.
+- If the new state has a different root `_$id` (a wholesale replacement) and `areStatesEqual` reports equal content, the current value is kept, so its registrar tree and every observer registered on it survive. Nothing changed for the view.
+- Otherwise the new state is stored. If its root `_$id` changed, the view model fires its coarse `\.state` key path. Every reader re-renders, because member reads register the root too.
+
+Sent and emitted actions commit the same way. See [ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md).
 
 ## EventTask
 
@@ -95,30 +97,35 @@ There are two entry points:
 - `@Bindable var viewModel: ViewModel<F>`
 - `Binding<ViewModel<F>>`
 
-Both expose dynamic-member access into `viewState`, and `.sending(...)` turns writes back into actions.
+Both expose dynamic-member access rooted at `F.State.ViewState`, and `.sending(...)` turns writes back into actions. A `@Domain` member is rejected at the `$viewModel.member` site.
 
 Examples:
 
 - Property binding: `$viewModel.name.sending(\.nameChanged)`
+- Nested member binding: `$viewModel.badge.label.sending(\.badge.labelChanged)`
 - Enum-case member binding: `$viewModel.loaded.query.sending(\.queryChanged)`
 
-Case-path bindings have two variants:
+Enum case bindings go through the state's `@CasePathable` `ViewState` mirror (`F.State.ViewState.AllCasePaths`), never the raw enum, so `@Domain` members of a `@FeatureState` payload stay hidden. They have two variants:
 
 - `sending(_:)` traps if the current `viewState` is not in the expected case.
 - `sending(_:default:)` returns a fallback value and suppresses writes until the case matches again.
 
 These APIs require `CasePaths` support for case-path-based action construction.
 
+## Scoping
+
+`scope(state:action:)` projects the view model onto a child state for a child view, returning a stateless `ScopedViewModel`. Overloads cover a child, an optional child, a collection of identifiable children, an enum case (`scopeIfActive(state:action:)` and the trapping `scope(state:action:)`), a closure-mapped action, and a read-only child. See [Scoped View Composition](./scoped-view-composition.md) and [Enum-Case Scoping](./enum-case-scoping.md).
+
 ## What ViewModel Does Not Do
 
-- It does not expose production `domainState` publicly.
+- It does not expose the raw state publicly.
 - It does not own business logic; that stays in the interactor.
-- It does not derive presentation values itself; that stays in the reducer.
+- It does not derive presentation values itself; computed members on the state do.
 - It does not model test-only buffering semantics; those live in `TestViewModel`.
 
 ## Related Specs
 
 - [ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md)
-- [ViewStateReducer](./view-state-reducer.md)
+- [FeatureState](./feature-state.md)
 - [Interactors](./interactors.md)
 - [Testing Infrastructure](./testing-infrastructure.md)

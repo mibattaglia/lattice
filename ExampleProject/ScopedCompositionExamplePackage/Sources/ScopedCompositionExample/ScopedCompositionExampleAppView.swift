@@ -3,15 +3,13 @@ import SwiftUI
 
 public struct ScopedCompositionExampleAppView: View {
     @State private var viewModel: ScopedCompositionViewModel
+    @State private var renderCounters = RenderCounters()
 
     public init() {
-        let feature = Feature(
-            interactor: ScopedCompositionInteractor(),
-            reducer: ScopedCompositionViewStateReducer()
-        )
+        let feature = Feature(interactor: ScopedCompositionInteractor())
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: ScopedCompositionDomainState(),
+                initialState: ScopedCompositionState(),
                 feature: feature
             )
         )
@@ -19,5 +17,6 @@ public struct ScopedCompositionExampleAppView: View {
 
     public var body: some View {
         ScopedCompositionView(viewModel: viewModel)
+            .environment(\.renderCounters, renderCounters)
     }
 }

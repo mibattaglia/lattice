@@ -17,7 +17,7 @@ import Observation
 /// ```
 ///
 /// The macro generates:
-/// - `typealias DomainState`
+/// - `typealias State`
 /// - `typealias Action`
 /// - Protocol conformance to `Interactor`
 @attached(
@@ -25,51 +25,52 @@ import Observation
     names:
         named(body),
     named(Action),
-    named(DomainState)
+    named(State)
 )
 @attached(memberAttribute)
 @attached(extension, conformances: Interactor)
-public macro Interactor<DomainState, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
+public macro Interactor<State, Action>() = #externalMacro(module: "LatticeMacros", type: "InteractorMacro")
 
-/// Generates conformance to the ``ViewStateReducer`` protocol.
-///
-/// Apply this macro to a struct to make it a view state reducer:
+/// Makes a struct or enum a feature's state: every stored member is observation-tracked, and a
+/// nested `ViewState` projection exposes the members views may read.
 ///
 /// ```swift
-/// @ViewStateReducer<CounterDomainState, CounterViewState>
-/// struct CounterViewStateReducer: Sendable {
-///     var body: some ViewStateReducerOf<Self> {
-///         BuildViewState { domainState in
-///             CounterViewState(count: domainState.count)
-///         }
-///     }
+/// @FeatureState
+/// struct CounterState: Equatable, Sendable {
+///     var count = 0
+///     @Domain var lastUpdatedAt: Date?
+///     var countText: String { "\(count)" }
 /// }
 /// ```
 ///
-/// The macro generates:
-/// - `typealias DomainState`
-/// - `typealias ViewState`
-/// - Protocol conformance to `ViewStateReducer`
+/// `CounterState.ViewState` forwards `count` and `countText`; `lastUpdatedAt` is unavailable
+/// to views but stays tracked, so `countText`-style computed members re-render when it changes.
 @attached(
     member,
-    names:
-        named(body),
-    named(initialViewState),
-    named(DomainState),
-    named(ViewState)
+    names: named(_$id), named(_$observationRegistrar), named(_$willModify), named(shouldNotifyObservers),
+    named(ViewState), named(_$ViewStateTypes), named(_$ViewStateWitness)
 )
 @attached(memberAttribute)
-@attached(extension, conformances: ViewStateReducer)
-public macro ViewStateReducer<DomainState, ViewState>() = #externalMacro(module: "LatticeMacros", type: "ViewStateReducerMacro")
+@attached(extension, conformances: FeatureState, Observable)
+public macro FeatureState() = #externalMacro(module: "LatticeMacros", type: "FeatureStateMacro")
 
-/// Defines and implements conformance of the Observable protocol.
-@attached(extension, conformances: Observable, ObservableState)
-@attached(
-    member, names: named(_$id), named(_$observationRegistrar), named(_$willModify),
-    named(shouldNotifyObservers))
-@attached(memberAttribute)
-public macro ObservableState() =
-    #externalMacro(module: "LatticeMacros", type: "ObservableStateMacro")
+/// Marks a property as domain-only: tracked for observation, absent from `ViewState`.
+@attached(peer)
+public macro Domain() = #externalMacro(module: "LatticeMacros", type: "DomainMacro")
+
+// Applied by @FeatureState to the generated ViewState. Overloads are selected by the compiler
+// from the state's actual conformances (type-checked macro arguments).
+@attached(extension, conformances: Identifiable)
+public macro _IdentifiableIfPossible<T: Identifiable>(_: T.Type) =
+    #externalMacro(module: "LatticeMacros", type: "IdentifiableIfPossibleMacro")
+@attached(extension)
+public macro _IdentifiableIfPossible<T>(_: T.Type) = #externalMacro(module: "LatticeMacros", type: "NoOpExtensionMacro")
+
+@attached(extension, conformances: Equatable, names: named(==))
+public macro _EquatableIfPossible<T: Equatable>(_: T.Type) =
+    #externalMacro(module: "LatticeMacros", type: "EquatableIfPossibleMacro")
+@attached(extension)
+public macro _EquatableIfPossible<T>(_: T.Type) = #externalMacro(module: "LatticeMacros", type: "NoOpExtensionMacro")
 
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_))

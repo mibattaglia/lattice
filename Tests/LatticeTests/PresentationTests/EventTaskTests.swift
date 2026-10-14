@@ -2,7 +2,7 @@ import Foundation
 import Lattice
 import Testing
 
-@ObservableState
+@FeatureState
 private struct EventTaskState: Equatable, Sendable {
     var log: [String] = []
 }
@@ -101,9 +101,9 @@ struct EventTaskTests {
 
     private func makeViewModel(
         probe: EventTaskProbe
-    ) -> ViewModel<Feature<EventTaskAction, EventTaskState, EventTaskState>> {
+    ) -> ViewModel<Feature<EventTaskAction, EventTaskState>> {
         ViewModel(
-            initialDomainState: EventTaskState(),
+            initialState: EventTaskState(),
             feature: Feature(
                 interactor: EventTaskInteractor(probe: probe).eraseToAnyInteractorUnchecked()
             )

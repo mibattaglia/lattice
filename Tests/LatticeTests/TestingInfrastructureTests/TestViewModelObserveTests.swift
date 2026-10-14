@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct ObserveState: Equatable, Sendable {
     var log: [String] = []
 }
@@ -45,7 +45,7 @@ struct TestViewModelObserveTests {
         let task = await model.send(.start)
         await task.finish()
 
-        #expect(model.domainState.log.isEmpty)
+        #expect(model.state.log.isEmpty)
 
         await model.receive(.logged("stream-1")) {
             $0.log = ["stream-1"]
@@ -55,9 +55,9 @@ struct TestViewModelObserveTests {
         }
     }
 
-    private func makeModel() -> TestViewModel<Feature<ObserveAction, ObserveState, ObserveState>> {
+    private func makeModel() -> TestViewModel<Feature<ObserveAction, ObserveState>> {
         TestViewModel(
-            initialDomainState: ObserveState(),
+            initialState: ObserveState(),
             feature: Feature(interactor: ObserveSequenceInteractor())
         )
     }

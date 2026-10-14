@@ -7,32 +7,28 @@ import Testing
 @Suite
 struct ViewModelTests {
     private let interactor: MyInteractor
-    private let viewStateReducer: MyViewStateReducer
-    private let viewModel: ViewModel<Feature<MyEvent, MyDomainState, MyViewState>>
+    private let viewModel: ViewModel<Feature<MyEvent, MyScreenState>>
 
     private static let now = Date(timeIntervalSince1970: 1_748_377_205)
 
     init() {
         let capturedNow = Self.now
         self.interactor = MyInteractor(dateFactory: { capturedNow })
-        self.viewStateReducer = MyViewStateReducer()
-        let feature = Feature(
-            interactor: interactor.eraseToAnyInteractorUnchecked(),
-            reducer: viewStateReducer
-        )
+        let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())
         self.viewModel = ViewModel(
-            initialDomainState: .loading,
+            initialState: .loading,
             feature: feature
         )
     }
 
     @Test
     func testSynchronousActions() {
-        let initialViewState = MyViewState.loading
-        #expect(viewModel.viewState == initialViewState)
+        #expect(viewModel.viewState == .loading)
 
         viewModel.sendViewEvent(.load)
         #expect(viewModel.viewState == viewStateFactory(count: 0))
+        // The formatter separates the time and "PM" with a narrow no-break space.
+        #expect(viewModel.viewState[case: \.success]?.dateDisplayString == "8:20\u{202F}PM")
 
         viewModel.sendViewEvent(.incrementCount)
         #expect(viewModel.viewState == viewStateFactory(count: 1))
@@ -55,12 +51,22 @@ struct ViewModelTests {
         #expect(viewModel.viewState == viewStateFactory(count: 42, isLoading: false))
     }
 
-    private func viewStateFactory(count: Int, isLoading: Bool = false) -> MyViewState {
-        MyViewState.success(
-            .init(
-                count: count,
-                dateDisplayString: "8:20 PM",
-                isLoading: isLoading
+    @Test
+    func computedMembersDerivePresentationValues() {
+        #expect(MyScreenState.ViewState(.error(code: 503)).errorTitle == "Please check your internet and try again.")
+        #expect(MyScreenState.ViewState(.error(code: 404)).errorTitle == "Something went wrong, please try again.")
+        #expect(MyScreenState.ViewState(.error(code: 123)).errorTitle == "Unknown error.")
+        #expect(MyScreenState.ViewState(.loading).errorTitle == nil)
+    }
+
+    private func viewStateFactory(count: Int, isLoading: Bool = false) -> MyScreenState.ViewState {
+        MyScreenState.ViewState(
+            .success(
+                MyContentState(
+                    count: count,
+                    timestamp: Self.now.timeIntervalSince1970,
+                    isLoading: isLoading
+                )
             )
         )
     }

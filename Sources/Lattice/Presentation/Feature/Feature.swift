@@ -6,113 +6,47 @@ import Foundation
 /// generic `F`, such as `ViewModel<F>`.
 public protocol FeatureProtocol {
     associatedtype Action: Sendable
-    associatedtype DomainState: Sendable
-    associatedtype ViewState: ObservableState
-
-    var interactor: AnyInteractor<DomainState, Action> { get }
-    var viewStateReducer: AnyViewStateReducer<DomainState, ViewState> { get }
-    var makeInitialViewState: (DomainState) -> ViewState { get }
-    var areStatesEqual: (DomainState, DomainState) -> Bool { get }
+    associatedtype State: FeatureState & Sendable
+    var interactor: AnyInteractor<State, Action> { get }
+    /// Content equality. Gates content-equal wholesale root replacement in `ViewModel` and
+    /// drives `TestViewModel` assertions. `nil` when the state has no usable equality.
+    var areStatesEqual: ((State, State) -> Bool)? { get }
 }
 
-/// Bundles the architecture stack for a feature.
+/// Bundles the interactor of a feature with its state equality.
 ///
 /// A `Feature` is the shared configuration unit for both production and tests:
 ///
-/// - ``ViewModel`` uses it to drive SwiftUI-facing execution and `viewState` updates.
-/// - ``TestViewModel`` uses the same interactor and equality rules for step-wise domain-state assertions.
-///
-/// Use a `Feature` to initialize a `ViewModel` with a single argument:
+/// - ``ViewModel`` runs the interactor and uses ``areStatesEqual`` to keep the current state, and
+///   every observer registered on it, when an action replaces the state with equal content.
+/// - ``TestViewModel`` runs the same interactor and compares states with the same equality.
 ///
 /// ```swift
-/// let feature = Feature(
-///     interactor: CounterInteractor(),
-///     reducer: CounterViewStateReducer()
-/// )
 /// let viewModel = ViewModel(
-///     initialDomainState: CounterDomainState(count: 0),
-///     feature: feature
+///     initialState: CounterState(),
+///     feature: Feature(interactor: CounterInteractor())
 /// )
 /// ```
 ///
-/// When `DomainState == ViewState`, you can omit the reducer:
-///
-/// ```swift
-/// let feature = Feature(interactor: CounterInteractor())
-/// let viewModel = ViewModel(
-///     initialDomainState: CounterState(count: 0),
-///     feature: feature
-/// )
-/// ```
-public struct Feature<Action, DomainState, ViewState>
-where Action: Sendable, DomainState: Sendable, ViewState: ObservableState {
-    public let interactor: AnyInteractor<DomainState, Action>
-    public let viewStateReducer: AnyViewStateReducer<DomainState, ViewState>
-    public let makeInitialViewState: (DomainState) -> ViewState
-    public let areStatesEqual: (DomainState, DomainState) -> Bool
+/// When the state is `Equatable`, `Feature(interactor:)` compares states with `==`. Pass
+/// `areStatesEqual:` for a custom comparison or a state that is not `Equatable`.
+public struct Feature<Action: Sendable, State: FeatureState & Sendable>: FeatureProtocol {
+    public let interactor: AnyInteractor<State, Action>
+    public let areStatesEqual: ((State, State) -> Bool)?
 
-    public init<I, R>(
-        interactor: I,
-        reducer: R,
-        areStatesEqual: @escaping (DomainState, DomainState) -> Bool
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
+    public init<I: Interactor & Sendable>(interactor: I, areStatesEqual: ((State, State) -> Bool)?)
+    where I.State == State, I.Action == Action {
         self.interactor = interactor.eraseToAnyInteractor()
-        self.viewStateReducer = reducer.eraseToAnyReducer()
-        self.makeInitialViewState = { reducer.initialViewState(for: $0) }
         self.areStatesEqual = areStatesEqual
     }
 
-    public init<I>(
-        interactor: I,
-        areStatesEqual: @escaping (DomainState, DomainState) -> Bool
-    )
-    where
-        I: Interactor & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        DomainState == ViewState
-    {
-        self.interactor = interactor.eraseToAnyInteractor()
-        self.viewStateReducer = BuildViewState(
-            initial: { $0 },
-            reducerBlock: { domainState, viewState in
-                viewState = domainState
-            }
-        ).eraseToAnyReducer()
-        self.makeInitialViewState = { $0 }
-        self.areStatesEqual = areStatesEqual
+    public init<I: Interactor & Sendable>(interactor: I) where I.State == State, I.Action == Action {
+        self.init(interactor: interactor, areStatesEqual: nil)
     }
 }
 
-extension Feature: FeatureProtocol {}
-
-extension Feature where DomainState: Equatable {
-    public init<I, R>(
-        interactor: I,
-        reducer: R
-    )
-    where
-        I: Interactor & Sendable,
-        R: ViewStateReducer & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        R.DomainState == DomainState, R.ViewState == ViewState
-    {
-        self.init(interactor: interactor, reducer: reducer, areStatesEqual: { $0 == $1 })
-    }
-
-    public init<I>(
-        interactor: I
-    )
-    where
-        I: Interactor & Sendable,
-        I.DomainState == DomainState, I.Action == Action,
-        DomainState == ViewState
-    {
+extension Feature where State: Equatable {
+    public init<I: Interactor & Sendable>(interactor: I) where I.State == State, I.Action == Action {
         self.init(interactor: interactor, areStatesEqual: { $0 == $1 })
     }
 }

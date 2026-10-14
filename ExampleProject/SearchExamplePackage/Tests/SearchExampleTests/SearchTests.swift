@@ -1,6 +1,7 @@
 import Clocks
 import Foundation
 import Lattice
+import Observation
 import Testing
 
 @testable import SearchExample
@@ -23,20 +24,20 @@ struct SearchTests {
         let model = makeTestViewModel(
             weatherService: weatherService,
             clock: clock,
-            initialDomainState: .results(.none)
+            initialState: .results(.none)
         )
 
         let t1 = try await model.send(.search(.query("n"))) {
-            $0 = makeSearchDomainState(query: "n")
+            $0 = makeSearchState(query: "n")
         }
         let t2 = try await model.send(.search(.query("ne"))) {
-            $0 = makeSearchDomainState(query: "ne")
+            $0 = makeSearchState(query: "ne")
         }
         let t3 = try await model.send(.search(.query("new"))) {
-            $0 = makeSearchDomainState(query: "new")
+            $0 = makeSearchState(query: "new")
         }
 
-        #expect(model.domainState == makeSearchDomainState(query: "new"))
+        #expect(model.state == makeSearchState(query: "new"))
 
         await clock.advance(by: .milliseconds(300))
         try await t1.finish()
@@ -54,15 +55,15 @@ struct SearchTests {
                 )
             )
         ) {
-            $0 = makeSearchDomainState(
+            $0 = makeSearchState(
                 query: "new",
                 results: [makeResultItem(id: 1, name: "New York")]
             )
         }
 
         #expect(
-            model.domainState
-                == makeSearchDomainState(
+            model.state
+                == makeSearchState(
                     query: "new",
                     results: [makeResultItem(id: 1, name: "New York")]
                 )
@@ -77,7 +78,7 @@ struct SearchTests {
         let model = makeTestViewModel(
             weatherService: weatherService,
             clock: clock,
-            initialDomainState: makeSearchDomainState(
+            initialState: makeSearchState(
                 query: "",
                 results: [
                     makeResultItem(id: 1, name: "First"),
@@ -87,7 +88,7 @@ struct SearchTests {
             )
         )
 
-        let expectedInitialState = makeSearchDomainState(
+        let expectedInitialState = makeSearchState(
             query: "",
             results: [
                 makeResultItem(id: 1, name: "First"),
@@ -103,7 +104,7 @@ struct SearchTests {
                 requestNonce: 0
             )
         )
-        #expect(model.domainState == expectedInitialState)
+        #expect(model.state == expectedInitialState)
 
         try await model.send(
             .forecastReceived(
@@ -112,7 +113,7 @@ struct SearchTests {
                 requestNonce: 0
             )
         )
-        #expect(model.domainState == expectedInitialState)
+        #expect(model.state == expectedInitialState)
 
         try await model.send(
             .forecastReceived(
@@ -129,8 +130,8 @@ struct SearchTests {
         }
 
         #expect(
-            model.domainState
-                == makeSearchDomainState(
+            model.state
+                == makeSearchState(
                     query: "",
                     results: [
                         makeResultItem(id: 1, name: "First"),
@@ -145,20 +146,49 @@ struct SearchTests {
         )
     }
 
+    // `.results` carries a `@FeatureState` payload, so typing a query invalidates only the
+    // query readers: the `switch viewModel.viewState` and the list it shows stay put.
+    @Test
+    func queryEditInvalidatesOnlyTheQueryReaders() {
+        let viewModel = ViewModel(
+            initialState: .results(.none),
+            feature: Feature(
+                interactor: SearchInteractor(
+                    weatherService: TestWeatherService(),
+                    clock: TestClock(),
+                    debounceDuration: .milliseconds(300)
+                )
+            )
+        )
+        let query = ChangeProbe()
+        let caseSwitch = ChangeProbe()
+        let listItems = ChangeProbe()
+        withObservationTracking { _ = viewModel.viewState[case: \.results]?.query } onChange: { query.didChange = true }
+        withObservationTracking { _ = viewModel.viewState } onChange: { caseSwitch.didChange = true }
+        withObservationTracking { _ = viewModel.viewState[case: \.results]?.listItems } onChange: {
+            listItems.didChange = true
+        }
+
+        viewModel.sendViewEvent(.search(.query("new")))
+        #expect(query.didChange)
+        #expect(!caseSwitch.didChange)
+        #expect(!listItems.didChange)
+        #expect(viewModel.viewState[case: \.results]?.query == "new")
+    }
+
     private func makeTestViewModel(
         weatherService: TestWeatherService,
         clock: TestClock,
-        initialDomainState: SearchDomainState
-    ) -> TestViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>> {
+        initialState: SearchState
+    ) -> TestViewModel<Feature<SearchEvent, SearchState>> {
         TestViewModel(
-            initialDomainState: initialDomainState,
+            initialState: initialState,
             feature: Feature(
                 interactor: SearchInteractor(
                     weatherService: weatherService,
                     clock: clock,
                     debounceDuration: .milliseconds(300)
-                ),
-                reducer: SearchViewStateReducer()
+                )
             )
         )
     }
@@ -195,6 +225,10 @@ private actor TestWeatherService: WeatherService {
     }
 }
 
+private final class ChangeProbe: @unchecked Sendable {
+    var didChange = false
+}
+
 private struct ForecastKey: Hashable {
     let latitude: Double
     let longitude: Double
@@ -210,11 +244,11 @@ private func makeResult(id: Int, name: String) -> WeatherSearchDomainModel.Resul
     )
 }
 
-private func makeSearchDomainState(
+private func makeSearchState(
     query: String,
-    results: [SearchDomainState.ResultState.ResultItem] = [],
+    results: [SearchState.ResultState.ResultItem] = [],
     forecastRequestNonce: Int = 0
-) -> SearchDomainState {
+) -> SearchState {
     .results(
         .init(
             query: query,
@@ -229,7 +263,7 @@ private func makeResultItem(
     name: String,
     forecast: ForecastDomainModel? = nil,
     isLoading: Bool = false
-) -> SearchDomainState.ResultState.ResultItem {
+) -> SearchState.ResultState.ResultItem {
     .init(
         isLoading: isLoading,
         weatherModel: makeResult(id: id, name: name),
@@ -240,7 +274,7 @@ private func makeResultItem(
 private func applyForecast(
     _ forecast: ForecastDomainModel,
     at index: Int,
-    in state: inout SearchDomainState
+    in state: inout SearchState
 ) {
     guard case .results(var resultState) = state, index < resultState.results.count else {
         return

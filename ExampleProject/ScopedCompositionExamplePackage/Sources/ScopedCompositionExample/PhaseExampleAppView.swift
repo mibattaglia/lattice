@@ -5,13 +5,10 @@ public struct PhaseExampleAppView: View {
     @State private var viewModel: PhaseExampleViewModel
 
     public init() {
-        let feature = Feature(
-            interactor: PhaseInteractor(),
-            reducer: PhaseViewStateReducer()
-        )
+        let feature = Feature(interactor: PhaseInteractor())
         _viewModel = State(
             wrappedValue: ViewModel(
-                initialDomainState: PhaseDomainState(),
+                initialState: .loading,
                 feature: feature
             )
         )

@@ -1,6 +1,6 @@
 import Lattice
 
-@Interactor<PhaseDomainState, PhaseEvent>
+@Interactor<PhaseState, PhaseEvent>
 struct PhaseInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact { state, event in
@@ -13,19 +13,19 @@ struct PhaseInteractor: Sendable {
                 }
 
             case .loaded:
-                state.isLoaded = true
+                // A second Load tap delivers a second `.loaded`; it leaves the loaded payload alone.
+                guard case .loading = state else { return .none }
+                state = .success(SuccessState())
                 return .none
 
             case .resetTapped:
-                state.isLoaded = false
+                state = .loading
                 return .none
 
             case .startTicking:
-                guard !state.isTicking else { return .none }
-                state.isTicking = true
-                // Once-per-second tick stream: the unrelated-reduce driver that makes the
-                // _$inert fix visible while a payloadless case (.loading or .idle) is active,
-                // and the deep-leaf driver while the .active sub-phase is showing.
+                // A once-per-second tick stream. Nothing prevents a second start, because an enum
+                // state has no storage outside its cases: the root view's `.task` sends this once,
+                // and a re-appearing view would start a second stream.
                 return .observe {
                     let clock = ContinuousClock()
                     return AsyncStream(unfolding: {
@@ -35,26 +35,38 @@ struct PhaseInteractor: Sendable {
                 }
 
             case .tick:
-                state.tick += 1
+                // Only the .active payload counts ticks, so `Tick:` counts the ticks since Start.
+                // While a payloadless case (.loading or .idle) is showing, a tick changes nothing.
+                guard case .success(var success) = state,
+                    case .active(var active) = success.session.telemetry.subphase
+                else { return .none }
+                active.tick += 1
+                success.session.telemetry.subphase = .active(active)
+                state = .success(success)
                 return .none
 
             case .success(let action):
                 // Late sends after the case deactivated are dropped here, by design: the
                 // interactor is the arbiter of whether an action still applies.
-                guard state.isLoaded else { return .none }
+                guard case .success(var success) = state else { return .none }
                 switch action {
                 case .titleChanged(let title):
-                    state.title = title
+                    success.title = title
                 case .summary(.incremented):
-                    state.count += 1
+                    success.summary.count += 1
                 case .session(.telemetry(.startTapped)):
-                    state.isActive = true
+                    guard case .idle = success.session.telemetry.subphase else { return .none }
+                    success.session.telemetry.subphase = .active(ActiveState())
                 case .session(.telemetry(.stopTapped)):
-                    state.isActive = false
+                    success.session.telemetry.subphase = .idle
                 case .session(.telemetry(.subphase(.active(.noteChanged(let note))))):
-                    guard state.isActive else { return .none }
-                    state.note = note
+                    guard case .active(var active) = success.session.telemetry.subphase else {
+                        return .none
+                    }
+                    active.note = note
+                    success.session.telemetry.subphase = .active(active)
                 }
+                state = .success(success)
                 return .none
             }
         }

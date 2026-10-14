@@ -59,17 +59,17 @@ extension ObservationStateRegistrar {
         }
     }
 
-    /// Mutates an `ObservableState` member, preserving its observation identity when the
+    /// Mutates a `FeatureState` member, preserving its observation identity when the
     /// incoming value is content-equal.
     ///
     /// Overload resolution prefers this (more-constrained) variant wherever a stored member
-    /// conforms to `ObservableState`. When `newValue` is content-equal to the current value
+    /// conforms to `FeatureState`. When `newValue` is content-equal to the current value
     /// but carries a different `_$id` (a freshly constructed value), the current value — and
     /// its `ObservationRegistrar`/`_$id` at every nested depth — is kept as-is rather than
     /// replaced, so observers continue tracking the same identity. Identity-equal and
     /// content-changed assignments behave exactly as the unconstrained `mutate`.
     @inlinable
-    public func mutate<Subject: Observable, Member, Value: ObservableState>(
+    public func mutate<Subject: Observable, Member, Value: FeatureState>(
         _ subject: Subject,
         keyPath: KeyPath<Subject, Member>,
         _ value: inout Value,
@@ -111,7 +111,7 @@ extension ObservationStateRegistrar {
     ///   - keyPath: The key path of an observed property.
     ///   - member: The value in the subject that will be set.
     @inlinable
-    public func willModify<Subject: Observable, Member: ObservableState>(
+    public func willModify<Subject: Observable, Member: FeatureState>(
         _ subject: Subject,
         keyPath: KeyPath<Subject, Member>,
         _ member: inout Member

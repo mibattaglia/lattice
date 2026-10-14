@@ -50,7 +50,7 @@ actor CancellationProbe {
     }
 }
 
-@ObservableState
+@FeatureState
 private struct CancellationState: Equatable, Sendable {
     var finished = false
 }
@@ -108,7 +108,7 @@ struct TestViewModelCancellationTests {
         await task.finish()
 
         #expect(await probe.cancelled())
-        #expect(model.domainState.finished == false)
+        #expect(model.state.finished == false)
     }
 
     @Test
@@ -122,7 +122,7 @@ struct TestViewModelCancellationTests {
         await task.finish()
 
         #expect(await probe.cancelled())
-        #expect(model.domainState.finished == false)
+        #expect(model.state.finished == false)
     }
 
     @Test
@@ -136,9 +136,9 @@ struct TestViewModelCancellationTests {
 
     private func makeModel(
         probe: CancellationProbe
-    ) -> TestViewModel<Feature<CancellationAction, CancellationState, CancellationState>> {
+    ) -> TestViewModel<Feature<CancellationAction, CancellationState>> {
         TestViewModel(
-            initialDomainState: CancellationState(),
+            initialState: CancellationState(),
             feature: Feature(interactor: CancellationInteractor(probe: probe))
         )
     }

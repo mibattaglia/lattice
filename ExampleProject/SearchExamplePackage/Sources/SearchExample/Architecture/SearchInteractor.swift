@@ -1,9 +1,9 @@
 import Lattice
 
-@Interactor<SearchDomainState, SearchEvent>
+@Interactor<SearchState, SearchEvent>
 struct SearchInteractor: Sendable {
     private let weatherService: WeatherService
-    private let queryInteractor: AnyInteractor<SearchDomainState.ResultState, SearchQueryEvent>
+    private let queryInteractor: AnyInteractor<SearchState.ResultState, SearchQueryEvent>
 
     init(weatherService: WeatherService) {
         self.init(

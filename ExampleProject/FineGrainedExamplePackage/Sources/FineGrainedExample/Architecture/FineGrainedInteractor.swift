@@ -1,6 +1,6 @@
 import Lattice
 
-@Interactor<FineGrainedDomainState, FineGrainedEvent>
+@Interactor<FineGrainedState, FineGrainedEvent>
 struct FineGrainedInteractor: Sendable {
     var body: some InteractorOf<Self> {
         Interact { state, event in

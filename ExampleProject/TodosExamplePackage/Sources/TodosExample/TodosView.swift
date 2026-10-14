@@ -2,9 +2,9 @@ import Lattice
 import SwiftUI
 
 struct TodosView: View {
-    @Bindable private var viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>
+    @Bindable private var viewModel: ViewModel<Feature<TodosEvent, TodosState>>
 
-    init(viewModel: ViewModel<Feature<TodosEvent, TodosDomainState, TodosViewState>>) {
+    init(viewModel: ViewModel<Feature<TodosEvent, TodosState>>) {
         self.viewModel = viewModel
     }
 
@@ -20,10 +20,7 @@ struct TodosView: View {
                 )
                 .padding(.horizontal, 16)
 
-                switch viewModel.viewState {
-                case .loaded(let content):
-                    contentView(content)
-                }
+                contentView(viewModel.viewState)
             }
             .navigationTitle("Todos")
             #if os(iOS)
@@ -36,12 +33,12 @@ struct TodosView: View {
         }
     }
 
-    private func contentView(_ content: TodosViewContent) -> some View {
+    private func contentView(_ content: TodosState.ViewState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 TextField(
                     "New todo",
-                    text: $viewModel.loaded.newTodoText.sending(\.newTodoTextChanged)
+                    text: $viewModel.newTodoText.sending(\.newTodoTextChanged)
                 )
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { viewModel.sendViewEvent(.addTodo) }
@@ -54,15 +51,15 @@ struct TodosView: View {
             }
             .padding(.horizontal, 16)
 
-            Picker("Filter", selection: $viewModel.loaded.filter.sending(\.setFilter)) {
-                ForEach(TodosDomainState.Filter.allCases) { filter in
+            Picker("Filter", selection: $viewModel.filter.sending(\.setFilter)) {
+                ForEach(TodosState.Filter.allCases) { filter in
                     Text(filter.title).tag(filter)
                 }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
 
-            if content.todos.isEmpty {
+            if content.filteredTodos.isEmpty {
                 Text("No todos yet")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -71,7 +68,7 @@ struct TodosView: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(content.todos) { item in
+                    ForEach(content.filteredTodos) { item in
                         HStack {
                             Toggle(
                                 isOn: Binding(
@@ -90,11 +87,11 @@ struct TodosView: View {
                         }
                     }
                     .onDelete { offsets in
-                        let ids = offsets.map { content.todos[$0].id }
+                        let ids = offsets.map { content.filteredTodos[$0].id }
                         viewModel.sendViewEvent(.deleteTodos(ids: ids))
                     }
                     .onMove { offsets, destination in
-                        let ids = offsets.map { content.todos[$0].id }
+                        let ids = offsets.map { content.filteredTodos[$0].id }
                         viewModel.sendViewEvent(.moveTodos(ids: ids, destination: destination))
                     }
                 }

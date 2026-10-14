@@ -16,7 +16,7 @@ import Foundation
 /// }
 /// ```
 public struct EmptyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
-    public typealias DomainState = State
+    public typealias State = State
     public typealias Action = Action
 
     /// Creates an empty interactor.

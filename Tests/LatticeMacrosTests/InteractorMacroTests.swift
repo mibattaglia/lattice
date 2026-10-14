@@ -55,7 +55,7 @@
                         EmptyInteractor()
                     }
 
-                    typealias DomainState = Int
+                    typealias State = Int
 
                     typealias Action = String
                 }
@@ -84,7 +84,7 @@
                         EmptyInteractor()
                     }
 
-                    typealias DomainState = Int?
+                    typealias State = Int?
 
                     typealias Action = String
                 }
@@ -100,7 +100,7 @@
                 """
                 @Interactor<Int, String>
                 struct MyInteractor {
-                    typealias DomainState = Int
+                    typealias State = Int
                     typealias Action = String
 
                     var body: some InteractorOf<Self> {
@@ -112,9 +112,9 @@
                 """
                 @Interactor<Int, String>
                 struct MyInteractor {
-                    typealias DomainState = Int
-                    ┬──────────────────────────
-                    ╰─ ⚠️ Consider removing explicit `typealias DomainState = Int`. This is handled by the `@Interactor` macro.
+                    typealias State = Int
+                    ┬────────────────────
+                    ╰─ ⚠️ Consider removing explicit `typealias State = Int`. This is handled by the `@Interactor` macro.
                     typealias Action = String
                     ┬────────────────────────
                     ╰─ ⚠️ Consider removing explicit `typealias Action = String`. This is handled by the `@Interactor` macro.
@@ -127,7 +127,7 @@
             } expansion: {
                 """
                 struct MyInteractor {
-                    typealias DomainState = Int
+                    typealias State = Int
                     typealias Action = String
                     @Lattice.InteractorBuilder<Int, String>
 

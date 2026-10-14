@@ -3,7 +3,7 @@ import Testing
 
 @testable import Lattice
 
-@ObservableState
+@FeatureState
 private struct WaitingState: Equatable, Sendable {
     var count = 0
 }
@@ -69,7 +69,7 @@ struct TestViewModelWaitingTests {
 
         await task.finish(timeout: .milliseconds(0))
 
-        #expect(model.domainState.count == 1)
+        #expect(model.state.count == 1)
     }
 
     @Test
@@ -84,7 +84,7 @@ struct TestViewModelWaitingTests {
 
         await task.finish()
 
-        #expect(model.domainState.count == 41)
+        #expect(model.state.count == 41)
     }
 
     @Test
@@ -136,7 +136,7 @@ struct TestViewModelWaitingTests {
             await model.finish(timeout: .seconds(1))
         }
 
-        #expect(model.domainState.count == 0)
+        #expect(model.state.count == 0)
 
         await model.receive(.loaded(41)) {
             $0.count = 41
@@ -145,9 +145,9 @@ struct TestViewModelWaitingTests {
         await task.finish()
     }
 
-    private func makeModel() -> TestViewModel<TestSupportFeature<WaitingAction, WaitingState>> {
+    private func makeModel() -> TestViewModel<Feature<WaitingAction, WaitingState>> {
         makeTestViewModel(
-            initialDomainState: WaitingState(),
+            initialState: WaitingState(),
             interactor: WaitingInteractor()
         )
     }

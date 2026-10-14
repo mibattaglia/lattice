@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "TodosExample", targets: ["TodosExample"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "lattice", path: "../..")
     ],
     targets: [
         .target(

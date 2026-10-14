@@ -2,9 +2,7 @@ import Foundation
 import Lattice
 import SwiftUI
 
-typealias PhaseExampleViewModel = ViewModel<
-    Feature<PhaseEvent, PhaseDomainState, PhaseViewState>
->
+typealias PhaseExampleViewModel = ViewModel<Feature<PhaseEvent, PhaseState>>
 
 /// Root of the enum-case-scoping demo: a plain exhaustive `switch` over the coarse
 /// `viewModel.viewState` read selects the outer case; `scope(state: \.success,
@@ -20,9 +18,13 @@ typealias PhaseExampleViewModel = ViewModel<
 ///   rebuilt subtree advance; the root switch stays put.
 /// - Load/Reset (outer case change): `PhaseExampleView renders:` advances — the intended
 ///   coarse channel.
-/// - Ticks while `.loading` (or `.idle`): nothing advances. This is the `_$inert` fix made
-///   visible; before it, a payloadless case minted a fresh id per access and the switch
-///   re-rendered once per second while showing an unchanged spinner.
+/// - Ticks while `.loading` (or `.idle`): nothing advances. A tick changes only the `.active`
+///   payload, and a payloadless case keeps a stable identity across commits, so a tick that
+///   leaves `.loading` showing never counts as a wholesale replacement.
+///
+/// The state is the enum itself, so each case carries its own data: `Tick:` counts the ticks
+/// since Start, and Reset and Stop drop their payload, so the next Load or Start begins from
+/// the defaults.
 struct PhaseExampleView: View {
     let viewModel: PhaseExampleViewModel
     private final class Renders { var count = 0 }
@@ -72,7 +74,7 @@ struct PhaseExampleView: View {
 /// Level 1 below the outer case: reads only `title`, then hands each branch its own scope.
 /// `SummaryView` is the sibling branch that must stay put while the deep leaf ticks.
 struct SuccessView: View {
-    let model: ScopedViewModel<SuccessViewState, SuccessAction>
+    let model: ScopedViewModel<SuccessState, SuccessAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -96,7 +98,7 @@ struct SuccessView: View {
 /// Sibling branch: its counter advances on Increment and stays put on leaf ticks, typing,
 /// and inner case changes.
 struct SummaryView: View {
-    let model: ScopedViewModel<SummaryViewState, SummaryAction>
+    let model: ScopedViewModel<SummaryState, SummaryAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -118,7 +120,7 @@ struct SummaryView: View {
 
 /// Level 2: reads only `name`; a thin pass-through that scopes deeper.
 struct SessionView: View {
-    let model: ScopedViewModel<SessionViewState, SessionAction>
+    let model: ScopedViewModel<SessionState, SessionAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -142,7 +144,7 @@ struct SessionView: View {
 /// container's identity, so this view re-renders on inner case changes only — in-place leaf
 /// mutations inside `.active` do not advance its counter.
 struct TelemetryView: View {
-    let model: ScopedViewModel<TelemetryViewState, TelemetryAction>
+    let model: ScopedViewModel<TelemetryState, TelemetryAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 
@@ -181,7 +183,7 @@ struct TelemetryView: View {
 /// Level 4, the deep leaf: the tick stream mutates `tick` in place once per second and the
 /// note field round-trips through a binding — only this counter advances on either.
 struct ActiveView: View {
-    let model: ScopedViewModel<ActiveViewState, ActiveAction>
+    let model: ScopedViewModel<ActiveState, ActiveAction>
     private final class Renders { var count = 0 }
     private let renders = Renders()
 

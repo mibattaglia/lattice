@@ -10,18 +10,21 @@ import SwiftUI
 /// with a view model and access properties via dynamic member lookup:
 ///
 /// ```swift
-/// @Bindable var viewModel: ViewModel<Feature<FormAction, FormState, FormViewState>>
+/// @Bindable var viewModel: ViewModel<Feature<FormAction, FormState>>
 ///
 /// TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 /// ```
+///
+/// Key paths are rooted at `F.State.ViewState`, so a `@Domain` member is rejected at the
+/// `$viewModel.member` site.
 @dynamicMemberLookup
 public struct _ViewModelBinding<F: FeatureProtocol, Value> {
     private let viewModel: ViewModel<F>
-    private let keyPath: KeyPath<F.ViewState, Value>
+    private let keyPath: KeyPath<F.State.ViewState, Value>
 
     init(
         viewModel: ViewModel<F>,
-        keyPath: KeyPath<F.ViewState, Value>
+        keyPath: KeyPath<F.State.ViewState, Value>
     ) {
         self.viewModel = viewModel
         self.keyPath = keyPath
@@ -57,8 +60,8 @@ public typealias _ViewModelBindingOf<F: FeatureProtocol, Value> = _ViewModelBind
 extension Bindable {
     /// Accesses ViewModel state properties for creating bindings.
     public subscript<F: FeatureProtocol, Member>(
-        dynamicMember keyPath: KeyPath<F.ViewState, Member>
-    ) -> _ViewModelBindingOf<F, Member>
+        dynamicMember keyPath: KeyPath<F.State.ViewState, Member>
+    ) -> _ViewModelBinding<F, Member>
     where
         Value == ViewModel<F>
     {
@@ -69,17 +72,22 @@ extension Bindable {
     }
 
     #if canImport(CasePaths)
-        /// Accesses ViewModel state case properties for CasePathable enums.
-        public subscript<F: FeatureProtocol, Case>(
-            dynamicMember keyPath: KeyPath<F.ViewState.AllCasePaths, AnyCasePath<F.ViewState, Case>>
-        ) -> _ViewModelCaseBinding<F, Case>
+        /// Accesses the case payloads of an enum state for creating bindings.
+        ///
+        /// Enum case bindings go through the `@CasePathable` mirror `F.State.ViewState`, never
+        /// the raw enum, so `@Domain` members of a payload stay hidden.
+        public subscript<F: FeatureProtocol, CaseProjection>(
+            dynamicMember keyPath: KeyPath<
+                F.State.ViewState.AllCasePaths, AnyCasePath<F.State.ViewState, CaseProjection>
+            >
+        ) -> _ViewModelCaseBinding<F, CaseProjection>
         where
             Value == ViewModel<F>,
-            F.ViewState: CasePathable
+            F.State.ViewState: CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
-                casePath: F.ViewState.allCasePaths[keyPath: keyPath]
+                casePath: F.State.ViewState.allCasePaths[keyPath: keyPath]
             )
         }
     #endif
@@ -88,8 +96,8 @@ extension Bindable {
 extension Binding {
     /// Accesses ViewModel state properties for creating bindings from a Binding<ViewModel>.
     public subscript<F: FeatureProtocol, Member>(
-        dynamicMember keyPath: KeyPath<F.ViewState, Member>
-    ) -> _ViewModelBindingOf<F, Member>
+        dynamicMember keyPath: KeyPath<F.State.ViewState, Member>
+    ) -> _ViewModelBinding<F, Member>
     where
         Value == ViewModel<F>
     {
@@ -100,33 +108,37 @@ extension Binding {
     }
 
     #if canImport(CasePaths)
-        /// Accesses ViewModel state case properties for CasePathable enums from a Binding<ViewModel>.
-        public subscript<F: FeatureProtocol, Case>(
-            dynamicMember keyPath: KeyPath<F.ViewState.AllCasePaths, AnyCasePath<F.ViewState, Case>>
-        ) -> _ViewModelCaseBinding<F, Case>
+        /// Accesses the case payloads of an enum state for creating bindings from a
+        /// Binding<ViewModel>. Goes through the `@CasePathable` mirror `F.State.ViewState`.
+        public subscript<F: FeatureProtocol, CaseProjection>(
+            dynamicMember keyPath: KeyPath<
+                F.State.ViewState.AllCasePaths, AnyCasePath<F.State.ViewState, CaseProjection>
+            >
+        ) -> _ViewModelCaseBinding<F, CaseProjection>
         where
             Value == ViewModel<F>,
-            F.ViewState: CasePathable
+            F.State.ViewState: CasePathable
         {
             _ViewModelCaseBinding(
                 viewModel: self.wrappedValue,
-                casePath: F.ViewState.allCasePaths[keyPath: keyPath]
+                casePath: F.State.ViewState.allCasePaths[keyPath: keyPath]
             )
         }
     #endif
 }
 
 #if canImport(CasePaths)
-    /// A wrapper that enables creating SwiftUI bindings from ViewModel enum case associated values.
+    /// A wrapper that enables creating SwiftUI bindings from the associated value of an enum
+    /// state case, as projected by the state's `@CasePathable` mirror `F.State.ViewState`.
     @dynamicMemberLookup
-    public struct _ViewModelCaseBinding<F: FeatureProtocol, Case>
-    where F.ViewState: CasePathable {
+    public struct _ViewModelCaseBinding<F: FeatureProtocol, CaseProjection>
+    where F.State.ViewState: CasePathable {
         private let viewModel: ViewModel<F>
-        private let casePath: AnyCasePath<F.ViewState, Case>
+        private let casePath: AnyCasePath<F.State.ViewState, CaseProjection>
 
         init(
             viewModel: ViewModel<F>,
-            casePath: AnyCasePath<F.ViewState, Case>
+            casePath: AnyCasePath<F.State.ViewState, CaseProjection>
         ) {
             self.viewModel = viewModel
             self.casePath = casePath
@@ -134,8 +146,8 @@ extension Binding {
 
         /// Accesses nested properties of the case's associated value.
         public subscript<Member>(
-            dynamicMember keyPath: KeyPath<Case, Member>
-        ) -> _ViewModelCaseMemberBinding<F, Case, Member> {
+            dynamicMember keyPath: KeyPath<CaseProjection, Member>
+        ) -> _ViewModelCaseMemberBinding<F, CaseProjection, Member> {
             _ViewModelCaseMemberBinding(
                 viewModel: viewModel,
                 casePath: casePath,
@@ -146,16 +158,16 @@ extension Binding {
 
     /// A wrapper for accessing members of an enum case's associated value.
     @dynamicMemberLookup
-    public struct _ViewModelCaseMemberBinding<F: FeatureProtocol, Case, Member>
-    where F.ViewState: CasePathable {
+    public struct _ViewModelCaseMemberBinding<F: FeatureProtocol, CaseProjection, Member>
+    where F.State.ViewState: CasePathable {
         private let viewModel: ViewModel<F>
-        private let casePath: AnyCasePath<F.ViewState, Case>
-        private let memberKeyPath: KeyPath<Case, Member>
+        private let casePath: AnyCasePath<F.State.ViewState, CaseProjection>
+        private let memberKeyPath: KeyPath<CaseProjection, Member>
 
         init(
             viewModel: ViewModel<F>,
-            casePath: AnyCasePath<F.ViewState, Case>,
-            memberKeyPath: KeyPath<Case, Member>
+            casePath: AnyCasePath<F.State.ViewState, CaseProjection>,
+            memberKeyPath: KeyPath<CaseProjection, Member>
         ) {
             self.viewModel = viewModel
             self.casePath = casePath
@@ -165,8 +177,8 @@ extension Binding {
         /// Accesses nested properties of the current member.
         public subscript<NestedMember>(
             dynamicMember keyPath: KeyPath<Member, NestedMember>
-        ) -> _ViewModelCaseMemberBinding<F, Case, NestedMember> {
-            _ViewModelCaseMemberBinding<F, Case, NestedMember>(
+        ) -> _ViewModelCaseMemberBinding<F, CaseProjection, NestedMember> {
+            _ViewModelCaseMemberBinding<F, CaseProjection, NestedMember>(
                 viewModel: viewModel,
                 casePath: casePath,
                 memberKeyPath: memberKeyPath.appending(path: keyPath)
@@ -182,7 +194,7 @@ extension Binding {
             Binding(
                 get: {
                     guard let caseValue = self.casePath.extract(from: self.viewModel.viewState) else {
-                        fatalError("Attempted to access \(Case.self) but viewState is not in that case")
+                        fatalError("Attempted to access \(CaseProjection.self) but viewState is not in that case")
                     }
                     return caseValue[keyPath: self.memberKeyPath]
                 },

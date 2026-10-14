@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 import Testing
 
@@ -6,10 +5,7 @@ import Testing
 import Lattice
 
 private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+    var didChange = false
 }
 
 @MainActor
@@ -17,11 +13,8 @@ private final class ChangeProbe: @unchecked Sendable {
 struct FineGrainedExampleTests {
     private func makeViewModel() -> FineGrainedViewModel {
         ViewModel(
-            initialDomainState: FineGrainedDomainState(),
-            feature: Feature(
-                interactor: FineGrainedInteractor(),
-                reducer: FineGrainedViewStateReducer()
-            )
+            initialState: FineGrainedState(),
+            feature: Feature(interactor: FineGrainedInteractor())
         )
     }
 
@@ -29,29 +22,29 @@ struct FineGrainedExampleTests {
     func bumpingCountDoesNotInvalidateHeader() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.header.title } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.title } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.bumpCount)
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.footer.count == 1)
+        #expect(viewModel.viewState.count == 1)
     }
 
     @Test
     func changingTitleDoesNotInvalidateFooter() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.footer.count } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.count } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.setTitle("Updated"))
         #expect(!probe.didChange)
-        #expect(viewModel.viewState.header.title == "Updated")
+        #expect(viewModel.viewState.title == "Updated")
     }
 
     @Test
     func togglingPhaseInvalidatesPhaseObserver() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.phase } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.phase } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.togglePhase)
         #expect(probe.didChange)

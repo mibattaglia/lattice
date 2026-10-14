@@ -5,13 +5,14 @@ import PackageDescription
 let package = Package(
     name: "TimerLeakExamplePackage",
     platforms: [
-        .iOS(.v26)
+        .iOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "TimerLeakExample", targets: ["TimerLeakExample"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "lattice", path: "../..")
     ],
     targets: [
         .target(

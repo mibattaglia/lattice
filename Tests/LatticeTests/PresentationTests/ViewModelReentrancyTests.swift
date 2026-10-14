@@ -1,5 +1,4 @@
 import CasePaths
-import Foundation
 import Observation
 import Testing
 
@@ -8,101 +7,96 @@ import Testing
 @MainActor
 @Suite
 struct ViewModelReentrancyTests {
-    // Regression test for an exclusive-access crash: during a reduce, an in-place tracked
-    // mutation fires the observation `willSet`. A synchronous observer (e.g. SwiftUI
-    // re-evaluating `body` inside that `willSet`) re-reads `viewModel.viewState.getter`
-    // while the reducer is still running. If the reducer held a formal write access on the
-    // stored view state open across its body (as the former `viewState` `_modify` accessor
-    // did), the re-entrant read trapped with "Fatal access conflict detected".
+    // A tracked mutation fires the observation `willSet` synchronously, so an observer (such as
+    // SwiftUI re-evaluating `body`) can re-read the view model while the action is still running.
+    // That re-read must not trap with an exclusive-access conflict, and it sees the previous
+    // committed value, because the interactor mutates a working copy of the state.
     @Test
-    func synchronousReadDuringReduceMutation() {
-        let viewModel = makeViewModel(reducer: CounterPhaseReducer())
+    func synchronousReadDuringMutationSeesThePreviousCommittedValue() {
+        let viewModel = makeViewModel()
+        let seen = SeenValues()
 
         withObservationTracking {
-            _ = viewModel.viewState.phase
+            _ = viewModel.phase
         } onChange: {
-            // Re-enter the getter synchronously, exactly as SwiftUI body re-evaluation can.
-            // `onChange` fires from `withMutation`'s `willSet`, which the reducer triggers
-            // mid-reduce.
+            // Re-enter the getters synchronously, exactly as SwiftUI body re-evaluation can.
             MainActor.assumeIsolated {
                 _ = viewModel.viewState
+                seen.phaseValue = viewModel.phase[case: \.active]?.value
             }
         }
 
         viewModel.sendViewEvent(.increment)
 
-        #expect(viewModel.viewState.phase.active?.value == "1")
+        #expect(seen.phaseValue == "0")
+        #expect(viewModel.phase[case: \.active]?.value == "1")
     }
 
-    private func makeViewModel<R: ViewStateReducer & Sendable>(
-        reducer: R
-    ) -> ViewModel<Feature<CounterPhaseAction, CounterPhaseDomainState, CounterPhaseViewState>>
-    where R.DomainState == CounterPhaseDomainState, R.ViewState == CounterPhaseViewState {
-        ViewModel(
-            initialDomainState: .init(count: 0),
-            feature: Feature(interactor: CounterPhaseInteractor(), reducer: reducer)
-        )
-    }
-}
+    @Test
+    func synchronousReadDuringLeafMutationSeesThePreviousCommittedValues() {
+        let viewModel = makeViewModel()
+        let seen = SeenValues()
 
-private struct CounterPhaseInteractor: Interactor, Sendable {
-    typealias DomainState = CounterPhaseDomainState
-    typealias Action = CounterPhaseAction
-
-    var body: some InteractorOf<Self> { self }
-
-    func interact(
-        state: inout CounterPhaseDomainState,
-        action: CounterPhaseAction
-    ) -> Emission<CounterPhaseAction> {
-        switch action {
-        case .increment:
-            state.count += 1
-            return .none
+        withObservationTracking {
+            _ = viewModel.count
+        } onChange: {
+            MainActor.assumeIsolated {
+                seen.title = viewModel.title
+                seen.count = viewModel.count
+            }
         }
+
+        // Writes `title` first, then `count`: the observer runs while the working copy already
+        // holds the new title.
+        viewModel.sendViewEvent(.renameAndIncrement("During"))
+
+        #expect(seen.title == "Counter")
+        #expect(seen.count == 0)
+        #expect(viewModel.title == "During")
+        #expect(viewModel.count == 1)
+    }
+
+    private func makeViewModel() -> ViewModel<Feature<CounterPhaseAction, CounterPhaseState>> {
+        ViewModel(initialState: CounterPhaseState(), feature: Feature(interactor: CounterPhaseInteractor()))
     }
 }
 
-private struct CounterPhaseReducer: ViewStateReducer, Sendable {
-    typealias DomainState = CounterPhaseDomainState
-    typealias ViewState = CounterPhaseViewState
-
-    var body: some ViewStateReducerOf<Self> { self }
-
-    func initialViewState(for domainState: CounterPhaseDomainState) -> CounterPhaseViewState {
-        CounterPhaseViewState.defaultValue
-    }
-
-    func reduce(_ domainState: CounterPhaseDomainState, into viewState: inout CounterPhaseViewState) {
-        viewState.phase = .active(.init(value: "\(domainState.count)"))
-    }
+private final class SeenValues: @unchecked Sendable {
+    var phaseValue: String?
+    var title: String?
+    var count: Int?
 }
 
-@ObservableState
-private struct CounterPhaseViewState: Equatable, Sendable, DefaultValueProvider {
-    static let defaultValue = Self(phase: .active(.init(value: "0")))
-
-    var phase: CounterPhase
-}
-
-@ObservableState
-@CasePathable
-@dynamicMemberLookup
-private enum CounterPhase: Equatable, Sendable {
-    case idle
-    case active(CounterPhasePayload)
-}
-
-@ObservableState
-private struct CounterPhasePayload: Equatable, Sendable {
+@FeatureState
+struct CounterPhasePayload: Equatable, Sendable {
     var value: String
 }
 
-private struct CounterPhaseDomainState: Equatable, Sendable {
+@FeatureState
+private struct CounterPhaseState: Equatable, Sendable {
+    var title = "Counter"
     var count = 0
+    var phase: CounterPhase = .active(CounterPhasePayload(value: "0"))
 }
 
-@CasePathable
 private enum CounterPhaseAction: Sendable {
     case increment
+    case renameAndIncrement(String)
+}
+
+@Interactor<CounterPhaseState, CounterPhaseAction>
+private struct CounterPhaseInteractor: Sendable {
+    var body: some InteractorOf<Self> {
+        Interact { state, action in
+            switch action {
+            case .increment:
+                state.count += 1
+                state.phase = .active(CounterPhasePayload(value: "\(state.count)"))
+            case .renameAndIncrement(let title):
+                state.title = title
+                state.count += 1
+            }
+            return .none
+        }
+    }
 }

@@ -2,9 +2,9 @@ import Lattice
 import SwiftUI
 
 struct SearchView: View {
-    @Bindable private var viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>
+    @Bindable private var viewModel: ViewModel<Feature<SearchEvent, SearchState>>
 
-    init(viewModel: ViewModel<Feature<SearchEvent, SearchDomainState, SearchViewState>>) {
+    init(viewModel: ViewModel<Feature<SearchEvent, SearchState>>) {
         self.viewModel = viewModel
     }
 
@@ -29,7 +29,7 @@ struct SearchView: View {
 
                     TextField(
                         "New York, San Francisco, ...",
-                        text: $viewModel.loaded.query.sending(\.search.query)
+                        text: $viewModel.results.query.sending(\.search.query)
                     )
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
@@ -37,9 +37,9 @@ struct SearchView: View {
                 .padding(.horizontal, 16)
 
                 switch viewModel.viewState {
-                case .none:
+                case .noResults:
                     EmptyView()
-                case .loaded(let listContent):
+                case .results(let listContent):
                     if listContent.listItems.isEmpty {
                         EmptyView()
                     } else {
@@ -55,7 +55,7 @@ struct SearchView: View {
         }
     }
 
-    private func listView(_ content: SearchListContent) -> some View {
+    private func listView(_ content: SearchState.ResultState.ViewState) -> some View {
         List(content.listItems) { listItem in
             VStack(alignment: .leading) {
                 Button {
