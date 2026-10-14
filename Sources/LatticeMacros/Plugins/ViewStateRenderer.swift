@@ -87,6 +87,8 @@ struct ViewStateRenderer {
     }
 
     private var witnessStruct: DeclSyntax {
+        // A value of the state's type, or of a payload's type for enum cases, for the type checker
+        // to infer each member's projected type; never evaluated.
         let placeholder = "Lattice._$placeholder(\(typeName).self)"
         let witnesses = render { member in
             switch member {
