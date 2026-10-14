@@ -41,8 +41,9 @@ struct PhaseExampleTests {
             .scope(state: \.telemetry, action: \.telemetry)
     }
 
-    // Without state equality, only `.loading`'s `_$inert`-stable id keeps a commit that leaves
-    // `.loading` showing from counting as a wholesale replacement.
+    // Without state equality, the root switch still stays put: a case without a payload keeps the
+    // same identity across commits, so a commit that leaves `.loading` showing is not a wholesale
+    // replacement.
     @Test
     func tickWhileLoadingDoesNotInvalidateTheRootSwitch() {
         let viewModel = makeViewModel(areStatesEqual: nil)

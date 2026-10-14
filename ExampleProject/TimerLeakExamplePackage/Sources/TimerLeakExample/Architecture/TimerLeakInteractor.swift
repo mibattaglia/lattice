@@ -3,7 +3,7 @@ import Lattice
 
 @Interactor<TimerLeakState, TimerLeakEvent>
 struct TimerLeakInteractor: Sendable {
-    /// Tick interval. ~20ms ≈ 50 Hz, inside the spec's 30–60 Hz window.
+    /// Tick interval. ~20ms ≈ 50 Hz.
     private let tickInterval: Duration
 
     init(tickInterval: Duration = .milliseconds(20)) {

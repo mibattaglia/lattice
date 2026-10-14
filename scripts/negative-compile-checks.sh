@@ -1,9 +1,9 @@
 #!/bin/bash
-# Negative compile checks for `@FeatureState` hiding (specs/plans/unified-feature-state.md §8).
+# Negative compile checks for `@FeatureState` hiding.
 #
 # Type-checks the fixture files in Tests/NegativeCompileChecks against the built Lattice module: once
 # with no flag (BASELINE, must compile) and once per flag below (must fail with the listed diagnostics).
-# A `@FeatureState` enum gets its own fixture file (specs/plans/unified-feature-state.md §10).
+# Each `@FeatureState` enum has its own fixture file.
 # Run after `swift build`; paths come from `swift build --show-bin-path`. Pass the same build options
 # in SWIFT_BUILD_FLAGS when the build used non-default ones (for example `--scratch-path <dir>`).
 set -uo pipefail

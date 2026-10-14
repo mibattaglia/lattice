@@ -8,15 +8,10 @@ import Testing
 @MainActor
 @Suite
 struct ViewModelReentrancyTests {
-    // Regression test for an exclusive-access crash: an in-place tracked mutation fires the
-    // observation `willSet` synchronously, and an observer (e.g. SwiftUI re-evaluating `body`
-    // inside that `willSet`) re-reads the view model while the action is still running. If the
-    // mutation held a formal write access on the stored state open across the interactor, the
-    // re-entrant read trapped with "Fatal access conflict detected". The interactor mutates a
-    // working copy instead, so the re-read is safe.
-    //
-    // §6 "Observer re-reads synchronously during a mutation": no crash; reads the previous
-    // committed value.
+    // A tracked mutation fires the observation `willSet` synchronously, so an observer (such as
+    // SwiftUI re-evaluating `body`) can re-read the view model while the action is still running.
+    // That re-read must not trap with an exclusive-access conflict, and it sees the previous
+    // committed value, because the interactor mutates a working copy of the state.
     @Test
     func synchronousReadDuringMutationSeesThePreviousCommittedValue() {
         let viewModel = makeViewModel()

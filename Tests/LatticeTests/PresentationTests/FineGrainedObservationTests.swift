@@ -94,8 +94,6 @@ private struct UncomparableDashInteractor: Sendable {
         ViewModel(initialState: DashState(), feature: Feature(interactor: DashInteractor()))
     }
 
-    // §6 "Leaf change / unrelated leaf / equal value assigned": fires / silent / silent.
-
     @Test func leafChangeFiresItsObserver() {
         let vm = makeViewModel()
         let count = ObservationProbe { _ = vm.count }
@@ -138,9 +136,6 @@ private struct UncomparableDashInteractor: Sendable {
         #expect(blob.didFire)
     }
 
-    // §6 "`state.badge.count += 1`, directly or via When's `&state[keyPath: \.badge]`": only that
-    // leaf's observers fire; siblings, other leaves and the root stay silent.
-
     @Test func inPlaceNestedLeafMutationFiresOnlyThatLeaf() {
         let vm = makeViewModel()
         let title = ObservationProbe { _ = vm.header.title }
@@ -171,8 +166,8 @@ private struct UncomparableDashInteractor: Sendable {
         #expect(vm.header.subtitle == "sub")
     }
 
-    // §6 "Coarse `viewModel.badge` read then `badge.count += 1`": silent. Reading the child
-    // value registers only the path to it; its members' changes reach member readers.
+    // Reading the child value registers only the path to it; its members' changes reach member
+    // readers.
 
     @Test func coarseChildReadDoesNotInvalidateOnInPlaceLeafMutation() {
         let vm = makeViewModel()

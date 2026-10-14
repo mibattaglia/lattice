@@ -2,7 +2,6 @@ import CasePaths
 import Foundation
 import Lattice
 
-// A `@FeatureState` enum must be alone in its file (Swift 6.4 crash, unified-feature-state.md §10).
 /// The whole state is an enum: a normal exhaustive `switch` over `viewModel.viewState` selects
 /// the case, and `scope(state: \.success, action: \.success)` projects the matched payload into
 /// a live `ScopedViewModel`. `@CasePathable` supplies the case key paths, and `@FeatureState`

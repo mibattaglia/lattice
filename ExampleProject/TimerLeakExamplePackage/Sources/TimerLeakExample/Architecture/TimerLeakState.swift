@@ -3,8 +3,7 @@ import Observation
 
 /// The feature's one state, with a nested `@FeatureState` child. The interactor rebuilds
 /// `child` wholesale on every tick (assignment, not field mutation), which is
-/// exactly the pattern that triggers the content-equal registrar leak described
-/// in specs/observable-state-identity-preserving-merge.md.
+/// exactly the pattern that triggers the content-equal registrar leak.
 @FeatureState
 struct TimerLeakState: Equatable, Sendable {
     var tickCount: Int = 0
@@ -19,7 +18,7 @@ struct TimerChildState: Equatable, Sendable {
     /// A wide subtree of nested `@FeatureState` rows. The child is rebuilt
     /// wholesale every tick, so every content-equal tick orphans one registrar
     /// per row that the view is tracking — the leak rate scales with `rows.count`.
-    /// The array lives *inside* the assigned struct on purpose: the fix's
+    /// The array lives *inside* the assigned struct on purpose: the
     /// constrained `mutate` overload short-circuits the content-equal child
     /// assignment before the array is ever touched.
     var rows: [TimerRowState]

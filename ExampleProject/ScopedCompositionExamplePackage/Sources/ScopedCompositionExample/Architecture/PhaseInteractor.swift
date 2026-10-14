@@ -3,15 +3,6 @@ import Lattice
 @Interactor<PhaseState, PhaseEvent>
 struct PhaseInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        // The two-regimes discipline, applied at both enum levels: mutate payloads in place
-        // while staying in a case (fine-grained; the enclosing identities are untouched and no
-        // switch re-renders), and replace a case wholesale only on a real transition (coarse;
-        // exactly that switch re-renders). Payloadless cases (.loading, .idle) have
-        // _$inert-stable ids: re-assigning the case already showing (Stop while .idle) is an
-        // identity-equal no-op, and so is a commit that leaves .loading showing.
-        //
-        // The state is the enum itself, so each case carries its own data: Reset and Stop drop
-        // their payload, and the next Load or Start begins from a default payload.
         Interact { state, event in
             switch event {
             case .loadTapped:
@@ -32,13 +23,9 @@ struct PhaseInteractor: Sendable {
                 return .none
 
             case .startTicking:
-                // Once-per-second tick stream: the deep-leaf driver while the .active sub-phase
-                // is showing, and an unrelated action while a payloadless case is: a tick that
-                // leaves .loading showing still commits, and .loading's _$inert-stable id keeps
-                // that commit from counting as a replacement. There is no start-once guard (an
-                // enum state has no storage outside its cases): this is idempotent only because
-                // the root view's `.task` sends it once. A re-appearing view would start a
-                // second stream, and `Emission` has no cancellation API.
+                // A once-per-second tick stream. Nothing prevents a second start, because an enum
+                // state has no storage outside its cases: the root view's `.task` sends this once,
+                // and a re-appearing view would start a second stream.
                 return .observe {
                     let clock = ContinuousClock()
                     return AsyncStream(unfolding: {

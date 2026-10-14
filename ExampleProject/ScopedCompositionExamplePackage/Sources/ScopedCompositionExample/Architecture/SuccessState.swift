@@ -1,10 +1,6 @@
 import Foundation
 import Lattice
 
-// The payload structs of `PhaseState` and `SubphaseState`. They live apart from those enums
-// because a `@FeatureState` enum must be alone in its file (Swift 6.4 crash,
-// unified-feature-state.md §10).
-
 @FeatureState
 struct SuccessState: Equatable, Sendable {
     var title: String = "Success"

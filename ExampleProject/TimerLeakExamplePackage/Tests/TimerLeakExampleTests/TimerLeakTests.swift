@@ -5,6 +5,5 @@ import Testing
 @MainActor
 struct TimerLeakTests {
     // Intentionally empty: this package is a throwaway demo for profiling the
-    // @FeatureState registrar memory leak. See
-    // specs/observable-state-identity-preserving-merge.md.
+    // @FeatureState registrar memory leak.
 }

@@ -93,8 +93,6 @@ struct ViewModelObservationTests {
 
     // MARK: Root gate
 
-    // §6 "Wholesale replacement `state = State(...)` with different content": root fires, every
-    // leaf re-reads.
     @Test
     func wholesaleReplacementWithDifferentContentFiresRootAndEveryLeaf() {
         let viewModel = makeViewModel()
@@ -110,8 +108,6 @@ struct ViewModelObservationTests {
         #expect(viewModel.title == "Other")
     }
 
-    // §6 "Wholesale replacement with equal content (`areStatesEqual` available)": nothing fires;
-    // registrars preserved.
     @Test
     func wholesaleReplacementWithEqualContentIsSilentAndPreservesRegistrars() {
         let viewModel = makeViewModel()
@@ -147,8 +143,6 @@ struct ViewModelObservationTests {
 
     // MARK: Children
 
-    // §6 "Content-equal child rebuild `state.badge = BadgeState(same)`": silent; child `_$id`
-    // preserved.
     @Test
     func contentEqualChildRebuildIsSilentAndPreservesTheChildID() {
         let viewModel = makeViewModel()
@@ -165,8 +159,6 @@ struct ViewModelObservationTests {
         #expect(viewModel.state.badge._$id == badgeID)
     }
 
-    // §6 "Child rebuilt with different content": parent `\.badge` fires; observers that walked
-    // through `badge` re-read; root silent.
     @Test
     func childRebuiltWithDifferentContentFiresObserversThroughTheChild() {
         let viewModel = makeViewModel()
@@ -184,7 +176,6 @@ struct ViewModelObservationTests {
         #expect(viewModel.badge.count == 99)
     }
 
-    // §6 "Optional child `nil → value`; then `detail?.count += 1`": fires; then leaf-only.
     @Test
     func optionalChildInsertionFiresThenInPlaceLeafMutationIsLeafOnly() {
         let viewModel = makeViewModel()

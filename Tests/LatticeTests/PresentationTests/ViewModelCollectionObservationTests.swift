@@ -34,8 +34,9 @@ private struct CollectionInteractor: Sendable {
     }
 }
 
-/// §6 "`rows[0].count += 1` / `rows.append` / `rows[id:]?.count += 1`": element-only / `rows`
-/// observers / element-only, for `Array` and `IdentifiedArrayOf` collections of child states.
+/// An element edit (`rows[0].count += 1`, `rows[id:]?.count += 1`) invalidates only that element's
+/// readers, and `rows.append` invalidates the `rows` readers, for `Array` and `IdentifiedArrayOf`
+/// collections of child states.
 @MainActor
 @Suite
 struct ViewModelCollectionObservationTests {

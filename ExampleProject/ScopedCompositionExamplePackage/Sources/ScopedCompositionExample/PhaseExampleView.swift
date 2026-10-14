@@ -19,8 +19,8 @@ typealias PhaseExampleViewModel = ViewModel<Feature<PhaseEvent, PhaseState>>
 /// - Load/Reset (outer case change): `PhaseExampleView renders:` advances — the intended
 ///   coarse channel.
 /// - Ticks while `.loading` (or `.idle`): nothing advances. A tick changes only the `.active`
-///   payload, and a payloadless case keeps a stable (`_$inert`) identity across commits, so a
-///   tick that leaves `.loading` showing never counts as a wholesale replacement.
+///   payload, and a payloadless case keeps a stable identity across commits, so a tick that
+///   leaves `.loading` showing never counts as a wholesale replacement.
 ///
 /// The state is the enum itself, so each case carries its own data: `Tick:` counts the ticks
 /// since Start, and Reset and Stop drop their payload, so the next Load or Start begins from

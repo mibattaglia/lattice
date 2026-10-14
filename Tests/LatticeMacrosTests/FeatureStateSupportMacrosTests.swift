@@ -10,7 +10,7 @@
                 macros: [
                     "Domain": MacroSpec(type: DomainMacro.self),
                     // The constrained overloads: the compiler only selects them when the state
-                    // has the conformance, so the specs report it as missing.
+                    // has the conformance, so the `MacroSpec`s report it as missing.
                     "_IdentifiableIfPossible": MacroSpec(
                         type: IdentifiableIfPossibleMacro.self,
                         conformances: ["Identifiable"]

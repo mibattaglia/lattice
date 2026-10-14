@@ -1,8 +1,6 @@
 import Foundation
 import Lattice
 
-// `ResultState` is declared apart from `SearchState`: a `@FeatureState` enum must be alone in its
-// file (Swift 6.4 crash, unified-feature-state.md §10).
 extension SearchState {
     /// The `.results` payload. It is `@FeatureState`, so a query edit or a loaded forecast
     /// re-renders only the views that read it. Views read the `listItems` derived from the

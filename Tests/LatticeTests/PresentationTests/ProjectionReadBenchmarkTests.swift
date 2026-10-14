@@ -1,5 +1,5 @@
-// §8 Perf: a member read through the generated projection costs at most 1.2× the same read on the
-// raw state. Compiled for release builds only, so `swift test` skips it; run it with
+// A member read through the generated projection costs at most 1.2× the same read on the raw
+// state. Compiled for release builds only, so `swift test` skips it; run it with
 // `swift test -c release --filter ProjectionReadBenchmark`.
 #if !DEBUG
     import Foundation

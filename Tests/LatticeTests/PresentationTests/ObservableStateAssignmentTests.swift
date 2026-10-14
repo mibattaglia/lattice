@@ -7,9 +7,9 @@ import Testing
 @FeatureState private struct Child: Equatable { var value: String; var leaf: Leaf }
 @FeatureState private struct Parent: Equatable { var title: String; var child: Child }
 
-/// §6 "Content-equal child rebuild `state.badge = BadgeState(same)`": silent; child `_$id`
-/// preserved. These run on the state value itself; `ViewModelObservationTests` runs the same rows
-/// through a `ViewModel`.
+/// A content-equal rebuild of a child state keeps the identities of the child and its nested
+/// states. These tests run on the state value itself; `ViewModelObservationTests` covers the same
+/// assignments through a `ViewModel`.
 @Suite struct ObservableStateAssignmentTests {
     @Test func contentEqualRebuildPreservesNestedIdentity() {
         var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
@@ -28,7 +28,7 @@ import Testing
             let storage = a.child._$id._$storageObjectID
 
             for _ in 0..<1_000 {
-                a.child = Child(value: "x", leaf: Leaf(n: 1))  // simulate reducer churn
+                a.child = Child(value: "x", leaf: Leaf(n: 1))  // a content-equal rebuild per tick
             }
 
             #expect(a.child._$id._$storageObjectID == storage)  // one instance, not 1000

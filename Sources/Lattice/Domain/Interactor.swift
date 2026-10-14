@@ -1,6 +1,6 @@
 import Foundation
 
-/// A type that processes **actions** and produces **domain state**.
+/// A type that processes **actions** and mutates a feature's **state**.
 ///
 /// An `Interactor` is the core unit of a feature's business logic. It plays a role similar to a
 /// "reducer" in other architectures, processing actions synchronously and returning an `Emission`

@@ -100,9 +100,6 @@ private struct PhaseHostInteractor: Sendable {
         #expect(vm.state._$id == rootID)
     }
 
-    // §6 "Enum case switch / payload edit through When's case path": root fires / leaf-only,
-    // root `_$id` unchanged.
-
     @Test func enumCaseSwitchFiresRoot() {
         let vm = makeViewModel()
         let root = ObservationProbe { _ = vm.viewState }
