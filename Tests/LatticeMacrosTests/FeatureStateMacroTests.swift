@@ -1270,120 +1270,6 @@
             }
         }
 
-        func testKnownSupportedPropertyWrappers() {
-            assertMacro {
-                """
-                @FeatureState
-                struct State {
-                  @Shared var shared: Int
-                  @SharedReader var sharedReader: Int
-                  @Fetch var fetch: Int 
-                  @FetchAll var fetchAll: Int 
-                  @FetchOne var fetchOne: Int
-                }
-                """
-            } expansion: {
-                """
-                struct State {
-                  @Shared
-                  var shared: Int
-                  @SharedReader
-                  var sharedReader: Int
-                  @Fetch
-                  var fetch: Int 
-                  @FetchAll
-                  var fetchAll: Int 
-                  @FetchOne
-                  var fetchOne: Int
-
-                  var _$observationRegistrar = Lattice.ObservationStateRegistrar()
-
-                  public var _$id: Lattice.ObservableStateID {
-                    _$observationRegistrar.id
-                  }
-
-                  public mutating func _$willModify() {
-                    _$observationRegistrar._$willModify()
-                  }
-
-                  private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu_>(_ lhs: __macro_local_6MemberfMu_, _ rhs: __macro_local_6MemberfMu_) -> Bool {
-                    true
-                  }
-
-                  private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu0_: Equatable>(_ lhs: __macro_local_6MemberfMu0_, _ rhs: __macro_local_6MemberfMu0_) -> Bool {
-                    lhs != rhs
-                  }
-
-                  private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu1_: AnyObject>(_ lhs: __macro_local_6MemberfMu1_, _ rhs: __macro_local_6MemberfMu1_) -> Bool {
-                    lhs !== rhs
-                  }
-
-                  private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
-                    lhs != rhs
-                  }
-
-                  protocol _$ViewStateTypes {
-                    associatedtype shared
-                    var _$shared: shared {
-                      get
-                    }
-                    associatedtype sharedReader
-                    var _$sharedReader: sharedReader {
-                      get
-                    }
-                    associatedtype fetch
-                    var _$fetch: fetch {
-                      get
-                    }
-                    associatedtype fetchAll
-                    var _$fetchAll: fetchAll {
-                      get
-                    }
-                    associatedtype fetchOne
-                    var _$fetchOne: fetchOne {
-                      get
-                    }
-                  }
-
-                  struct _$ViewStateWitness: _$ViewStateTypes {
-                    let _$shared = Lattice._$project(Lattice._$placeholder(State.self).shared)
-                    let _$sharedReader = Lattice._$project(Lattice._$placeholder(State.self).sharedReader)
-                    let _$fetch = Lattice._$project(Lattice._$placeholder(State.self).fetch)
-                    let _$fetchAll = Lattice._$project(Lattice._$placeholder(State.self).fetchAll)
-                    let _$fetchOne = Lattice._$project(Lattice._$placeholder(State.self).fetchOne)
-                  }
-
-                  @Lattice._IdentifiableIfPossible(State.self)
-                  @Lattice._EquatableIfPossible(State.self)
-                  struct ViewState: Lattice.ViewStateProjection {
-                    @_spi(Lattice) public let _state: State
-                    init(_ state: State) {
-                      self._state = state
-                    }
-                    var shared: _$ViewStateWitness.shared {
-                      Lattice._$project(_state.shared)
-                    }
-                    var sharedReader: _$ViewStateWitness.sharedReader {
-                      Lattice._$project(_state.sharedReader)
-                    }
-                    var fetch: _$ViewStateWitness.fetch {
-                      Lattice._$project(_state.fetch)
-                    }
-                    var fetchAll: _$ViewStateWitness.fetchAll {
-                      Lattice._$project(_state.fetchAll)
-                    }
-                    var fetchOne: _$ViewStateWitness.fetchOne {
-                      Lattice._$project(_state.fetchOne)
-                    }
-                  }
-                }
-
-                extension State: Lattice.FeatureState, Observation.Observable {
-                }
-                """
-            }
-        }
-
         // MARK: - ViewState projection
 
         func testViewState_Struct_EveryMemberKind() {
@@ -1681,13 +1567,18 @@
             // observation accessor macro, which supports a single variable per declaration.)
             assertMacro {
                 """
+                @propertyWrapper
+                struct Boxed<T> {
+                    var wrappedValue: T
+                }
+
                 @FeatureState
                 struct VisibilityState {
                     let id: Int
                     let first = 0, second = 1
                     private(set) var readOnly = 2
                     fileprivate(set) var fileReadOnly = 3
-                    @Shared var shared: Int
+                    @ObservationStateIgnored @Boxed var wrapped: Int
                     @ObservationStateIgnored var ignored = 4
                     var computed: Int { first + second }
                     private var hidden = 5
@@ -1700,6 +1591,10 @@
                 """
             } expansion: {
                 #"""
+                @propertyWrapper
+                struct Boxed<T> {
+                    var wrappedValue: T
+                }
                 struct VisibilityState {
                     let id: Int
                     let first = 0, second = 1
@@ -1743,8 +1638,7 @@
                           yield &_fileReadOnly
                         }
                     }
-                    @Shared
-                    var shared: Int
+                    @Boxed var wrapped: Int
                     var ignored = 4
                     var computed: Int { first + second }
                     private var hidden {
@@ -1839,8 +1733,8 @@
                         var _$fileReadOnly: fileReadOnly {
                             get
                         }
-                        associatedtype shared
-                        var _$shared: shared {
+                        associatedtype wrapped
+                        var _$wrapped: wrapped {
                             get
                         }
                         associatedtype ignored
@@ -1859,7 +1753,7 @@
                         let _$second = Lattice._$project(Lattice._$placeholder(VisibilityState.self).second)
                         let _$readOnly = Lattice._$project(Lattice._$placeholder(VisibilityState.self).readOnly)
                         let _$fileReadOnly = Lattice._$project(Lattice._$placeholder(VisibilityState.self).fileReadOnly)
-                        let _$shared = Lattice._$project(Lattice._$placeholder(VisibilityState.self).shared)
+                        let _$wrapped = Lattice._$project(Lattice._$placeholder(VisibilityState.self).wrapped)
                         let _$ignored = Lattice._$project(Lattice._$placeholder(VisibilityState.self).ignored)
                         let _$computed = Lattice._$project(Lattice._$placeholder(VisibilityState.self).computed)
                     }
@@ -1886,8 +1780,8 @@
                         var fileReadOnly: _$ViewStateWitness.fileReadOnly {
                             Lattice._$project(_state.fileReadOnly)
                         }
-                        var shared: _$ViewStateWitness.shared {
-                            Lattice._$project(_state.shared)
+                        var wrapped: _$ViewStateWitness.wrapped {
+                            Lattice._$project(_state.wrapped)
                         }
                         var ignored: _$ViewStateWitness.ignored {
                             Lattice._$project(_state.ignored)

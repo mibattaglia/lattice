@@ -243,7 +243,7 @@ All are errors.
 | `@Domain` on an enum case, a `static` member, or another declaration that is not an instance property | `'@Domain' can only be applied to instance properties` |
 | `@Domain` on `id` while the inheritance clause lists `Identifiable` | `'id' cannot be '@Domain' on an Identifiable state; its ViewState would not satisfy 'Identifiable'` |
 | A member or nested type named `ViewState`, `_$ViewStateTypes` or `_$ViewStateWitness`, or a property or case named `_state` | `'X' is reserved by '@FeatureState'` |
-| `@ObservationIgnored`, `@ObservationTracked` or `@PresentationState` on a member | `'@X' cannot be used in '@FeatureState'`, with a rename fix-it |
+| `@ObservationIgnored` or `@ObservationTracked` on a member | `'@X' cannot be used in '@FeatureState'`, with a rename fix-it |
 
 After a reserved-name error no `ViewState` is generated and only the `Observation.Observable` conformance is added. After the `@Domain id` error the unavailable `id` stub is left out. Both avoid cascading errors.
 

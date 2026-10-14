@@ -66,7 +66,7 @@ public macro FeatureState() = #externalMacro(module: "LatticeMacros", type: "Fea
 ```
 
 - The member role synthesizes the observation members and the projection declarations: the `_$ViewStateTypes` protocol, the `_$ViewStateWitness` struct, and the nested `ViewState` (a struct for struct states, a mirror enum for enum states).
-- The member-attribute role adds `@ObservationStateTracked` to each stored mutable instance property, and `@ObservationStateIgnored` instead to members wrapped by a known property wrapper (`@Shared`, `@SharedReader`, `@Fetch`, `@FetchAll`, `@FetchOne`), whose storage is excluded from tracking.
+- The member-attribute role adds `@ObservationStateTracked` to each stored mutable instance property not already marked `@ObservationStateIgnored`. A property-wrapped member needs `@ObservationStateIgnored`, because a property wrapper cannot be applied to the computed property that the tracking accessors make.
 - The extension role adds `extension Type: Lattice.FeatureState, Observation.Observable {}`.
 
 `names: arbitrary` is not needed: projection members live inside the generated `ViewState` type.

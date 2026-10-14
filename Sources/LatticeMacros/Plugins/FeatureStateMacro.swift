@@ -50,8 +50,6 @@ public struct FeatureStateMacro {
 
     static let trackedMacroName = "ObservationStateTracked"
     static let ignoredMacroName = "ObservationStateIgnored"
-    static let presentsMacroName = "Presents"
-    static let presentationStatePropertyWrapperName = "PresentationState"
 
     static let registrarVariableName = "_$observationRegistrar"
 
@@ -553,23 +551,6 @@ extension FeatureStateMacro: MemberAttributeMacro {
             renamed: FeatureStateMacro.trackedMacroName,
             context: context
         )
-        property.diagnose(
-            attribute: "PresentationState",
-            renamed: FeatureStateMacro.presentsMacroName,
-            context: context
-        )
-
-        if property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
-            || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
-        {
-            return [
-                AttributeSyntax(
-                    attributeName: IdentifierTypeSyntax(
-                        name: .identifier(FeatureStateMacro.ignoredMacroName)
-                    )
-                )
-            ]
-        }
 
         return [
             AttributeSyntax(
@@ -665,11 +646,7 @@ public struct ObservationStateTrackedMacro: AccessorMacro {
             return []
         }
 
-        if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName)
-            || property.hasMacroApplication(FeatureStateMacro.presentationStatePropertyWrapperName)
-            || property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
-            || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
-        {
+        if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName) {
             return []
         }
 
@@ -725,9 +702,6 @@ extension ObservationStateTrackedMacro: PeerMacro {
         }
 
         if property.hasMacroApplication(FeatureStateMacro.ignoredMacroName)
-            || property.hasMacroApplication(FeatureStateMacro.presentationStatePropertyWrapperName)
-            || property.hasMacroApplication(FeatureStateMacro.presentsMacroName)
-            || knownSupportedPropertyWrappers.contains(where: property.hasMacroApplication)
             || property.hasMacroApplication(FeatureStateMacro.trackedMacroName)
         {
             return []
@@ -752,10 +726,6 @@ public struct ObservationStateIgnoredMacro: AccessorMacro {
         return []
     }
 }
-
-private let knownSupportedPropertyWrappers = [
-    "Shared", "SharedReader", "Fetch", "FetchAll", "FetchOne",
-]
 
 // MARK: - ViewState projection
 
