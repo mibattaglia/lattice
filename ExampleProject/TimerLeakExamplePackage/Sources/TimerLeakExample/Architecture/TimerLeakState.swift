@@ -6,10 +6,10 @@ import Observation
 /// exactly the pattern that triggers the content-equal registrar leak.
 @FeatureState
 struct TimerLeakState: Equatable, Sendable {
-    var tickCount: Int = 0
-    @Domain var displayedValue: String = "value-0"
-    @Domain var isRunning: Bool = false
-    var child: TimerChildState = TimerChildState(value: "value-0")
+    var tickCount = 0
+    @Domain var displayedValue = "value-0"
+    @Domain var isRunning = false
+    var child = TimerChildState(value: "value-0")
 }
 
 @FeatureState

@@ -3,30 +3,30 @@ import Lattice
 
 @FeatureState
 struct SuccessState: Equatable, Sendable {
-    var title: String = "Success"
-    var summary: SummaryState = SummaryState()
-    var session: SessionState = SessionState()
+    var title = "Success"
+    var summary = SummaryState()
+    var session = SessionState()
 }
 
 @FeatureState
 struct SummaryState: Equatable, Sendable {
-    var count: Int = 0
+    var count = 0
 }
 
 @FeatureState
 struct SessionState: Equatable, Sendable {
-    var name: String = "Live sync"
-    var telemetry: TelemetryState = TelemetryState()
+    var name = "Live sync"
+    var telemetry = TelemetryState()
 }
 
 @FeatureState
 struct TelemetryState: Equatable, Sendable {
-    var status: String = "Connected"
+    var status = "Connected"
     var subphase: SubphaseState = .idle
 }
 
 @FeatureState
 struct ActiveState: Equatable, Sendable {
-    var tick: Int = 0
-    var note: String = ""
+    var tick = 0
+    var note = ""
 }

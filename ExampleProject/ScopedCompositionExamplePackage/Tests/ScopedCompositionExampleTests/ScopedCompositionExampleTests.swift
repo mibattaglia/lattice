@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 import Testing
 
@@ -6,10 +5,7 @@ import Testing
 import Lattice
 
 private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+    var didChange = false
 }
 
 @MainActor
@@ -39,7 +35,7 @@ struct ScopedCompositionExampleTests {
         let header = viewModel.scope(state: \.dashboard, action: \.dashboard)
             .scope(state: \.header, action: \.header)
         let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.mark() }
+        withObservationTracking { _ = header.title } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.dashboard(.header(.badge(.incremented))))
         #expect(!probe.didChange)
@@ -51,7 +47,7 @@ struct ScopedCompositionExampleTests {
         let viewModel = makeViewModel()
         let footer = viewModel.scope(state: \.footer)
         let probe = ChangeProbe()
-        withObservationTracking { _ = footer.status } onChange: { probe.mark() }
+        withObservationTracking { _ = footer.status } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.setFooter("Updated"))
         #expect(probe.didChange)

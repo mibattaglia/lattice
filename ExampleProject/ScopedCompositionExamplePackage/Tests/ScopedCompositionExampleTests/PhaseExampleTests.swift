@@ -1,5 +1,4 @@
 import CasePaths
-import Foundation
 import Lattice
 import Observation
 import Testing
@@ -7,10 +6,7 @@ import Testing
 @testable import ScopedCompositionExample
 
 private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+    var didChange = false
 }
 
 /// Observes the reads `PhaseExampleView` and its children perform, so each test checks which
@@ -29,7 +25,7 @@ struct PhaseExampleTests {
 
     private func observe(_ read: () -> Void) -> ChangeProbe {
         let probe = ChangeProbe()
-        withObservationTracking(read) { probe.mark() }
+        withObservationTracking(read) { probe.didChange = true }
         return probe
     }
 

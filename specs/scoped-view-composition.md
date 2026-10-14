@@ -362,18 +362,6 @@ read-only `scope(state:)` projection is observation-live even though it can send
 read nothing observable. This is the read-light-container shape "Re-render cost when the
 parent re-renders" recommends, validated rather than masked.
 
-`ScopedCompositionRenderTests` (macOS only, `#if canImport(AppKit)`) pins these counts. It hosts
-`ScopedCompositionView` in an `NSHostingView` with its own `RenderCounters`, sends each action,
-and lays the view out (`layoutSubtreeIfNeeded()` runs every invalidated `body`):
-
-| Test | Expected counts |
-|---|---|
-| `initialRenderRunsEveryBodyOnce` | every view at 1 |
-| `titleChangeReRendersHeaderAndTheBadgeItScopes` | header 2, badge 2, the others 1 |
-| `badgeLeafChangesReRenderOnlyTheBadge` | badge 2 after an increment and 3 after a label change, the others 1 |
-| `footerChangeReRendersOnlyTheFooter` | footer 2, the others 1 |
-| `rootAndDashboardNeverRenderPastOnce` | root and dashboard at 1 after all four actions |
-
 `ScopedCompositionExampleTests` checks the same boundaries with observation probes. Spec C
 extends this package with a phase-enum screen — see the Demo project section of
 [`enum-case-scoping.md`](./enum-case-scoping.md).
@@ -383,9 +371,7 @@ extends this package with a phase-enum screen — see the Demo project section o
 1. `swift build`
 2. `swift test --filter ScopedViewModelTests`
 3. `swift test --filter FineGrainedObservationTests` (Spec A still green)
-4. `cd ExampleProject/ScopedCompositionExamplePackage && swift test --filter ScopedCompositionRenderTests`
-   (macOS) — the render counts above hold in real SwiftUI rendering at depth.
-5. Demo app: confirm with the render counters plus `Self._printChanges()` / Instruments that
+4. Demo app: confirm with the render counters plus `Self._printChanges()` / Instruments that
   - only the leaf child view re-renders on a leaf change,
   - parent/sibling views (`FooterView`) do **not** re-render on a child-only change, and
   - the scope-creating container views read nothing observable and therefore do not
@@ -393,7 +379,7 @@ extends this package with a phase-enum screen — see the Demo project section o
   "Re-render cost when the parent re-renders" rather than masking it. (When a container
   *does* re-render, expect all its scoped children to re-render with it; that is the
   documented trade-off, not a bug.)
-6. `swift test` — full suite, no regressions to existing `ViewModel`/binding tests.
+5. `swift test` — full suite, no regressions to existing `ViewModel`/binding tests.
 
 ## Migration / API notes
 

@@ -7,9 +7,9 @@ import Lattice
 /// hidden `phaseActive` it derives from changes.
 @FeatureState
 struct FineGrainedState: Equatable, Sendable {
-    var title: String = "Hello"
-    var count: Int = 0
-    @Domain var phaseActive: Bool = false
+    var title = "Hello"
+    var count = 0
+    @Domain var phaseActive = false
 
     /// The phase views show, derived from the domain-only `phaseActive` flag.
     var phase: FineGrainedPhase { phaseActive ? .active("Active!") : .idle }

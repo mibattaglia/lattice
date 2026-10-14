@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 import Testing
 
@@ -6,10 +5,7 @@ import Testing
 import Lattice
 
 private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+    var didChange = false
 }
 
 @MainActor
@@ -26,7 +22,7 @@ struct FineGrainedExampleTests {
     func bumpingCountDoesNotInvalidateHeader() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.title } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.title } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.bumpCount)
         #expect(!probe.didChange)
@@ -37,7 +33,7 @@ struct FineGrainedExampleTests {
     func changingTitleDoesNotInvalidateFooter() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.count } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.count } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.setTitle("Updated"))
         #expect(!probe.didChange)
@@ -48,7 +44,7 @@ struct FineGrainedExampleTests {
     func togglingPhaseInvalidatesPhaseObserver() {
         let viewModel = makeViewModel()
         let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.phase } onChange: { probe.mark() }
+        withObservationTracking { _ = viewModel.phase } onChange: { probe.didChange = true }
 
         viewModel.sendViewEvent(.togglePhase)
         #expect(probe.didChange)

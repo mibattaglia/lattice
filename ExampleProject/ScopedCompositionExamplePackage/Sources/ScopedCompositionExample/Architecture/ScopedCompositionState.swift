@@ -5,28 +5,28 @@ import Lattice
 /// observe exactly their own slice (`App > Dashboard > Header > Badge`, plus a `Footer` sibling).
 @FeatureState
 struct ScopedCompositionState: Equatable, Sendable {
-    var dashboard: DashboardState = DashboardState()
-    var footer: FooterState = FooterState()
+    var dashboard = DashboardState()
+    var footer = FooterState()
 }
 
 @FeatureState
 struct DashboardState: Equatable, Sendable {
-    var header: HeaderState = HeaderState()
+    var header = HeaderState()
 }
 
 @FeatureState
 struct HeaderState: Equatable, Sendable {
-    var title: String = "Dashboard"
-    var badge: BadgeState = BadgeState()
+    var title = "Dashboard"
+    var badge = BadgeState()
 }
 
 @FeatureState
 struct BadgeState: Equatable, Sendable {
-    var label: String = "Badge"
-    var count: Int = 0
+    var label = "Badge"
+    var count = 0
 }
 
 @FeatureState
 struct FooterState: Equatable, Sendable {
-    var status: String = "Ready"
+    var status = "Ready"
 }

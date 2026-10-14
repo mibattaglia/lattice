@@ -7,8 +7,8 @@ import Lattice
 struct TodosState: Equatable, Sendable {
     @Domain var todos: [TodoItem] = []
     var filter: Filter = .all
-    var newTodoText: String = ""
-    @Domain var nextOrder: Int = 0
+    var newTodoText = ""
+    @Domain var nextOrder = 0
 
     /// The todos the selected filter shows, in list order.
     var filteredTodos: [TodoItem] {
