@@ -163,10 +163,10 @@ struct SearchTests {
         let query = ChangeProbe()
         let caseSwitch = ChangeProbe()
         let listItems = ChangeProbe()
-        withObservationTracking { _ = viewModel.viewState[case: \.results]?.query } onChange: { query.mark() }
-        withObservationTracking { _ = viewModel.viewState } onChange: { caseSwitch.mark() }
+        withObservationTracking { _ = viewModel.viewState[case: \.results]?.query } onChange: { query.didChange = true }
+        withObservationTracking { _ = viewModel.viewState } onChange: { caseSwitch.didChange = true }
         withObservationTracking { _ = viewModel.viewState[case: \.results]?.listItems } onChange: {
-            listItems.mark()
+            listItems.didChange = true
         }
 
         viewModel.sendViewEvent(.search(.query("new")))
@@ -226,10 +226,7 @@ private actor TestWeatherService: WeatherService {
 }
 
 private final class ChangeProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasChanged = false
-    var didChange: Bool { lock.withLock { hasChanged } }
-    func mark() { lock.withLock { hasChanged = true } }
+    var didChange = false
 }
 
 private struct ForecastKey: Hashable {
