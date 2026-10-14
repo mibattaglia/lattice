@@ -11,12 +11,11 @@ extension Interactors {
     /// }
     /// ```
     ///
-    /// Each action is processed by both interactors sequentially, with their
-    /// emissions merged together.
+    /// Each action is processed by both interactors sequentially, in order, with the same
+    /// ``Effects`` handle; their effects start in that order.
     ///
     /// - Note: For merging more than two interactors, see ``MergeMany``.
-    public struct Merge<I0: Interactor, I1: Interactor<I0.State, I0.Action>>: Interactor, @unchecked Sendable
-    where I0.State: Sendable, I0.Action: Sendable {
+    public struct Merge<I0: Interactor, I1: Interactor<I0.State, I0.Action>>: Interactor {
         private let i0: I0
         private let i1: I1
 
@@ -32,10 +31,9 @@ extension Interactors {
 
         public var body: some Interactor<I0.State, I0.Action> { self }
 
-        public func interact(state: inout I0.State, action: I0.Action) -> Emission<I0.Action> {
-            let emission0 = i0.interact(state: &state, action: action)
-            let emission1 = i1.interact(state: &state, action: action)
-            return .merge([emission0, emission1])
+        public func interact(state: inout I0.State, action: I0.Action, effects: Effects<I0.State, I0.Action>) {
+            i0.interact(state: &state, action: action, effects: effects)
+            i1.interact(state: &state, action: action, effects: effects)
         }
     }
 }

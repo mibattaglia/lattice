@@ -19,7 +19,7 @@ import Foundation
 /// }
 /// ```
 @resultBuilder
-public enum InteractorBuilder<State: Sendable, Action: Sendable> {
+public enum InteractorBuilder<State, Action> {
     /// Builds an interactor from an array literal `[...]`.
     public static func buildArray(
         _ interactors: [some Interactor<State, Action>]
@@ -68,8 +68,7 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildExpression(
         _ expression: any Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = expression.eraseToAnyInteractorUnchecked()
-        return erased
+        expression.eraseToAnyInteractor()
     }
 
     public static func buildFinalResult<I: Interactor<State, Action>>(_ interactor: I) -> I {
@@ -79,14 +78,13 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildLimitedAvailability(
         _ wrapped: some Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = wrapped.eraseToAnyInteractorUnchecked()
-        return erased
+        wrapped.eraseToAnyInteractor()
     }
 
     public static func buildOptional(_ wrapped: (any Interactor<State, Action>)?) -> AnyInteractor<
         State, Action
     > {
-        wrapped?.eraseToAnyInteractorUnchecked() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
+        wrapped?.eraseToAnyInteractor() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
     }
 
     public static func buildPartialBlock<I: Interactor<State, Action>>(first: I) -> I {

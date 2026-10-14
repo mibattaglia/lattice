@@ -61,6 +61,9 @@ let package = Package(
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "IdentifiedCollections", package: "swift-identified-collections"),
                 .product(name: "OrderedCollections", package: "swift-collections"),
+            ],
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
         .macro(

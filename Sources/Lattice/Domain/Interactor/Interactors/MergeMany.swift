@@ -16,12 +16,11 @@ extension Interactors {
     /// }
     /// ```
     ///
-    /// Each action is processed by all interactors sequentially, with their
-    /// emissions merged together.
+    /// Each action is processed by all interactors sequentially, in order, with the same
+    /// ``Effects`` handle; their effects start in that order.
     ///
     /// - Note: For merging exactly two interactors, see ``Merge``.
-    public struct MergeMany<Element: Interactor>: Interactor, @unchecked Sendable
-    where Element.State: Sendable, Element.Action: Sendable {
+    public struct MergeMany<Element: Interactor>: Interactor {
         private let interactors: [Element]
 
         /// Creates a merged interactor from an array of child interactors.
@@ -33,11 +32,14 @@ extension Interactors {
 
         public var body: some Interactor<Element.State, Element.Action> { self }
 
-        public func interact(state: inout Element.State, action: Element.Action) -> Emission<Element.Action> {
-            let emissions = interactors.map { interactor in
-                interactor.interact(state: &state, action: action)
+        public func interact(
+            state: inout Element.State,
+            action: Element.Action,
+            effects: Effects<Element.State, Element.Action>
+        ) {
+            for interactor in interactors {
+                interactor.interact(state: &state, action: action, effects: effects)
             }
-            return .merge(emissions)
         }
     }
 }

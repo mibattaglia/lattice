@@ -3,8 +3,8 @@ import Foundation
 /// A type that processes **actions** and mutates a feature's **state**.
 ///
 /// An `Interactor` is the core unit of a feature's business logic. It plays a role similar to a
-/// "reducer" in other architectures, processing actions synchronously and returning an `Emission`
-/// that describes how to emit state (immediately or via an async effect).
+/// "reducer" in other architectures: it handles each action synchronously, mutating the state it
+/// is handed and enqueueing asynchronous work through the ``Effects`` handle.
 ///
 /// ## Declaring an Interactor
 ///
@@ -12,16 +12,15 @@ import Foundation
 ///
 /// ```swift
 /// @Interactor<CounterState, CounterAction>
-/// struct CounterInteractor: Sendable {
+/// struct CounterInteractor {
 ///     var body: some InteractorOf<Self> {
-///         Interact { state, action in
+///         Interact { state, action, effects in
 ///             switch action {
 ///             case .increment:
 ///                 state.count += 1
 ///             case .decrement:
 ///                 state.count -= 1
 ///             }
-///             return .none
 ///         }
 ///     }
 /// }
@@ -32,21 +31,20 @@ import Foundation
 ///
 /// ## Custom Implementation
 ///
-/// For advanced scenarios, implement `interact(state:action:)` directly:
+/// For advanced scenarios, implement `interact(state:action:effects:)` directly:
 ///
 /// ```swift
-/// func interact(state: inout State, action: Action) -> Emission<Action> {
+/// func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
 ///     // Custom processing logic
-///     return .none
 /// }
 /// ```
 ///
-/// - Note: Custom `interact(state:action:)` implementations take precedence over `body`.
+/// - Note: Custom `interact(state:action:effects:)` implementations take precedence over `body`.
 public protocol Interactor<State, Action> {
-    /// The type of state produced downstream.
-    associatedtype State: Sendable
-    /// The type of actions received upstream.
-    associatedtype Action: Sendable
+    /// The type of state the interactor mutates.
+    associatedtype State
+    /// The type of actions the interactor handles.
+    associatedtype Action
     /// The concrete type returned by the result-builder `body` property.
     associatedtype Body: Interactor
 
@@ -54,13 +52,13 @@ public protocol Interactor<State, Action> {
     @InteractorBuilder<State, Action>
     var body: Body { get }
 
-    /// Processes an action by mutating state and returning an emission.
+    /// Mutates state synchronously and enqueues effects. Never suspends; never sends.
     ///
     /// - Parameters:
     ///   - state: The current state, passed as `inout` for mutation.
     ///   - action: The action to process.
-    /// - Returns: An ``Emission`` describing actions to emit.
-    func interact(state: inout State, action: Action) -> Emission<Action>
+    ///   - effects: The handle for asynchronous work (``Effects/perform(id:_:)``).
+    func interact(state: inout State, action: Action, effects: Effects<State, Action>)
 }
 
 extension Interactor where Body.State == Never {
@@ -71,8 +69,8 @@ extension Interactor where Body.State == Never {
 
 extension Interactor where Body: Interactor<State, Action> {
     /// The default implementation forwards to the `body` interactor.
-    public func interact(state: inout State, action: Action) -> Emission<Action> {
-        body.interact(state: &state, action: action)
+    public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
+        body.interact(state: &state, action: action, effects: effects)
     }
 }
 
@@ -82,7 +80,7 @@ extension Interactor where Body: Interactor<State, Action> {
 /// Use this alias in `body` return types:
 /// ```swift
 /// var body: some InteractorOf<Self> {
-///     Interact(initialValue: MyState()) { ... }
+///     Interact { state, action, effects in ... }
 /// }
 /// ```
 public typealias InteractorOf<I: Interactor> = Interactor<I.State, I.Action>
@@ -96,21 +94,23 @@ public typealias InteractorOf<I: Interactor> = Interactor<I.State, I.Action>
 /// let interactor: AnyInteractor<MyState, MyAction> = CounterInteractor()
 ///     .eraseToAnyInteractor()
 /// ```
-public struct AnyInteractor<State: Sendable, Action: Sendable>: Interactor, Sendable {
-    private let interactFunc: @Sendable (inout State, Action) -> Emission<Action>
+public struct AnyInteractor<State, Action>: Interactor {
+    private let interactFunc: (inout State, Action, Effects<State, Action>) -> Void
 
-    public init<I: Interactor & Sendable>(_ base: I) where I.State == State, I.Action == Action {
-        self.interactFunc = { state, action in base.interact(state: &state, action: action) }
+    public init<I: Interactor>(_ base: I) where I.State == State, I.Action == Action {
+        self.interactFunc = { state, action, effects in
+            base.interact(state: &state, action: action, effects: effects)
+        }
     }
 
     public var body: some Interactor<State, Action> { self }
 
-    public func interact(state: inout State, action: Action) -> Emission<Action> {
-        interactFunc(&state, action)
+    public func interact(state: inout State, action: Action, effects: Effects<State, Action>) {
+        interactFunc(&state, action, effects)
     }
 }
 
-extension Interactor where Self: Sendable {
+extension Interactor {
     /// Erases this interactor to ``AnyInteractor``.
     ///
     /// Use this when you need to store interactors of different types uniformly:
@@ -122,41 +122,5 @@ extension Interactor where Self: Sendable {
     /// ```
     public func eraseToAnyInteractor() -> AnyInteractor<State, Action> {
         AnyInteractor(self)
-    }
-}
-
-/// A wrapper that marks any interactor as `@unchecked Sendable`.
-///
-/// Use this when you need to erase an interactor that isn't `Sendable` but you
-/// know it's safe to use across concurrency boundaries (e.g., it only captures
-/// `@MainActor`-isolated closures that will be called on the main actor).
-public struct UncheckedSendableInteractor<I: Interactor>: Interactor, @unchecked Sendable {
-    public let wrapped: I
-
-    public init(_ wrapped: I) {
-        self.wrapped = wrapped
-    }
-
-    public var body: some Interactor<I.State, I.Action> { self }
-
-    public func interact(state: inout I.State, action: I.Action) -> Emission<I.Action> {
-        wrapped.interact(state: &state, action: action)
-    }
-}
-
-extension Interactor {
-    /// Wraps this interactor in an unchecked sendable wrapper, allowing it to be erased.
-    ///
-    /// Use this when you need to erase an interactor that isn't `Sendable` but you
-    /// know it's safe to use across concurrency boundaries.
-    public func uncheckedSendable() -> UncheckedSendableInteractor<Self> {
-        UncheckedSendableInteractor(self)
-    }
-
-    /// Erases this interactor to `AnyInteractor` using an unchecked sendable wrapper.
-    ///
-    /// This is a convenience that combines `uncheckedSendable()` and `eraseToAnyInteractor()`.
-    public func eraseToAnyInteractorUnchecked() -> AnyInteractor<State, Action> {
-        UncheckedSendableInteractor(self).eraseToAnyInteractor()
     }
 }
