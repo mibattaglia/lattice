@@ -2,23 +2,25 @@ import Foundation
 import Lattice
 
 @Interactor<TodosState, TodosEvent>
-struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
-    private let autoSortDebouncer: Debouncer<C, TodosEvent?>
+struct TodosInteractor<C: Clock> {
+    private let clock: C
+    private let autoSortDelay: C.Duration
 
+    /// - Parameter debounceDuration: How long the list must stay untoggled before it is sorted.
     init(clock: C, debounceDuration: C.Duration) {
-        self.autoSortDebouncer = Debouncer(for: debounceDuration, clock: clock)
+        self.clock = clock
+        self.autoSortDelay = debounceDuration
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .newTodoTextChanged(let text):
                 state.newTodoText = text
-                return .none
 
             case .addTodo:
                 let trimmed = state.newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return .none }
+                guard !trimmed.isEmpty else { return }
 
                 let newTodo = TodosState.TodoItem(
                     id: UUID(),
@@ -29,42 +31,36 @@ struct TodosInteractor<C: Clock>: Sendable where C.Duration: Sendable {
                 state.todos.append(newTodo)
                 state.nextOrder += 1
                 state.newTodoText = ""
-                return .none
 
             case .setTodoCompletion(let id, let isComplete):
                 guard let index = state.todos.firstIndex(where: { $0.id == id }) else {
-                    return .none
+                    return
                 }
-                guard state.todos[index].isComplete != isComplete else { return .none }
+                guard state.todos[index].isComplete != isComplete else { return }
                 state.todos[index].isComplete = isComplete
-                return scheduleAutoSort()
+                // The debounced auto-sort: another toggle within the delay auto-cancels this
+                // sleeping effect and starts its own.
+                effects.perform {
+                    try await clock.sleep(for: autoSortDelay)
+                    try effects.modify { state in
+                        state.todos.sort(by: sortedTodos)
+                        normalizeOrder(&state)
+                    }
+                }
 
             case .deleteTodos(let ids):
-                guard !ids.isEmpty else { return .none }
+                guard !ids.isEmpty else { return }
                 let idSet = Set(ids)
                 state.todos.removeAll { idSet.contains($0.id) }
                 normalizeOrder(&state)
-                return .none
 
             case .moveTodos(let ids, let destination):
                 moveTodos(in: &state, ids: ids, destination: destination)
-                return .none
 
             case .setFilter(let filter):
                 state.filter = filter
-                return .none
-
-            case .applyAutoSort:
-                state.todos.sort(by: sortedTodos)
-                normalizeOrder(&state)
-                return .none
             }
         }
-    }
-
-    private func scheduleAutoSort() -> Emission<TodosEvent> {
-        .perform { .applyAutoSort }
-            .debounce(using: autoSortDebouncer)
     }
 
     private func sortedTodos(_ lhs: TodosState.TodoItem, _ rhs: TodosState.TodoItem) -> Bool {
