@@ -1,10 +1,12 @@
 # Nonisolated Core, Isolated Shell
 
-Status: 📝 Draft — direction approved; breaking change (next major). Supersedes
-[view-model-event-loop-and-emission-handling.md](../view-model-event-loop-and-emission-handling.md),
-the `Emission` sections of [interactors.md](../interactors.md), and the buffering/`TestEventTask`
-sections of [testing-infrastructure.md](../testing-infrastructure.md). Builds on
+Status: ✅ Complete — breaking change (next major). Supersedes the former
+`view-model-event-loop-and-emission-handling.md` (replaced by
+[effects-and-isolation.md](../effects-and-isolation.md)), the `Emission` sections of
+[interactors.md](../interactors.md), and the buffering/`TestEventTask` sections of
+[testing-infrastructure.md](../testing-infrastructure.md). Builds on
 [unified-feature-state.md](unified-feature-state.md) (one `@FeatureState` per feature; unchanged here).
+Deviations found during implementation are in [§12](#12-implementation-notes).
 
 Every contract in this document was compiled and exercised against Swift 6.4 (Xcode 27, Swift 6
 language mode, macOS 14 / iOS 17 deployment floors) in standalone spikes before being written down;
@@ -1055,4 +1057,204 @@ Each phase is a PR on the feature branch; the package builds and tests pass at e
 ## 12. Implementation notes
 
 Deviations from the text above that the implementation records, by spec section, each citing the
-commit whose body records it.
+commit whose body records it. The §5.5 initializer note was found while writing the docs and is
+marked so.
+
+The phases landed in these commits:
+
+- Phase 1: 95da2dc (library), 2b8694d (test port), 307b242 (review fixes).
+- Phase 2: 381bbc0, 86d60a1 (library), 764a3f1, 199c95a (tests).
+- Phase 3: c4a4fbb, 8c711cc.
+- Phase 4: d3bc19f (Debounce tests); 60ef672, f50e4cd, b64efc6 (Search, Todos); 2db9f8f, de084e2,
+  f6b644a, 5a25b14 (FineGrained, TimerLeak, ScopedComposition); 7631c1f (the §3.3 error exemption,
+  an owner decision after the Phase 4 reviews).
+- Phase 5: d24339e (specs; this close-out is the commit after it); README, `AGENTS.md`,
+  `skills/**` and `Lattice.podspec` are step 5B.
+
+Deviations:
+
+- §3 (TCA 2 copies): the `Task.immediateIfAvailable` overloads are internal instead of `package`,
+  because the CocoaPods build passes no `-package-name`; the four copied files are re-indented and
+  otherwise identical (95da2dc).
+- §3.1, §4.2: `Effects.scope` takes an extra internal `initialState:` that seeds the child's last
+  known value, and `When` scopes only after resolving the child from the working state (a key path
+  directly, a case path once `extract` succeeds). An action for an inactive case therefore returns
+  early and no longer visits or auto-cancels the child path; the §3.1 shape had no child value to
+  seed a non-optional box with (supervisor decision; 95da2dc).
+- §3.2: `isRunning` is `false` once the effect's operation returns, it is replaced, or it is
+  cancelled by `cancel(_:)` or teardown. Cancelling the task `send` returned cancels the effect, but
+  `isRunning` reflects that only once the effect unwinds: the aggregate's `onCancel` runs off the
+  isolation and cannot flag the core. The doc leaves out auto-cancel, which never reaches an
+  identified effect (2b8694d).
+- §3.3: an effect is registered in `tasks` by token before `Task.immediate` starts it, and its
+  handle is attached once `Task.immediate` returns (TCA 2's attach shape), so `isRunning` holds in
+  the effect's own preamble, an effect that finishes synchronously is not left tracked, and an
+  effect cancelled or replaced during its preamble is cancelled when its handle arrives (95da2dc).
+- §3.3: cancelled effects (auto-cancel, `cancel(_:)`, replacement) stay in `tasks`, flagged, until
+  they finish unwinding, so `inFlightTasks` covers them and `TestHost.finish` waits for their
+  `defer`; `isRunning` ignores flagged entries; `invalidate()` still drops everything (95da2dc).
+- §3.3: `send` inside a `modify` body reports `Can't send <action> inside 'modify'; dropped`, and
+  `perform` there reports `Can't perform an effect inside 'modify'; dropped`, instead of the
+  combined reentrancy message; the root handle's `perform` reports instead of dropping silently
+  when the core is gone. Behaviour is the same: reported and dropped (95da2dc).
+- §3.3: effect tasks hold the core weakly (`didFinish` captures `[weak self]`, not the plan's
+  `self.taskDidFinish(token)`), so the core lives exactly as long as its shell; after `ViewModel`
+  deinit an unwinding effect's `effects.state` is reported and returns the last known value
+  (2b8694d).
+- §3.3: errors thrown by a cancelled effect are not reported; a live effect's errors still are
+  (`catch _ where Task.isCancelled {}` ahead of the reporting `catch`). Cancellation can surface as
+  an error other than `CancellationError` (`URLError(.cancelled)`, a dependency's own), and
+  reporting it made a correctly cancelled effect look like a failure (7631c1f).
+- §3.4: before OS 26 the aggregate `send` returns is a plain `Task`, because it is built in a
+  nonisolated getter where `#isolation` is `nil`; cancelling it cancels the effects only once it
+  starts, so the tests' synchronous-cancel checks are guarded by `#available(… 26 …)`, and the
+  isolation probe's `.stop` cancels through an `@EffectID` key from `interact`, which is
+  synchronous on every OS (307b242).
+- §4.1: there is no `Never: Interactor` conformance; the primitives keep
+  `var body: some Interactor<…> { self }` (95da2dc).
+- §5.3: `DefaultIsolation` is an internal file-scope actor in
+  `Internal/Concurrency/DefaultIsolation.swift`, shared by `ActorModel` and `TestModel`, not a
+  `private actor` in a shell's file (95da2dc, c4a4fbb).
+- §5.3: `ActorModel`'s doc comment omits "Child models created later share this isolation.":
+  `ActorModel` has no scoping or child-model API (c4a4fbb).
+- §5.4/§5.5/§5.6: what is still pending at deinit is reported as a warning that cannot fail a test
+  and cannot be asserted: an `isolated deinit` runs without the test's task-locals, so Swift Testing
+  records it unattributed at the line that created the model, and through IssueReporting's XCTest
+  path without its message text. Both shells document ending exhaustive tests with `finish()`
+  (supervisor decision A; 381bbc0, with the `.warning` severity made explicit in 86d60a1).
+- §5.5/§5.6: the `isolated deinit` calls `host.invalidate()`, which reports the leftovers at the
+  creation location and then calls `core.invalidate()`, rather than `host.core.invalidate()`
+  (381bbc0).
+- §5.4: leftovers are consumed once handled (TCA 2, supervisor-approved): an exhaustive `send` or
+  `expect` reports what is pending, consumes it and proceeds (the old `TestViewModel` aborted the
+  send); `finish` consumes what it reports; a failed `receive` reports the first pending action as
+  unexpected (exhaustive) or that none arrived, then consumes everything pending (381bbc0).
+- §5.4: interleaved commits fold leading entries only (TCA 2, supervisor-approved): `send` folds
+  the modifications committed before the first nested action; `expect` reports the actions ahead of
+  the modifications, then folds modifications up to the next action; `receive` folds everything
+  before the match (reporting non-matching actions when exhaustive) plus the modifications right
+  after it (381bbc0).
+- §5.4: `.off` skips (supervisor-approved): `send` skips everything pending, `receive` everything
+  before the match, `expect` the leading actions, `finish` and deinit everything. With
+  `showSkippedAssertions` each skip is a warning; under XCTest, IssueReporting turns warnings into
+  failures (381bbc0). `showSkippedAssertions` defaults to `true`, so `.off()` warns on every skip
+  (86d60a1).
+- §5.4: `finish` and `skipInFlightEffects` wait on the signal and re-read `core.inFlightTasks`
+  after every signal instead of awaiting the task handles, and `skipInFlightEffects` cancels the
+  in-flight tasks again on every signal, because a cancelled effect can still send an action that
+  starts more (381bbc0).
+- §5.4: the signal stream is recreated whenever a wait exits with its task cancelled, because an
+  `AsyncStream` ends for good once a waiting consumer is cancelled, also when the wait then leaves
+  through a `return` (381bbc0, corrected as deviation 8 in 86d60a1).
+- §5.4: a second concurrent wait on one model (`receive`, `finish` or `skipInFlightEffects`) is
+  reported and returns without doing anything else, because an `AsyncStream` takes one waiter
+  (381bbc0, corrected as deviation 9 in 86d60a1).
+- §5.4: a wait cut short by cancelling the waiting task is reported as cancelled, not as a timeout
+  (`…before the wait was cancelled`, `…when the wait was cancelled`) (764a3f1).
+- §5.4: `TestHost.areStatesEqual` is optional, so asserting without any equality reports the
+  missing-equality issue at every assertion; the core gets the feature's own equality, and
+  assertions use the feature's, else the initializer's (381bbc0).
+- §5.4: `TestHost.init` takes a generic feature (`F.State == State`, `F.Action == Action`) plus the
+  fallback equality, exhaustivity, timeout and creation location, because `FeatureProtocol` has no
+  primary associated types; the core's hooks capture the host weakly, not `unowned` (381bbc0).
+- §5.4: `TestHost.receive(matching:description:…)` is `receive(matching:expectation:…)` with an
+  internal `ReceiveExpectation<Action>`, so the `Equatable` overload's failures can diff the
+  expected action against the received one (86d60a1).
+- §5.4: `withReportedTestFailures` is removed; issues are reported by a synchronous, nonisolated
+  `reportTestFailure(_:severity:at:)` that runs on the calling shell's isolation, in the test's
+  task. The old "assertion closure made no changes" special case is gone: an `update` that changes
+  nothing while the state changed reports the ordinary state-diff mismatch (381bbc0).
+- §5.5: the `areStatesEqual:` initializers of `TestModel` and `TestViewModel` take the same
+  defaulted `fileID:filePath:line:column:` as the other initializer (introduced in 381bbc0; found
+  while writing the docs).
+- §5.5: the search and timer examples run, in `TestModelExampleTests`, on a gate and on a tick
+  stream instead of `clock.advance` right after `send` (see the §8 clock note), and `.stop` cancels
+  the timer through an `@EffectID` key with `effects.cancel(_:)`: `.stop` is another action case,
+  so it does not auto-cancel `.start`'s effect (764a3f1).
+- §5.6: `TestViewModel`'s initializers take `exhaustivity:` and `timeout:` like `TestModel`'s, and
+  both shells label the location parameter `filePath:` (381bbc0).
+- §6: the parallelism row runs 500 cases, not 100 `TestModel`s: `@Test(arguments: 1...500)` per
+  shell (764a3f1, with the `ActorModel` variant in c4a4fbb).
+- §7: a cancelled effect's `modify` is committed (§3.1), while the old runtime dropped a cancelled
+  effect's response action, so the Search effects call `Task.checkCancellation()` before writing a
+  result a newer action superseded, and `forecastRequestNonce` is removed in favour of auto-cancel
+  plus that check (f50e4cd). The Phase load has no such check: its only suspension is a sleep that
+  throws on cancel, every load writes the same case, and the `.loading` guard turns a late commit
+  into a no-op (f6b644a, explained in the source in 5a25b14).
+- §7: the tickers' `.observe { AsyncStream(unfolding:) }` became a `while true` loop of
+  `try await clock.sleep(for:)` and `try effects.modify(tick)`, not the row's `for await`: a timer
+  needs no stream, and the loop must not sleep with `try?`, which spins after a cancel because the
+  clocks throw at once (de084e2, f6b644a).
+- §7: `await task.finish()` maps to `await task?.value`, but inside a view's `.task` that does not
+  stop the effect when the view goes away, so the Phase and TimerLeak views forward the `.task`'s
+  cancellation with `withTaskCancellationHandler { await t?.value } onCancel: { t?.cancel() }`
+  (f6b644a).
+- §7: an action the interactor ignores still auto-cancels its case's anonymous effects
+  (`Core.send` cancels after every `interact`). The Todos sort therefore runs as
+  `perform(id: autoSort)` with `@EffectID var autoSort`, so an ignored toggle leaves it alone
+  (b64efc6), while TimerLeak drops its `isRunning` guard instead, because the view's `.task` now
+  owns and cancels the ticker and re-sending `.start` replaces it (f6b644a).
+- §8 clock: no test advances a `TestClock` after a send. `TestClock.sleep` is `@concurrent`, so the
+  effect registers its sleeper on the global executor while `advance` only mega-yields before it
+  scans; under load 3 to 7 of 30 runs hung. Phase 1 ends sleeps by cancelling them and asserts that
+  the sleep variant's 99 cancelled decrements are lost (the count stays 100) instead of the
+  spike's 99 (2b8694d). From Phase 2 on, the owner's clock decision C applies: time is a test-local
+  gate clock that the test waits on for the sleep's registration before it moves time, with no
+  gate clock in the library (764a3f1, d3bc19f, f50e4cd, f6b644a).
+- §8 isolation regression: the `TestModel` and `ActorModel` parts assert through the model actor's
+  `preconditionIsolated()`, reached through a weak `any Actor` reference (`ActorShellReference`),
+  not `core.isolation.assertIsolated()` through `@testable`: the host and the core are private, and
+  the model's executor is the core's `DefaultIsolation` (764a3f1, c4a4fbb).
+- §8, §10 negative compile checks: `MAINACTOR_INTERACTOR_TO_TESTMODEL` matches the note
+  `sending main actor-isolated value of non-Sendable type 'Feature<CounterAction, CounterState>' to actor-isolated initializer 'init(initialState:feature:…`,
+  not `… 'interactor' …`: `TestModel.init` takes `feature:`, so the compiler names the `Feature`
+  value (the plan's text was spike B12's, whose model took the interactor). It is the note of a
+  `sending … risks causing data races` error, so the SIL lane prints LLVM-style diagnostics and
+  matches error and note lines (764a3f1).
+- §8 test infrastructure: deinit leftover reports are not asserted (decision A), and at `expect`
+  the pending modifications are folded, so an undescribed modification shows as the `expect`'s
+  state diff; the leftover report at `expect` is for actions (764a3f1). Waits that must overlap or
+  be cancelled start their waiter with `Task.immediate` and are ordered by a call on the model; the
+  two old `skipInFlightEffects` tests are one; the port of
+  `finishReportsBufferedReceivesProducedWhileWaiting` asserts the state instead of a trailing
+  `receive`, because `finish` consumes what it reports (764a3f1).
+- §8 parallelism: a parameterized test cannot time its own cases, so the `@Test(arguments: 1...500)`
+  tests of each shell share a timing record, and the case that completes it compares the wall
+  times. The comparison runs only when all the variants run, and it is skipped for a shell whose
+  cases ran one at a time (`swift test --no-parallel`) or on one core. A block-overlap assertion
+  shows that the actor shells' effects ran in parallel, with `ViewModel` as the control (764a3f1,
+  c4a4fbb).
+- §8, §9 Phase 4: the Debounce tests' cancellation log is exact for sends spaced by a registration
+  wait; truly back-to-back sends are asserted by outcome (one live sleep, one run), because a sleep
+  cancelled before it registers never logs synchronously (d3bc19f, f50e4cd).
+- §9 Phase 1: `Interactors.Debounce` landed in Phase 1, because the build needed it; its tests
+  stayed in Phase 4 (95da2dc).
+- §9 Phase 1: the old test shells in `Testing/TestViewModel/` (`TestViewModel`, `TestEventTask`,
+  `InFlightEffectRecord`, `RootSendOrigin`, `PendingReceive`) were deleted in Phase 1, not Phase 2,
+  because they depended on the deleted machinery; Phase 2 rebuilt the test shells over `TestHost`
+  (95da2dc).
+- §9 Phase 1: the `Tests/LatticeTests` port is its own step, so 95da2dc does not build the test
+  target (95da2dc). The port excluded the tests that need the test shells in `Package.swift`
+  (2b8694d); Phase 2 restored all but `Interactors+DebounceTests.swift` (764a3f1), which step 4A
+  restored, removing the `exclude:` parameter (d3bc19f).
+- §9 Phase 3: the tests are three suites in `PresentationTests/ActorModelTests/`, plus the
+  parallelism variant in `IsolationTests/ParallelismTests.swift` (c4a4fbb). 12 of the 24 §6 rows
+  have no `ActorModel` test: they are core behaviour the shell neither adds to nor changes, covered
+  under `ViewModel` and `TestModel`; the row-to-test map is in the commit body (8c711cc).
+- §9 Phase 4: the Debounce and example tests use the gate clock instead of `TestClock`
+  (decision C; f50e4cd, f6b644a). The observation tests (FineGrained, ScopedComposition and Phase's
+  render-boundary tests) stay on `ViewModel`; the behaviour tests are on `TestModel` (f6b644a).
+  The ports go beyond 1:1: new Search, Todos, Debounce, Phase and TimerLeak tests, and the stale
+  `noneEmissionsPassThrough` and `allActionsProcessedImmediately` became
+  `childWithoutEffectsPassesThrough` (f50e4cd, f6b644a).
+- §9 Phase 5: besides the files listed, the specs that named the removed runtime were updated too
+  (`feature-state.md`, `fine-grained-observation.md`, `scoped-view-composition.md`,
+  `enum-case-scoping.md`, `observable-state-identity-preserving-merge.md`, `macros.md`), and the
+  `ActorModel` docs are a section of `view-model.md` (d24339e).
+- §10: the example packages keep `NonisolatedNonsendingByDefault` off, as consumers would, and
+  mark their dependencies' async methods `nonisolated(nonsending)` (f50e4cd).
+- Outside the plan: the example test-support types shared between the test and the model's
+  executor (`GateClock`, `CallLog`, `Gate`, the existing `ChangeProbe`) are locked
+  `@unchecked Sendable` classes, because `Clock` refines `Sendable` and the others cross from the
+  model's executor to the test; the feature layer has no `Sendable` (f50e4cd). A pre-existing
+  SwiftUI `@Entry` warning in `ScopedCompositionView.swift` is left as it was (f6b644a).
