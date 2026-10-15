@@ -125,7 +125,7 @@ struct WhenKeyPathTests {
         let handled = HandledActions<ParentAction>()
 
         let interactor = Interactors.CollectInteractors<ParentState, ParentAction, _> {
-            Interact { _, action, _ in handled.actions.append(action) }
+            Interact { _, action in handled.actions.append(action) }
             Interactors.When(state: \.counter, action: \.counter) {
                 childInteractor
             }
@@ -149,7 +149,7 @@ struct WhenModifierTests {
 
     @Test
     func modifierCombinesWithParent() async throws {
-        let interactor = Interact<ParentState, ParentAction> { state, action, _ in
+        let interactor = Interact<ParentState, ParentAction> { state, action in
             switch action {
             case .otherAction:
                 state.otherProperty = "modified"
@@ -172,7 +172,7 @@ struct WhenModifierTests {
 
     @Test
     func multipleWhenModifiers() async throws {
-        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _, _ in }
+        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in }
             .when(state: \.counter1, action: \.counter1) {
                 CounterInteractor()
             }
@@ -263,7 +263,7 @@ struct WhenCasePathTests {
 
     @Test
     func casePathModifier() async throws {
-        let interactor = Interact<LoadingState, LoadingAction> { state, action, _ in
+        let interactor = Interact<LoadingState, LoadingAction> { state, action in
             switch action {
             case .startLoading:
                 state = .loading

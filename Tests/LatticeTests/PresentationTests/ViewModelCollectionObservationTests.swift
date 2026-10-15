@@ -25,7 +25,7 @@ private enum CollectionAction: Sendable {
 @Interactor<CollectionState, CollectionAction>
 private struct CollectionInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .mutate(let mutation): mutation(&state)
             }

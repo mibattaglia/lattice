@@ -151,7 +151,7 @@ private enum BindingTestAction: Sendable {
 @Interactor<BindingTestState, BindingTestAction>
 private struct BindingTestInteractor: Interactor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .nameChanged(let name):
                 state.name = name
@@ -181,7 +181,7 @@ enum BindingScreenAction: Sendable {
 @Interactor<BindingScreenState, BindingScreenAction>
 private struct BindingScreenInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .queryChanged(let query):
                 state.modify(\.loaded) { $0.query = query }

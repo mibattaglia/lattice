@@ -87,7 +87,7 @@ private enum CounterPhaseAction: Sendable {
 @Interactor<CounterPhaseState, CounterPhaseAction>
 private struct CounterPhaseInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1

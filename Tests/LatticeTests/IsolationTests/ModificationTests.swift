@@ -230,7 +230,7 @@ struct GatedModeInteractor {
     let gate: EffectGate
 
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .deactivate:
                 state = .inactive

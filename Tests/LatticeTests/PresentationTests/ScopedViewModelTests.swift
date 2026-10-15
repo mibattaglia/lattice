@@ -103,7 +103,7 @@ private struct HeaderInteractor: Sendable {
 @Interactor<ListState, ListAction>
 private struct ListInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .row(let id, let action):
                 guard let index = state.rows.firstIndex(where: { $0.id == id }) else { break }
@@ -134,7 +134,7 @@ private struct AppInteractor: Sendable {
         Interactors.When(state: \.list, action: \.list) {
             ListInteractor()
         }
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .detail(.titleChanged(let title)): state.detail?.title = title
             case .setFooter(let footer): state.footer = footer

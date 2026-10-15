@@ -25,7 +25,7 @@
     @Interactor<BenchmarkState, BenchmarkAction>
     private struct BenchmarkInteractor: Sendable {
         var body: some InteractorOf<Self> {
-            Interact { _, _, _ in }
+            Interact { _, _ in }
         }
     }
 

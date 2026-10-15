@@ -20,7 +20,7 @@ enum FeatureAction: Equatable {
 @Interactor<FeatureTestState, FeatureAction>
 struct FeatureInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, event, _ in
+        Interact { state, event in
             switch event {
             case .incrementCount:
                 state.count += 1
@@ -42,7 +42,7 @@ private struct UncomparableFeatureState {
 @Interactor<UncomparableFeatureState, FeatureAction>
 private struct UncomparableFeatureInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, _, _ in
+        Interact { state, _ in
             state.count += 1
         }
     }

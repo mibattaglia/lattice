@@ -66,14 +66,14 @@ enum ScreenAction {
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { _, _, _ in }
+        Interact { _, _ in }
     }
 }
 
 @Interactor<ScreenState, ScreenAction>
 struct ScreenInteractor {
     var body: some InteractorOf<Self> {
-        Interact { _, _, _ in }
+        Interact { _, _ in }
     }
 }
 

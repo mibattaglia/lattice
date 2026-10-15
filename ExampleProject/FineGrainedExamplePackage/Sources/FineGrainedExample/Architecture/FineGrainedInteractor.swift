@@ -3,7 +3,7 @@ import Lattice
 @Interactor<FineGrainedState, FineGrainedEvent>
 struct FineGrainedInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, event, _ in
+        Interact { state, event in
             switch event {
             case .setTitle(let title):
                 state.title = title

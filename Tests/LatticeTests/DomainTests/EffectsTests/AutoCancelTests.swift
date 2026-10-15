@@ -143,7 +143,7 @@ struct AutoCancelModeInteractor {
     let clock: TestClock<Duration>
 
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .activate(let starts):
                 state = .active(AutoCancelChildState(starts: starts))

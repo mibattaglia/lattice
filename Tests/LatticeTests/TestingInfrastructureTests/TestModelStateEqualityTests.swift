@@ -24,7 +24,7 @@ enum EqualityTestAction: Equatable, Sendable {
 @Interactor<UncomparableTestState, EqualityTestAction>
 struct UncomparableTestInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
@@ -38,7 +38,7 @@ struct UncomparableTestInteractor {
 @Interactor<ComparableTestState, EqualityTestAction>
 struct ComparableTestInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1

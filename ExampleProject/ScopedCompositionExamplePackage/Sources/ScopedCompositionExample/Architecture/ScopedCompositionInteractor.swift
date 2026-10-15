@@ -5,7 +5,7 @@ struct ScopedCompositionInteractor {
     var body: some InteractorOf<Self> {
         // Every action mutates its leaf in place, so leaf changes stay fine-grained: the other
         // slices' identities stay untouched and their observers uninvalidated.
-        Interact { state, event, _ in
+        Interact { state, event in
             switch event {
             case .dashboard(.header(.titleChanged(let title))):
                 state.dashboard.header.title = title

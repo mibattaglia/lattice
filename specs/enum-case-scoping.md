@@ -283,7 +283,7 @@ private struct PhaseInteractor: Sendable {
         Interactors.When(state: \.success, action: \.success) {
             SuccessInteractor()
         }
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .load: state = .success(SuccessState(title: "t", count: 0))
             case .reset: state = .loading
