@@ -5,51 +5,41 @@ import Testing
 @testable import Lattice
 
 @Suite
-@MainActor
-final class HotCounterInteractorTests {
-
-    @Test func asyncWork() async {
-        let model = makeTestViewModel(
+struct HotCounterInteractorTests {
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test
+    func asyncWork() async {
+        let model = await TestModel(
             initialState: HotCounterInteractor.State(count: 0),
-            interactor: HotCounterInteractor()
+            feature: Feature(interactor: HotCounterInteractor())
         )
 
-        _ = await model.send(.increment) {
-            $0.count = 1
-        }
+        await model.send(.increment) { $0.count = 1 }
 
+        // The effect sends `.addValue` for every value the publisher emits, until it finishes.
         let intPublisher = CurrentValueSubject<Int, Never>(1)
-        let observeTask = await model.send(.observe(intPublisher.eraseToAnyPublisher())) { _ in }
+        let observeTask = await model.send(.observe(intPublisher.eraseToAnyPublisher()))
 
-        await model.receive(
-            {
-                if case .addValue(1) = $0 {
-                    return true
-                }
-                return false
-            }
-        ) {
+        await model.receive({
+            if case .addValue(1) = $0 { return true }
+            return false
+        }) {
             $0.count = 2
         }
 
         intPublisher.send(2)
-        await model.receive(
-            {
-                if case .addValue(2) = $0 {
-                    return true
-                }
-                return false
-            }
-        ) {
+        await model.receive({
+            if case .addValue(2) = $0 { return true }
+            return false
+        }) {
             $0.count = 4
         }
 
-        _ = await model.send(.increment) {
-            $0.count = 5
-        }
+        await model.send(.increment) { $0.count = 5 }
         intPublisher.send(completion: .finished)
-        await observeTask.finish()
+        await observeTask?.value
 
-        #expect(model.state == .init(count: 5))
+        #expect(await model.state == .init(count: 5))
+        await model.finish()
     }
 }

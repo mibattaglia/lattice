@@ -37,6 +37,14 @@ struct ReportedModification<State> {
     let resulting: State
 }
 
+/// Why a `receive`, `finish` or `skipInFlightEffects` stopped waiting before what it waited for
+/// happened.
+enum UnmetWait {
+    case timedOut(Duration)
+    /// The waiting task was cancelled.
+    case cancelled
+}
+
 extension TestFailure {
     /// Exhaustive: commits pending at `checkpoint` that no assertion described.
     static func unhandledCommits<State, Action>(
@@ -148,32 +156,30 @@ extension TestFailure {
         )
     }
 
-    /// `timeout` is `nil` when `receive` stopped waiting because no effect was left in flight.
+    /// `unmetWait` is `nil` when `receive` stopped waiting because no effect was left in flight.
     static func expectedToReceiveAction(
         _ expectedActionDescription: String,
-        timeout: Duration?,
+        unmetWait: UnmetWait?,
         hasInFlightEffects: Bool
     ) -> Self {
-        let timing = timeout.map { " after \($0)" } ?? ""
-        return Self(
+        Self(
             """
-            Expected to receive \(expectedActionDescription), but none arrived\(timing).
+            Expected to receive \(expectedActionDescription), but none arrived\(receiveTiming(unmetWait)).
 
             \(receiveSuggestion(hasInFlightEffects: hasInFlightEffects))
             """
         )
     }
 
-    /// `timeout` is `nil` when `receive` stopped waiting because no effect was left in flight.
+    /// `unmetWait` is `nil` when `receive` stopped waiting because no effect was left in flight.
     static func expectedToReceiveAction<Action>(
         _ expectedAction: Action,
-        timeout: Duration?,
+        unmetWait: UnmetWait?,
         hasInFlightEffects: Bool
     ) -> Self {
-        let timing = timeout.map { " after \($0)" } ?? ""
-        return Self(
+        Self(
             """
-            Expected to receive the following action, but didn't\(timing):
+            Expected to receive the following action, but didn't\(receiveTiming(unmetWait)):
 
             \(testDescription(of: expectedAction).indent(by: 2))
 
@@ -184,12 +190,19 @@ extension TestFailure {
 
     static func expectedEffectsToFinish(
         count: Int,
-        timeout: Duration
+        unmetWait: UnmetWait
     ) -> Self {
-        Self(
+        let timing: String
+        switch unmetWait {
+        case .timedOut(let timeout):
+            timing = "after \(timeout)"
+        case .cancelled:
+            timing = "when the wait was cancelled"
+        }
+        return Self(
             """
             Expected effects to finish, but \(count) effect\(count == 1 ? "" : "s") remained in \
-            flight after \(timeout).
+            flight \(timing).
             """
         )
     }
@@ -247,6 +260,17 @@ extension TestFailure {
             'areStatesEqual:'.
             """
         )
+    }
+}
+
+private func receiveTiming(_ unmetWait: UnmetWait?) -> String {
+    switch unmetWait {
+    case nil:
+        ""
+    case .timedOut(let timeout):
+        " after \(timeout)"
+    case .cancelled:
+        " before the wait was cancelled"
     }
 }
 

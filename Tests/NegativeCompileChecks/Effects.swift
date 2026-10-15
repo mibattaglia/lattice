@@ -88,6 +88,51 @@ import Observation
     }
 #endif
 
-// MAINACTOR_INTERACTOR_TO_TESTMODEL (Phase 2): an interactor formed in main-actor-isolated code
-// passed to `TestModel` must be rejected with "sending main actor-isolated 'interactor' to
-// actor-isolated initializer". Added with `TestModel`.
+#if MAINACTOR_INTERACTOR_TO_TESTMODEL
+    // An interactor formed in main-actor-isolated code is a main-actor value, and so is the
+    // `Feature` built from it: region isolation rejects sending it to the `TestModel` actor. A
+    // `@MainActor` test cannot pass `TestModel.receive` its predicate either. Such features use
+    // `TestViewModel`. The diagnostics name the `Feature` value, which is what `TestModel.init`
+    // takes.
+
+    @MainActor
+    func makeMainActorTitleInteractor() -> Interact<CounterState, CounterAction> {
+        Interact { state, action, effects in
+            if case .titleChanged(let title) = action {
+                state.title = title
+                effects.perform {
+                    await Task.yield()
+                    try effects.send(.lastUpdatedAtChanged(nil))
+                }
+            }
+        }
+    }
+
+    /// A nonisolated test that gets its interactor from a `@MainActor` factory.
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    func runMainActorFactoryInteractorUnderTestModel() async {
+        let interactor = await makeMainActorTitleInteractor()
+        let model = await TestModel(initialState: CounterState(), feature: Feature(interactor: interactor))
+        await model.send(.titleChanged("a"))
+        await model.finish()
+    }
+
+    /// A `@MainActor` test that forms its interactor and its `receive` predicate inline.
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @MainActor
+    func runInlineMainActorInteractorUnderTestModel() async {
+        let interactor = Interact<CounterState, CounterAction> { state, action, effects in
+            if case .titleChanged(let title) = action {
+                state.title = title
+                effects.perform {
+                    await Task.yield()
+                    try effects.send(.lastUpdatedAtChanged(nil))
+                }
+            }
+        }
+        let model = await TestModel(initialState: CounterState(), feature: Feature(interactor: interactor))
+        await model.send(.titleChanged("a"))
+        await model.receive({ _ in true })
+        await model.finish()
+    }
+#endif

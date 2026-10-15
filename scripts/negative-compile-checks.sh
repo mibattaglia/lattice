@@ -8,7 +8,8 @@
 # - `-emit-sil -wmo -o /dev/null`: region-isolation diagnostics are produced only by SIL passes, never
 #   by `-typecheck` (and `-emit-sil` without `-wmo` rejects `-o` with multiple files). Once per
 #   SIL_COMPILES flag (must compile with -warnings-as-errors) and once per SIL_CHECKS flag (must fail
-#   with the listed diagnostics).
+#   with the listed diagnostics). This lane prints diagnostics in the LLVM style, one line per error
+#   and per note, because a region-isolation error names the isolation domains only in its note.
 # Each `@FeatureState` enum has its own fixture file.
 # Run after `swift build`; paths come from `swift build --show-bin-path`. Pass the same build options
 # in SWIFT_BUILD_FLAGS when the build used non-default ones (for example `--scratch-path <dir>`).
@@ -50,7 +51,7 @@ typecheck() {
 
 emit_sil() {
   swiftc -emit-sil -wmo -o /dev/null -parse-as-library -module-name NegativeCompileChecks \
-    -swift-version 6 "${SEARCH_PATHS[@]}" \
+    -swift-version 6 -diagnostic-style llvm "${SEARCH_PATHS[@]}" \
     -load-plugin-executable "$LATTICE_MACROS" \
     -load-plugin-executable "$CASE_PATHS_MACROS" \
     "$@" "${FIXTURES[@]}" 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g'
@@ -58,6 +59,7 @@ emit_sil() {
 }
 
 DOMAIN_MESSAGE="is @Domain state and is not visible to views"
+MAIN_ACTOR_SENDING="sending main actor-isolated value of non-Sendable type"
 
 # FLAG|SITES|expected diagnostic substring
 #
@@ -83,7 +85,7 @@ CHECKS=(
 )
 
 # `-emit-sil -wmo` lane. SIL_COMPILES flags are positive checks: the fixtures they enable must compile
-# with -warnings-as-errors. SIL_CHECKS entries have the CHECKS format.
+# with -warnings-as-errors. SIL_CHECKS entries have the CHECKS format and match error or note lines.
 SIL_COMPILES=(
   # Non-Sendable state, action and dependency (a `nonisolated(nonsending)` async method).
   "NO_SENDABLE_BASELINE"
@@ -91,19 +93,24 @@ SIL_COMPILES=(
 SIL_CHECKS=(
   # A Sema diagnostic (`-typecheck` reports it too), kept with the effects fixtures it guards.
   "PERFORM_IN_EFFECT|1|'perform' is unavailable from asynchronous contexts"
-  # Phase 2, with `TestModel`:
-  # "MAINACTOR_INTERACTOR_TO_TESTMODEL|1|sending main actor-isolated 'interactor' to actor-isolated initializer"
+  # Notes of "sending … risks causing data races": a main-actor interactor (from a `@MainActor`
+  # factory, and formed inline in a `@MainActor` test) and a main-actor `receive` predicate.
+  "MAINACTOR_INTERACTOR_TO_TESTMODEL|2|$MAIN_ACTOR_SENDING 'Feature<CounterAction, CounterState>' to actor-isolated initializer 'init(initialState:feature:"
+  "MAINACTOR_INTERACTOR_TO_TESTMODEL|1|$MAIN_ACTOR_SENDING '(CounterAction) -> Bool' to actor-isolated instance method 'receive("
 )
 
 failures=0
 flag_count=0
 
 # Runs every flag of the given checks through the compile function: a flag fails when it compiles
-# or when one of its entries is reported at fewer than SITES locations. Sets `flag_count`.
-# Usage: expect_rejections COMPILE_FUNCTION CHECK...
+# or when one of its entries is reported at fewer than SITES locations. An entry matches the lines
+# of the diagnostic kinds in KINDS, an extended regular expression ("error" or "error|note"). Sets
+# `flag_count`.
+# Usage: expect_rejections COMPILE_FUNCTION KINDS CHECK...
 expect_rejections() {
   local compile_function="$1"
-  shift
+  local kinds="$2"
+  shift 2
   local flags=() check flag rest sites expected found output status
   for check in "$@"; do
     flag="${check%%|*}"
@@ -127,11 +134,11 @@ expect_rejections() {
       rest="${check#*|}"
       sites="${rest%%|*}"
       expected="${rest#*|}"
-      found="$(grep -E '\.swift:[0-9]+:[0-9]+: error: ' <<<"$output" | grep -F -- "$expected" \
-        | sed -E 's/: error: .*//' | sort -u | wc -l | tr -d ' ')"
+      found="$(grep -E "\.swift:[0-9]+:[0-9]+: ($kinds): " <<<"$output" | grep -F -- "$expected" \
+        | sed -E "s/: ($kinds): .*//" | sort -u | wc -l | tr -d ' ')"
       if [[ $found -lt $sites ]]; then
         echo "FAIL $flag (exit $status): $found of $sites site(s) report: $expected"
-        grep -E '\.swift:[0-9]+:[0-9]+: error: ' <<<"$output" | sed 's/^/       /'
+        grep -E "\.swift:[0-9]+:[0-9]+: ($kinds): " <<<"$output" | sed 's/^/       /'
         failures=$((failures + 1))
       else
         echo "ok   $flag rejected at $found site(s): $expected"
@@ -149,7 +156,7 @@ else
   grep -E "error:" <<<"$output" | sed 's/^/       /'
   failures=$((failures + 1))
 fi
-expect_rejections typecheck "${CHECKS[@]}"
+expect_rejections typecheck "error" "${CHECKS[@]}"
 typecheck_flag_count=$flag_count
 
 echo "-emit-sil -wmo"
@@ -163,7 +170,7 @@ for flag in "${SIL_COMPILES[@]}"; do
     failures=$((failures + 1))
   fi
 done
-expect_rejections emit_sil "${SIL_CHECKS[@]}"
+expect_rejections emit_sil "error|note" "${SIL_CHECKS[@]}"
 sil_flag_count=$flag_count
 
 if [[ $failures -ne 0 ]]; then

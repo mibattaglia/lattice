@@ -86,21 +86,9 @@ let package = Package(
                 .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
             ],
             exclude: [
-                // Need `TestViewModel`; restored by Phase 2 (test infrastructure) of
+                // Needs the removed `makeTestViewModel` helper and `Emission`; restored by step 4A
+                // (the `Interactors.Debounce` TestClock tests of Phase 4) of
                 // specs/plans/nonisolated-core-isolated-shell.md.
-                "TestingInfrastructureTests/TestViewModelAppendTests.swift",
-                "TestingInfrastructureTests/TestViewModelCancellationTests.swift",
-                "TestingInfrastructureTests/TestViewModelExhaustivityTests.swift",
-                "TestingInfrastructureTests/TestViewModelObserveTests.swift",
-                "TestingInfrastructureTests/TestViewModelSendTests.swift",
-                "TestingInfrastructureTests/TestViewModelStateEqualityTests.swift",
-                "TestingInfrastructureTests/TestViewModelTestSupport.swift",
-                "TestingInfrastructureTests/TestViewModelWaitingTests.swift",
-                "DomainTests/InteractorTests/CounterInteractors/AsyncCounterInteractorTests.swift",
-                "DomainTests/InteractorTests/CounterInteractors/CounterInteractorTests.swift",
-                "DomainTests/InteractorTests/CounterInteractors/HotCounterInteractorTests.swift",
-                // Needs `TestViewModel`; restored by step 4A (the `Interactors.Debounce` TestClock
-                // tests of Phase 4).
                 "DomainTests/InteractorTests/InteractorsTests/Interactors+DebounceTests.swift",
             ]
         ),

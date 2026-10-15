@@ -115,7 +115,7 @@ final class TestHost<State: FeatureState, Action> {
         }
         if case .overlapping = outcome { return }
         guard var matchIndex = pending.firstIndex(where: { $0.action.map(isMatching) ?? false }) else {
-            failReceive(expectation, timeout: timeout, at: location)
+            failReceive(expectation, unmetWait: UnmetWait(outcome, timeout: timeout), at: location)
             return
         }
         switch exhaustivity {
@@ -170,16 +170,12 @@ final class TestHost<State: FeatureState, Action> {
         let outcome = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
             core.inFlightTasks.isEmpty
         }
-        switch outcome {
-        case .overlapping:
-            return
-        case .timedOut:
+        if case .overlapping = outcome { return }
+        if let unmetWait = UnmetWait(outcome, timeout: timeout) {
             reportTestFailure(
-                .expectedEffectsToFinish(count: core.inFlightTasks.count, timeout: timeout),
+                .expectedEffectsToFinish(count: core.inFlightTasks.count, unmetWait: unmetWait),
                 at: location
             )
-        case .done:
-            break
         }
         settlePending(at: .finish, location: location)
     }
@@ -214,9 +210,9 @@ final class TestHost<State: FeatureState, Action> {
             }
             return inFlightTasks.isEmpty
         }
-        if case .timedOut = outcome {
+        if let unmetWait = UnmetWait(outcome, timeout: timeout) {
             reportTestFailure(
-                .expectedEffectsToFinish(count: core.inFlightTasks.count, timeout: timeout),
+                .expectedEffectsToFinish(count: core.inFlightTasks.count, unmetWait: unmetWait),
                 at: location
             )
         }
@@ -306,10 +302,11 @@ final class TestHost<State: FeatureState, Action> {
     }
 
     /// A failed `receive` (TCA 2): reports the first pending action as the unexpected one when
-    /// exhaustive, or that none arrived, then consumes everything pending.
+    /// exhaustive, or that none arrived and why the wait ended, then consumes everything pending.
+    /// `unmetWait` is `nil` when the wait ended because no effect was left in flight.
     private func failReceive(
         _ expectation: ReceiveExpectation<Action>,
-        timeout: Duration,
+        unmetWait: UnmetWait?,
         at location: TestIssueLocation
     ) {
         let hasInFlightEffects = !core.inFlightTasks.isEmpty
@@ -317,10 +314,7 @@ final class TestHost<State: FeatureState, Action> {
             reportTestFailure(expectation.unexpected(action, receivedActionLater: false), at: location)
         } else {
             reportTestFailure(
-                expectation.missing(
-                    timeout: hasInFlightEffects ? timeout : nil,
-                    hasInFlightEffects: hasInFlightEffects
-                ),
+                expectation.missing(unmetWait: unmetWait, hasInFlightEffects: hasInFlightEffects),
                 at: location
             )
         }
@@ -364,7 +358,8 @@ final class TestHost<State: FeatureState, Action> {
     }
 
     /// Suspends on `signal` until `isDone()` holds, re-evaluating it after every signal: a commit,
-    /// an effect starting or finishing, or the deadline. An overlapping wait is detected before
+    /// an effect starting or finishing, or the deadline. Cancelling the waiting task ends the wait,
+    /// which is then reported as cancelled, not as timed out. An overlapping wait is detected before
     /// `isDone()` first runs, so the overlapping call reports it and does nothing else (in
     /// particular, `skipInFlightEffects` cancels nothing).
     private nonisolated(nonsending) func waitForSignal(
@@ -397,7 +392,9 @@ final class TestHost<State: FeatureState, Action> {
             if isDone() { return .done }
             if ContinuousClock.now >= deadline { return .timedOut }
         }
-        return isDone() ? .done : .timedOut
+        // The stream ends only when the waiting task is cancelled.
+        if isDone() { return .done }
+        return Task.isCancelled ? .cancelled : .timedOut
     }
 
     private static func makeSignal() -> (AsyncStream<Void>, AsyncStream<Void>.Continuation) {
@@ -409,11 +406,28 @@ final class TestHost<State: FeatureState, Action> {
 private enum SignalWait {
     /// The awaited condition holds.
     case done
-    /// The deadline passed, or the waiting task was cancelled.
+    /// The deadline passed.
     case timedOut
+    /// The waiting task was cancelled before the awaited condition held.
+    case cancelled
     /// Another `receive`, `finish` or `skipInFlightEffects` was already waiting; the overlap was
     /// reported and the call does nothing more.
     case overlapping
+}
+
+extension UnmetWait {
+    /// Why `wait` ended short of what it waited for; `nil` for a wait that did not (`.done`) or that
+    /// did nothing (`.overlapping`).
+    fileprivate init?(_ wait: SignalWait, timeout: Duration) {
+        switch wait {
+        case .timedOut:
+            self = .timedOut(timeout)
+        case .cancelled:
+            self = .cancelled
+        case .done, .overlapping:
+            return nil
+        }
+    }
 }
 
 /// What a `receive` waits for, and how its failures describe it.
@@ -441,12 +455,13 @@ enum ReceiveExpectation<Action> {
         }
     }
 
-    func missing(timeout: Duration?, hasInFlightEffects: Bool) -> TestFailure {
+    /// `unmetWait` is `nil` when `receive` stopped waiting because no effect was left in flight.
+    func missing(unmetWait: UnmetWait?, hasInFlightEffects: Bool) -> TestFailure {
         switch self {
         case .action(let expectedAction):
-            .expectedToReceiveAction(expectedAction, timeout: timeout, hasInFlightEffects: hasInFlightEffects)
+            .expectedToReceiveAction(expectedAction, unmetWait: unmetWait, hasInFlightEffects: hasInFlightEffects)
         case .matching(let description):
-            .expectedToReceiveAction(description, timeout: timeout, hasInFlightEffects: hasInFlightEffects)
+            .expectedToReceiveAction(description, unmetWait: unmetWait, hasInFlightEffects: hasInFlightEffects)
         }
     }
 }
