@@ -32,11 +32,10 @@ import Testing
 @Interactor<Section, SectionAction>
 private struct SectionInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .setSubtitle(let subtitle): state.subtitle = subtitle
             }
-            return .none
         }
     }
 }
@@ -47,7 +46,7 @@ private struct DashInteractor: Sendable {
         Interactors.When(state: \.header, action: \.header) {
             SectionInteractor()
         }
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .bumpCount: state.count += 1
             case .setCount(let count): state.count = count
@@ -55,7 +54,6 @@ private struct DashInteractor: Sendable {
             case .touch(let time): state.updatedAt = time
             case .header: break
             }
-            return .none
         }
     }
 }
@@ -78,12 +76,11 @@ private enum UncomparableDashAction: Sendable {
 @Interactor<UncomparableDashState, UncomparableDashAction>
 private struct UncomparableDashInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .setTitle(let title): state.title = title
             case .replaceBlob: state.blob = Blob()
             }
-            return .none
         }
     }
 }
@@ -202,14 +199,13 @@ private enum RootPhaseAction: Sendable {
 @Interactor<RootPhaseState, RootPhaseAction>
 private struct RootPhaseInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .load(let text): state = .content(text)
             case .refresh:
                 let current = state
                 state = current
             }
-            return .none
         }
     }
 }

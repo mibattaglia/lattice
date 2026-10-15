@@ -10,34 +10,31 @@ struct MergeTests {
     func mergeTwo() throws {
         var results: [Int] = []
 
-        let merge = Interactors.Merge(
-            TripleInteractor(),
-            DoubleInteractor()
-        )
+        // TripleInteractor processes first: value = 3 * 3 = 9
+        let triple = makeViewModel(TripleInteractor())
+        triple.sendViewEvent(3)
+        results.append(triple.value)
 
-        var state = 0
-
-        // TripleInteractor processes first: state = 3 * 3 = 9
-        _ = TripleInteractor().interact(state: &state, action: 3)
-        results.append(state)
-
-        state = 0
-        // DoubleInteractor processes: state = 3 * 2 = 6
-        _ = DoubleInteractor().interact(state: &state, action: 3)
-        results.append(state)
+        // DoubleInteractor processes: value = 3 * 2 = 6
+        let double = makeViewModel(DoubleInteractor())
+        double.sendViewEvent(3)
+        results.append(double.value)
 
         #expect(results == [9, 6])
 
         // Also verify merge calls both
-        state = 0
-        let emission = merge.interact(state: &state, action: 3)
-        // Final state is from last interactor (DoubleInteractor)
-        #expect(state == 6)
-        // Emission should be merged
-        if case .merge(let emissions) = emission.kind {
-            #expect(emissions.count == 2)
-        } else {
-            Issue.record("Expected merged emissions")
-        }
+        let merge = makeViewModel(Interactors.Merge(TripleInteractor(), DoubleInteractor()))
+        let task = merge.sendViewEvent(3)
+        // Final value is from last interactor (DoubleInteractor)
+        #expect(merge.value == 6)
+        // Both interactors' effects started, in merge order
+        #expect(task != nil)
+        #expect(merge.effectLog == ["triple", "double"])
+    }
+
+    private func makeViewModel<I: Interactor<ArithmeticState, Int>>(
+        _ interactor: I
+    ) -> ViewModel<Feature<Int, ArithmeticState>> {
+        ViewModel(initialState: ArithmeticState(), feature: Feature(interactor: interactor))
     }
 }

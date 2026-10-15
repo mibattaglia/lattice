@@ -6,6 +6,7 @@ import Testing
 
 // MARK: - Test Domain Models
 
+@FeatureState
 struct ParentState: Equatable, Sendable {
     var counter: CounterState
     var otherProperty: String
@@ -17,6 +18,7 @@ enum ParentAction: Sendable, Equatable {
     case otherAction
 }
 
+@FeatureState
 struct TwoCounterState: Equatable, Sendable {
     var counter1: CounterState
     var counter2: CounterState
@@ -29,16 +31,22 @@ enum TwoCounterAction: Sendable {
 }
 
 @CasePathable
-enum LoadingState: Equatable, Sendable {
-    case idle
-    case loading
-    case loaded(CounterState)
-}
-
-@CasePathable
 enum LoadingAction: Sendable {
     case startLoading
     case loaded(CounterAction)
+}
+
+/// Records every action an interactor handles, in order.
+private final class HandledActions<Action> {
+    var actions: [Action] = []
+}
+
+@MainActor
+private func makeViewModel<I: Interactor>(
+    _ initialState: I.State,
+    _ interactor: I
+) -> ViewModel<Feature<I.Action, I.State>> where I.State: FeatureState & Equatable {
+    ViewModel(initialState: initialState, feature: Feature(interactor: interactor))
 }
 
 // MARK: - KeyPath Tests
@@ -49,107 +57,87 @@ struct WhenKeyPathTests {
 
     @Test
     func basicFunctionality() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
             action: \.counter
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(ParentState(counter: CounterState(count: 0), otherProperty: "test"), interactor)
 
-        let emission = interactor.interact(state: &state, action: .counter(.increment))
+        let task = viewModel.sendViewEvent(.counter(.increment))
 
-        #expect(state.counter.count == 1)
-        #expect(state.otherProperty == "test")
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
+        #expect(viewModel.state.counter.count == 1)
+        #expect(viewModel.state.otherProperty == "test")
+        // The child performed no effect
+        #expect(task == nil)
     }
 
     @Test
     func ignoresNonChildActions() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
             action: \.counter
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(ParentState(counter: CounterState(count: 0), otherProperty: "test"), interactor)
 
-        let emission = interactor.interact(state: &state, action: .otherAction)
+        let task = viewModel.sendViewEvent(.otherAction)
 
-        #expect(state.counter.count == 0)
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
+        #expect(viewModel.state.counter.count == 0)
+        #expect(task == nil)
     }
 
     @Test
     func multipleActions() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
         let interactor = Interactors.When<ParentState, ParentAction, _>(
             state: \.counter,
             action: \.counter
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(ParentState(counter: CounterState(count: 0), otherProperty: "test"), interactor)
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
-        #expect(state.counter.count == 1)
+        viewModel.sendViewEvent(.counter(.increment))
+        #expect(viewModel.state.counter.count == 1)
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
-        #expect(state.counter.count == 2)
+        viewModel.sendViewEvent(.counter(.increment))
+        #expect(viewModel.state.counter.count == 2)
 
-        _ = interactor.interact(state: &state, action: .counter(.decrement))
-        #expect(state.counter.count == 1)
+        viewModel.sendViewEvent(.counter(.decrement))
+        #expect(viewModel.state.counter.count == 1)
     }
 
     @Test
     func childEmissionMapsToParentAction() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
-        let childInteractor = Interact<CounterState, CounterAction> { state, action in
+        let childInteractor = Interact<CounterState, CounterAction> { state, action, effects in
             switch action {
             case .increment:
                 state.count += 1
-                return .action(.decrement)
+                effects.perform { try effects.send(.decrement) }
             case .decrement:
                 state.count -= 1
-                return .none
             case .reset:
                 state.count = 0
-                return .none
             }
         }
+        let handled = HandledActions<ParentAction>()
 
-        let interactor = Interactors.When<ParentState, ParentAction, _>(
-            state: \.counter,
-            action: \.counter
-        ) {
-            childInteractor
+        let interactor = Interactors.CollectInteractors<ParentState, ParentAction, _> {
+            Interact { _, action, _ in handled.actions.append(action) }
+            Interactors.When(state: \.counter, action: \.counter) {
+                childInteractor
+            }
         }
+        let viewModel = makeViewModel(ParentState(counter: CounterState(count: 0), otherProperty: "test"), interactor)
 
-        let emission = interactor.interact(state: &state, action: .counter(.increment))
+        viewModel.sendViewEvent(.counter(.increment))
 
-        #expect(state.counter.count == 1)
-
-        switch emission.kind {
-        case .action(let action):
-            #expect(action == .counter(.decrement))
-        default:
-            Issue.record("Expected .action emission, got \(emission.kind)")
-        }
+        // The child's send reaches the parent as `.counter(.decrement)` and is routed back to the
+        // child before `sendViewEvent` returns.
+        #expect(handled.actions == [.counter(.increment), .counter(.decrement)])
+        #expect(viewModel.state.counter.count == 0)
     }
 }
 
@@ -161,51 +149,51 @@ struct WhenModifierTests {
 
     @Test
     func modifierCombinesWithParent() async throws {
-        var state = ParentState(counter: CounterState(count: 0), otherProperty: "test")
-
-        let interactor = Interact<ParentState, ParentAction> { state, action in
+        let interactor = Interact<ParentState, ParentAction> { state, action, _ in
             switch action {
             case .otherAction:
                 state.otherProperty = "modified"
-                return .none
             case .counter:
-                return .none
+                break
             }
         }
         .when(state: \.counter, action: \.counter) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(ParentState(counter: CounterState(count: 0), otherProperty: "test"), interactor)
 
-        _ = interactor.interact(state: &state, action: .counter(.increment))
-        #expect(state.counter.count == 1)
-        #expect(state.otherProperty == "test")
+        viewModel.sendViewEvent(.counter(.increment))
+        #expect(viewModel.state.counter.count == 1)
+        #expect(viewModel.state.otherProperty == "test")
 
-        _ = interactor.interact(state: &state, action: .otherAction)
-        #expect(state.otherProperty == "modified")
+        viewModel.sendViewEvent(.otherAction)
+        #expect(viewModel.state.otherProperty == "modified")
     }
 
     @Test
     func multipleWhenModifiers() async throws {
-        var state = TwoCounterState(
-            counter1: CounterState(count: 0),
-            counter2: CounterState(count: 10)
-        )
-
-        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _ in .none }
+        let interactor = Interact<TwoCounterState, TwoCounterAction> { _, _, _ in }
             .when(state: \.counter1, action: \.counter1) {
                 CounterInteractor()
             }
             .when(state: \.counter2, action: \.counter2) {
                 CounterInteractor()
             }
+        let viewModel = makeViewModel(
+            TwoCounterState(
+                counter1: CounterState(count: 0),
+                counter2: CounterState(count: 10)
+            ),
+            interactor
+        )
 
-        _ = interactor.interact(state: &state, action: .counter1(.increment))
-        #expect(state.counter1.count == 1)
-        #expect(state.counter2.count == 10)
+        viewModel.sendViewEvent(.counter1(.increment))
+        #expect(viewModel.state.counter1.count == 1)
+        #expect(viewModel.state.counter2.count == 10)
 
-        _ = interactor.interact(state: &state, action: .counter2(.decrement))
-        #expect(state.counter1.count == 1)
-        #expect(state.counter2.count == 9)
+        viewModel.sendViewEvent(.counter2(.decrement))
+        #expect(viewModel.state.counter1.count == 1)
+        #expect(viewModel.state.counter2.count == 9)
     }
 }
 
@@ -217,107 +205,86 @@ struct WhenCasePathTests {
 
     @Test
     func basicFunctionality() async throws {
-        var state = LoadingState.loaded(CounterState(count: 0))
-
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
             state: \.loaded,
             action: \.loaded
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(LoadingState.loaded(CounterState(count: 0)), interactor)
 
-        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+        let task = viewModel.sendViewEvent(.loaded(.increment))
 
-        if case .loaded(let counter) = state {
+        if case .loaded(let counter) = viewModel.state {
             #expect(counter.count == 1)
         } else {
             Issue.record("Expected .loaded state")
         }
 
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
+        #expect(task == nil)
     }
 
     @Test
     func ignoresWhenStateDoesNotMatch() async throws {
-        var state = LoadingState.idle
-
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
             state: \.loaded,
             action: \.loaded
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(LoadingState.idle, interactor)
 
-        let emission = interactor.interact(state: &state, action: .loaded(.increment))
+        let task = viewModel.sendViewEvent(.loaded(.increment))
 
-        #expect(state == .idle)
-
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
+        #expect(viewModel.state == .idle)
+        #expect(task == nil)
     }
 
     @Test
     func ignoresNonChildActions() async throws {
-        var state = LoadingState.loaded(CounterState(count: 0))
-
         let interactor = Interactors.When<LoadingState, LoadingAction, _>(
             state: \.loaded,
             action: \.loaded
         ) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(LoadingState.loaded(CounterState(count: 0)), interactor)
 
-        let emission = interactor.interact(state: &state, action: .startLoading)
+        let task = viewModel.sendViewEvent(.startLoading)
 
-        if case .loaded(let counter) = state {
+        if case .loaded(let counter) = viewModel.state {
             #expect(counter.count == 0)
         } else {
             Issue.record("Expected .loaded state")
         }
 
-        switch emission.kind {
-        case .none:
-            break
-        default:
-            Issue.record("Expected .none emission")
-        }
+        #expect(task == nil)
     }
 
     @Test
     func casePathModifier() async throws {
-        var state = LoadingState.loaded(CounterState(count: 0))
-
-        let interactor = Interact<LoadingState, LoadingAction> { state, action in
+        let interactor = Interact<LoadingState, LoadingAction> { state, action, _ in
             switch action {
             case .startLoading:
                 state = .loading
-                return .none
             case .loaded:
-                return .none
+                break
             }
         }
         .when(state: \.loaded, action: \.loaded) {
             CounterInteractor()
         }
+        let viewModel = makeViewModel(LoadingState.loaded(CounterState(count: 0)), interactor)
 
-        _ = interactor.interact(state: &state, action: .loaded(.increment))
+        viewModel.sendViewEvent(.loaded(.increment))
 
-        if case .loaded(let counter) = state {
+        if case .loaded(let counter) = viewModel.state {
             #expect(counter.count == 1)
         } else {
             Issue.record("Expected .loaded state")
         }
 
-        _ = interactor.interact(state: &state, action: .startLoading)
-        #expect(state == .loading)
+        viewModel.sendViewEvent(.startLoading)
+        #expect(viewModel.state == .loading)
     }
 }

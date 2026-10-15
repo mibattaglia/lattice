@@ -25,12 +25,11 @@ import Testing
 @Interactor<SuccessState, SuccessAction>
 private struct SuccessInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .titleChanged(let title): state.title = title
             case .incremented: state.count += 1
             }
-            return .none
         }
     }
 }
@@ -43,7 +42,7 @@ private struct PhaseInteractor: Sendable {
         Interactors.When(state: \.success, action: \.success) {
             SuccessInteractor()
         }
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .load: state = .success(SuccessState(title: "t", count: 0))
             case .reset: state = .loading
@@ -52,7 +51,6 @@ private struct PhaseInteractor: Sendable {
                 if case .loading = state { state = .loading }
             case .success: break
             }
-            return .none
         }
     }
 }

@@ -11,7 +11,7 @@ struct ViewModelBindingTests {
     func testBindingFromStateViewModel() {
         var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState>> = .init(
             initialState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
+            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractor())
         )
 
         let binding = Binding(
@@ -29,7 +29,7 @@ struct ViewModelBindingTests {
     func testBindingFromFeatureViewModelAlias() {
         var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState>> = .init(
             initialState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
+            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractor())
         )
 
         let binding = Binding(
@@ -151,14 +151,12 @@ private enum BindingTestAction: Sendable {
 @Interactor<BindingTestState, BindingTestAction>
 private struct BindingTestInteractor: Interactor {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .nameChanged(let name):
                 state.name = name
-                return .none
             case .badge(.labelChanged(let label)):
                 state.badge.label = label
-                return .none
             }
         }
     }
@@ -183,14 +181,13 @@ enum BindingScreenAction: Sendable {
 @Interactor<BindingScreenState, BindingScreenAction>
 private struct BindingScreenInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .queryChanged(let query):
                 state.modify(\.loaded) { $0.query = query }
             case .failureMessageChanged(let message):
                 state.modify(\.failed) { $0.message = message }
             }
-            return .none
         }
     }
 }

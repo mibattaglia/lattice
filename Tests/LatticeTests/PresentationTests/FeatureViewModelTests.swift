@@ -20,17 +20,14 @@ enum FeatureAction: Equatable {
 @Interactor<FeatureTestState, FeatureAction>
 struct FeatureInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, _ in
             switch event {
             case .incrementCount:
                 state.count += 1
-                return .none
             case .decrementCount:
                 state.count -= 1
-                return .none
             case .increaseAge:
                 state.age += 1
-                return .none
             }
         }
     }
@@ -45,9 +42,8 @@ private struct UncomparableFeatureState {
 @Interactor<UncomparableFeatureState, FeatureAction>
 private struct UncomparableFeatureInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, _ in
+        Interact { state, _, _ in
             state.count += 1
-            return .none
         }
     }
 }
@@ -59,7 +55,7 @@ struct FeatureViewModelTests {
     let viewModel: ViewModel<Feature<FeatureAction, FeatureTestState>>
 
     init() {
-        let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())
+        let feature = Feature(interactor: interactor.eraseToAnyInteractor())
         self.viewModel = ViewModel(
             initialState: .init(),
             feature: feature

@@ -31,11 +31,10 @@ private enum ObservedAction: Sendable {
 @Interactor<ObservedState, ObservedAction>
 private struct ObservedInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .mutate(let mutation): mutation(&state)
             }
-            return .none
         }
     }
 }

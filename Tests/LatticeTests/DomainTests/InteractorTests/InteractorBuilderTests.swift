@@ -1,4 +1,5 @@
-// Compile time tests here only to make sure type inference works.
+// The free functions are compile time tests, only to make sure type inference works; the suite at
+// the end runs a built interactor through a view model.
 // Inspired by tests in https://github.com/pointfreeco/swift-composable-architecture/blob/main/Tests/ComposableArchitectureTests/ReducerBuilderTests.swift
 import Combine
 import Foundation
@@ -57,5 +58,64 @@ func existentials() {
     _ = Interactors.CollectInteractors {
         TestInteractor()
         TestInteractor() as any InteractorOf<TestInteractor>
+    }
+}
+
+@FeatureState
+private struct BuilderState: Equatable {
+    var handled: [String] = []
+    var performed: [String] = []
+}
+
+private enum BuilderAction {
+    case run
+}
+
+/// Records that it handled the action, and performs an effect that records it too.
+private struct MarkerInteractor: Interactor {
+    typealias State = BuilderState
+    typealias Action = BuilderAction
+
+    let name: String
+
+    var body: some InteractorOf<Self> { self }
+
+    func interact(state: inout BuilderState, action: BuilderAction, effects: Effects<BuilderState, BuilderAction>) {
+        state.handled.append(name)
+        effects.perform { try effects.modify { $0.performed.append(name) } }
+    }
+}
+
+@MainActor
+@Suite
+struct InteractorBuilderTests {
+    @Test(arguments: [true, false])
+    func builtInteractorRunsTheChildrenItsControlFlowSelectsInOrder(includeOptional: Bool) {
+        let interactor = Interactors.CollectInteractors<BuilderState, BuilderAction, _> {
+            MarkerInteractor(name: "first")
+            if includeOptional {
+                MarkerInteractor(name: "optional")
+            }
+            if !includeOptional {
+                MarkerInteractor(name: "if")
+            } else {
+                MarkerInteractor(name: "else")
+            }
+            for index in 0..<2 {
+                MarkerInteractor(name: "loop \(index)")
+            }
+            if #available(iOS 9999, macOS 9999, tvOS 9999, visionOS 9999, watchOS 9999, *) {
+                MarkerInteractor(name: "unavailable")
+            }
+            MarkerInteractor(name: "existential") as any InteractorOf<MarkerInteractor>
+        }
+        let viewModel = ViewModel(initialState: BuilderState(), feature: Feature(interactor: interactor))
+
+        viewModel.sendViewEvent(.run)
+
+        let selected = includeOptional ? ["optional", "else"] : ["if"]
+        #expect(viewModel.handled == ["first"] + selected + ["loop 0", "loop 1", "existential"])
+        // Every child's effect started, in the same order, before `sendViewEvent` returned.
+        #expect(viewModel.performed == viewModel.handled)
     }
 }

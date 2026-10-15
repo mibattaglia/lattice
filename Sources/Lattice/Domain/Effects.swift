@@ -98,8 +98,12 @@ public struct Effects<State, Action> {
         enqueueCancel(scopePath, id)
     }
 
-    /// Synchronous. `true` from the effect's start until its operation returns, is replaced or is
-    /// cancelled. A cancel queued in the same `interact` is not reflected until the start phase.
+    /// Synchronous. `true` from the effect's start until its operation returns, it is replaced, or
+    /// it is cancelled by ``cancel(_:)`` or teardown (an identified effect is never auto-cancelled).
+    /// A cancel queued in the same `interact` is not reflected until the start phase. Cancelling
+    /// the task returned by `send` cancels the effect too, but `isRunning` reflects that only once
+    /// the effect unwinds: the task's cancellation handler runs off the model's isolation and cannot
+    /// mark the effect cancelled.
     /// Not observable: a view that needs it reads explicit state the interactor sets and the effect
     /// clears (in a `defer`, because a cancelled effect never reaches the statements after its
     /// suspension point).

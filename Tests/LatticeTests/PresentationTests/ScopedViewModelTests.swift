@@ -81,18 +81,21 @@ import Testing
 @Interactor<HeaderState, HeaderAction>
 private struct HeaderInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, effects in
             switch action {
             case .titleChanged(let title): state.title = title
             case .badge(.incremented): state.badge.count += 1
             case .refreshTapped:
                 state.refreshCount += 1
-                // Async effect: exercises EventTask propagation through the scope.
-                return .perform { .badge(.incremented) }
+                // Async effect: exercises the effect task's propagation through the scope. It
+                // suspends first, so only the returned task covers its follow-up action.
+                effects.perform {
+                    await Task.yield()
+                    try effects.send(.badge(.incremented))
+                }
             case .rebuilt(let title):
                 state = HeaderState(title: title, badge: BadgeState(count: state.badge.count))
             }
-            return .none
         }
     }
 }
@@ -100,7 +103,7 @@ private struct HeaderInteractor: Sendable {
 @Interactor<ListState, ListAction>
 private struct ListInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .row(let id, let action):
                 guard let index = state.rows.firstIndex(where: { $0.id == id }) else { break }
@@ -118,7 +121,6 @@ private struct ListInteractor: Sendable {
                 state.rows.removeAll { $0.id == id }
                 state.idRows.remove(id: id)
             }
-            return .none
         }
     }
 }
@@ -132,7 +134,7 @@ private struct AppInteractor: Sendable {
         Interactors.When(state: \.list, action: \.list) {
             ListInteractor()
         }
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .detail(.titleChanged(let title)): state.detail?.title = title
             case .setFooter(let footer): state.footer = footer
@@ -140,7 +142,6 @@ private struct AppInteractor: Sendable {
             case .hideDetail: state.detail = nil
             case .header, .detail, .list: break
             }
-            return .none
         }
     }
 }
@@ -178,9 +179,9 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
     @Test func scopedSendReturnsParentEventTaskForEffects() async {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        // .refreshTapped spawns a .perform effect in the parent's loop; the returned EventTask
-        // is the parent's root-scope handle, so finish() awaits the emitted follow-up action.
-        await header.sendViewEvent(.refreshTapped).finish()
+        // .refreshTapped performs an effect in the parent's runtime; the returned task is the
+        // parent's task for that effect, so awaiting it awaits the effect's follow-up action.
+        await header.sendViewEvent(.refreshTapped)?.value
         #expect(vm.viewState.header.badge.count == 1)
     }
 
