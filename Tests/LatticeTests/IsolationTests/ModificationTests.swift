@@ -578,4 +578,33 @@ struct ModificationTests {
         #expect(issues == ["Read 'effects.state' after the model was invalidated or the scoped state went away"])
         #expect(log.entries == ["stale read value=7"])
     }
+
+    /// A case-scoped child effect that outlives a deactivation writes, sends and reads through the new
+    /// payload once the case is active again.
+    @Test(.timeLimit(.minutes(1)))
+    func caseScopedChildEffectUsesTheNewPayloadAfterReactivation() async {
+        let log = EffectLog()
+        let gate = EffectGate()
+        let viewModel = makeModeViewModel(.active(GatedChildState(value: 0)), log: log, gate: gate)
+        var stateAfterReentry: GatedModeState?
+
+        let issues = await reportedIssues {
+            let task = viewModel.sendViewEvent(.active(.modifyBeforeAndAfterGate))  // +1, then waits
+            viewModel.sendViewEvent(.deactivate)
+            let reentry = viewModel.sendViewEvent(.active(.readAfterGate))  // re-enters as .active(7)
+            stateAfterReentry = viewModel.state
+            gate.open()
+            await task?.value
+            await reentry?.value
+            for _ in 0..<100 where viewModel.state != .active(GatedChildState(value: 108)) {
+                await Task.yield()  // `.bumpAfterYield`'s effect was started by a send from the effect
+            }
+        }
+
+        #expect(stateAfterReentry == .active(GatedChildState(value: 7)))
+        #expect(issues == [])  // nothing "removed from the parent": the case is active again
+        // The fixture's "stale" log wording is historical: these calls are live because the case is active again.
+        #expect(log.entries == ["stale send returned a task", "stale read value=107"])
+        #expect(viewModel.state == .active(GatedChildState(value: 108)))  // 7 + 100 + 1
+    }
 }

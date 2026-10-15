@@ -178,7 +178,7 @@ The action is processed synchronously and depth-first, with no hop, and `send` r
 | a parent effect performed for `.child(.start)`, at `[tag(.child)]` | any `.child(…)` | the parent effect |
 | two `Merge` children's effects for `.go` | `.go` | both |
 
-- A case-path `When` whose case is not active returns before it scopes, so the action does not visit the child path. The child's earlier effects keep running until the case is active and that child case is handled again (`childActionForAnInactiveCaseIsIgnoredAndCancelsNothing`). If the case becomes active again, those effects read and write the new payload, because their handle only checks whether the case is active; the suite has no test for re-activation.
+- A case-path `When` whose case is not active returns before it scopes, so the action does not visit the child path. The child's earlier effects keep running until the case is active and that child case is handled again (`childActionForAnInactiveCaseIsIgnoredAndCancelsNothing`). If the case becomes active again, those effects read and write the new payload, because their handle only checks whether the case is active (`caseScopedChildEffectUsesTheNewPayloadAfterReactivation`).
 - A non-enum `Action` has no tag. Every action then shares one path, and any send cancels every anonymous effect of the root handle. `Action` should be an enum; this is documented, not diagnosed.
 
 ### Ignored actions still auto-cancel
