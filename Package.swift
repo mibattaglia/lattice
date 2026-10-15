@@ -84,12 +84,6 @@ let package = Package(
                 "Lattice",
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
-            ],
-            exclude: [
-                // Needs the removed `makeTestViewModel` helper and `Emission`; restored by step 4A
-                // (the `Interactors.Debounce` TestClock tests of Phase 4) of
-                // specs/plans/nonisolated-core-isolated-shell.md.
-                "DomainTests/InteractorTests/InteractorsTests/Interactors+DebounceTests.swift",
             ]
         ),
         .testTarget(
