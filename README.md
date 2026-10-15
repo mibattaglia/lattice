@@ -832,7 +832,7 @@ func countTextShowsTheFetchedCount() async {
 
 ## Development
 
-Lattice requires Swift 6.2 tools or later: `Package.swift` declares `swift-tools-version: 6.2` and is the package's only manifest. CI builds with Xcode 26.4.1 (Swift 6.3.1) and runs:
+Lattice requires Swift 6.2 tools or later: `Package.swift` declares `swift-tools-version: 6.2` and is the package's only manifest. CI builds on GitHub's `xcode-27` runner image (Xcode 27, Swift 6.4) and runs:
 
 ```bash
 swift build --build-tests

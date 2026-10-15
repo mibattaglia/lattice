@@ -635,8 +635,8 @@ public actor ActorModel<F: FeatureProtocol> {
 The actor's executor *is* the core's isolation, so `core.send`'s `assumeIsolated` holds inside
 every actor method, and effect tasks are serialized with them. `init` is `async` because a non-main
 actor's initializer is isolated only when async. Every shell's `isolated deinit` carries the
-`#if swift(<6.4) @_optimize(none)` guard shown on `ViewModel` (TCA 2 `Store.swift:46-51`; CI builds
-with Swift 6.3.1).
+`#if swift(<6.4) @_optimize(none)` guard shown on `ViewModel` (TCA 2 `Store.swift:46-51`; the
+package supports Swift 6.2 tools).
 
 The core's isolation is a plain `any Actor` bound at construction, as in TCA 2, rather than the
 `isolated any Actor` parameter of Point-Free's video #382/#383, for two reasons. A separate

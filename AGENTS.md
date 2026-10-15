@@ -68,7 +68,7 @@
 - lattice-testing: Test Lattice features with TestModel and TestViewModel, exhaustivity, and a test-local gate clock. (file: skills/lattice-testing/SKILL.md)
 
 ## Notes for agents
-- `Package.swift` is the only manifest and requires Swift 6.2 tools (`swift-tools-version: 6.2`). CI builds with Xcode 26.4.1 (Swift 6.3.1).
+- `Package.swift` is the only manifest and requires Swift 6.2 tools (`swift-tools-version: 6.2`). CI builds on GitHub's `xcode-27` runner image (Xcode 27, Swift 6.4).
 - Keep Swift concurrency annotations consistent and avoid breaking API surface. The feature layer needs no `Sendable`: do not add `Sendable` constraints on `State`, `Action`, interactors, `Feature` or effect closures. `Core.startQueued` must create effect tasks in the `for` loop written directly in its `assumeIsolated` body; moving task creation into a nested closure (`map`, `forEach`, a helper) silently loses the shell's isolation after the first suspension.
 - Update README/examples if public APIs or macros change.
 - When updating release tags or creating GitHub releases, make sure `Lattice.podspec` has the matching `s.version` first.
