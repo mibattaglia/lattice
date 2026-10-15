@@ -48,7 +48,15 @@ struct TimerLeakView: View {
             .padding(.vertical)
             .navigationTitle("Timer Leak")
             .task {
-                viewModel.sendViewEvent(.start)
+                // `.task` cancels this closure when the view goes away, but awaiting the ticker's
+                // task does not cancel the ticker: forward the cancellation, so the ticker stops
+                // with the view.
+                let ticker = viewModel.sendViewEvent(.start)
+                await withTaskCancellationHandler {
+                    await ticker?.value
+                } onCancel: {
+                    ticker?.cancel()
+                }
             }
         }
     }
