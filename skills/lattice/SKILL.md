@@ -19,7 +19,7 @@ For new feature setup, use the bootstrap checklist in `resources/bootstrapping.m
 - Views read the state through the generated `State.ViewState` projection. Visible members are render instructions; derive display values as computed members on the state.
 - Mark business-logic members (raw values, workflow flags, domain-aligned external models) `@Domain`. They stay observation-tracked, so computed members that read them re-render, but views, scopes and bindings cannot read them.
 - Interactors own side effects and external data access via dependencies, from their effects.
-- Nothing in the feature layer is `Sendable`, and nothing has to be: state, actions, interactors, dependencies and effect closures are plain types. The feature runs on its shell's isolation, the main actor under `ViewModel`.
+- Nothing in the feature layer has to be declared `Sendable`: state, actions, interactors, dependencies and effect closures are plain types. The feature runs on its shell's isolation, the main actor under `ViewModel`.
 - Keep raw formatting concerns out of views.
 
 ## Quick start

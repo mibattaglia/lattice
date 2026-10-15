@@ -21,7 +21,7 @@ Write deterministic, exhaustive tests for Lattice features. A test shell runs th
 - `receive(…)` waits for an action an effect sent, and asserts it.
 - `finish()` waits for every effect, then fails on what was never asserted.
 - `skipReceived(strict:)`, `skipInFlightEffects(strict:)` and `Exhaustivity` (`.on`, `.off(showSkippedAssertions:)`).
-- A test-local gate clock for time. None ships with Lattice: copy `Tests/LatticeTests/Support/GateClock.swift` from the Lattice repository, or an example package's copy, into your test target.
+- A test-local gate clock for time. None ships with Lattice: copy an example package's `GateClock.swift` from the Lattice repository, such as `ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift`, into your test target. The reference copy in `Tests/LatticeTests/Support/GateClock.swift` has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own.
 
 ## Writing a TestModel test
 
@@ -101,7 +101,7 @@ Rules:
 
 - Put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
 - Keep the suite nonisolated, without `@MainActor`. The interactor, its effect closures and the closures the test passes (`assert`, a `receive` predicate) must be formed in nonisolated code, such as file scope in the test target. A main-actor interactor, or a closure formed in a `@MainActor` test, is a compile error; such features use `TestViewModel`.
-- Test doubles are plain classes or structs: no `Sendable`, no actors. Their async methods are `nonisolated(nonsending)`, because test targets usually do not enable `NonisolatedNonsendingByDefault`.
+- Test doubles are plain classes or structs; they need no `Sendable` and no actors. Their async methods are `nonisolated(nonsending)`, because test targets usually do not enable `NonisolatedNonsendingByDefault`.
 - `await model.state` crosses the actor, so it needs `State: Sendable`; internal value types are inferred `Sendable`. It is the state the test last asserted, `@Domain` members included, without the commits still pending.
 - Set exhaustivity at `init` or with `await model.setExhaustivity(_:)`; a cross-actor property write is not expressible.
 - A helper that receives a non-`Sendable` dependency and builds the model from it takes the parameter as `sending`, and forwards `fileID:filePath:line:column:` so that reports point at the test.
@@ -138,7 +138,7 @@ Here `SaveInteractor`'s `.saveTapped` effect saves the draft, sends `.saved(id:)
 ## Exhaustivity
 
 - `Exhaustivity.on`, the default, requires every commit to be described: actions with `receive`, modifications with `expect`, or folded into the enclosing `send` or `receive`. What is still pending is reported at the next `send`, as leading actions at the next `expect` (which folds the pending modifications, so an undescribed one fails as that `expect`'s state diff), and at `finish`. A modification that leaves the state equal to what it was is exempt.
-- `.off(showSkippedAssertions:)` skips what no assertion describes, to the latest state, before the next assertion. `showSkippedAssertions` defaults to `true`, so `.off()` reports every skip as a warning; pass `false` to skip silently.
+- `.off(showSkippedAssertions:)` skips what no assertion describes, to the latest state, before the next assertion. `showSkippedAssertions` defaults to `true`, so `.off()` reports every skip as a warning; pass `false` to skip silently. Under XCTest, IssueReporting turns warnings into failures.
 - `skipReceived(strict:)` advances past every pending action and modification without asserting them. `skipInFlightEffects(strict:)` cancels every in-flight effect and waits for them; what they commit while they unwind stays pending, and the errors they throw are not reported. With `strict`, the default, each reports when there is nothing to skip.
 - When the model is deallocated it reports what is still pending, but its `isolated deinit` runs without the test's context. Under Swift Testing that report is an unattributed warning that cannot fail the test; under XCTest it fails whichever test is running. That is why exhaustive tests end with `finish()`.
 

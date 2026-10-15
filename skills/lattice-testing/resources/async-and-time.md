@@ -28,7 +28,7 @@ await clock.advance(by: 300 ms)              ─▶ mega-yields, scans: no sleep
 await task?.value                            → never ends; an `expect` would fail
 ```
 
-A test-local gate clock lets the test wait for the sleep to register before it moves time. Copy `Tests/LatticeTests/Support/GateClock.swift` from the Lattice repository, or an example package's copy, into your test target:
+A test-local gate clock lets the test wait for the sleep to register before it moves time. Copy an example package's `GateClock.swift` from the Lattice repository, such as `ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift`, into your test target; the reference copy in `Tests/LatticeTests/Support/GateClock.swift` has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own:
 
 - `waitForSleepers(_:)` suspends until that many live sleeps exist, without polling. It ends when the waiting task is cancelled, so a `.timeLimit` stops a test that waits for a sleep that never comes.
 - `moveForward(by:)` advances time and wakes every due sleep before it returns, soonest first.

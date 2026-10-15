@@ -8,7 +8,7 @@ Use this guide when standing up a feature from scratch.
 - Views read the state through its generated `ViewState` projection, which omits `@Domain` members.
 - Interactors own side effects and external integrations: `effects.perform` queues an effect, and the effect delivers its result with `effects.modify`.
 - `Feature` bundles the interactor with the state equality (`areStatesEqual`).
-- Nothing is `Sendable`: state, actions, interactors, dependencies and effect closures are plain types that run on the shell's isolation.
+- Nothing has to be declared `Sendable`: state, actions, interactors, dependencies and effect closures are plain types that run on the shell's isolation.
 - Data flow is always one-way: view action -> interactor mutation and effects -> state commit -> re-render of the views that read a changed member.
 
 ## Modeling rules

@@ -9,7 +9,7 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - One state per feature: `@FeatureState` generates the `ViewState` projection views read through; `@Domain` hides a member from views at compile time and keeps it observation-tracked.
 - Feature-based API: `ViewModel` is parameterized by a single feature type (`ViewModel<F>`).
 - Effects: `interact(state:action:effects:)` mutates the state synchronously and queues asynchronous work with `effects.perform`. An effect delivers its result with `effects.modify`, so there is no response action to send and handle.
-- Automatic cancellation: handling an action case again cancels the effects that case started before. `@EffectID` names an effect for replacement by key, `effects.cancel(_:)` and `effects.isRunning(_:)`.
+- Automatic cancellation: handling an action case again cancels the anonymous effects that case started before; `@EffectID` names an effect that is never auto-cancelled, for replacement by key, `effects.cancel(_:)` and `effects.isRunning(_:)`.
 - A nonisolated core in isolated shells: `ViewModel` (main actor), `ActorModel` (an actor of its own), `TestModel` and `TestViewModel` run the same core, so nothing in the feature layer has to be `Sendable`.
 - Debouncing: `Interactors.Debounce(for:clock:)` delays every effect a child performs, while state changes stay immediate.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
@@ -62,7 +62,7 @@ enum CounterAction {
 }
 ```
 
-`@FeatureState` tracks each stored member for observation and generates `CounterState.ViewState`, the projection views read through. A file that declares a `@FeatureState` type needs `Observation` in scope; importing `Foundation` or `SwiftUI` provides it. Neither type is `Sendable`, and neither has to be. Make `Action` an enum: automatic cancellation keys on its cases.
+`@FeatureState` tracks each stored member for observation and generates `CounterState.ViewState`, the projection views read through. A file that declares a `@FeatureState` type needs `Observation` in scope; importing `Foundation` or `SwiftUI` provides it. Neither type has to be declared `Sendable`. Make `Action` an enum: automatic cancellation keys on its cases.
 
 ### 2. Interactor and effects
 
@@ -727,7 +727,7 @@ struct CounterTests {
 
 `Exhaustivity.on`, the default, requires every commit to be described: actions with `receive`, modifications with `expect`, or folded into the enclosing `send` or `receive`. What is still pending is reported at the next `send`, as leading actions at the next `expect` (which folds the pending modifications, so an undescribed one fails as that `expect`'s state diff), and at `finish`. A modification that leaves the state equal to what it was is exempt.
 
-`.off(showSkippedAssertions:)` skips what no assertion describes, to the latest state, before the next assertion. `showSkippedAssertions` defaults to `true`, so `.off()` reports each skip as a warning; pass `false` to skip silently. An assertion without `update` still asserts that nothing changed, in every mode:
+`.off(showSkippedAssertions:)` skips what no assertion describes, to the latest state, before the next assertion. `showSkippedAssertions` defaults to `true`, so `.off()` reports each skip as a warning; pass `false` to skip silently. Under XCTest, IssueReporting turns warnings into failures. An assertion without `update` still asserts that nothing changed, in every mode, so even under `.off` the `send` below describes the action's own change:
 
 ```swift
 let model = await TestModel(
@@ -779,7 +779,7 @@ Assertions compare states with the feature's `areStatesEqual`:
 
 Never call `TestClock.advance` right after a `send`. `Clock.sleep` is `@concurrent`, so an effect registers its sleep only after it has hopped off the model's executor, and `advance` can look for sleepers before that. The advance then wakes nothing, awaiting the effect's task never ends, and an `expect` fails.
 
-Use a test-local gate clock instead, which lets the test wait for a sleep to register before it moves time. No gate clock ships with Lattice: copy [`Tests/LatticeTests/Support/GateClock.swift`](Tests/LatticeTests/Support/GateClock.swift), or the copy in an example package's test target, such as [`SearchExampleTests/GateClock.swift`](ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift), into your test target. This test drives the [debounced search](#debouncing), with a `StubSearchClient` that answers `[query]`:
+Use a test-local gate clock instead, which lets the test wait for a sleep to register before it moves time. No gate clock ships with Lattice: copy the one in an example package's test target, such as [`SearchExampleTests/GateClock.swift`](ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift), into your test target. The reference copy in [`Tests/LatticeTests/Support/GateClock.swift`](Tests/LatticeTests/Support/GateClock.swift) has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own. This test drives the [debounced search](#debouncing), with a `StubSearchClient` that answers `[query]`:
 
 ```swift
 @available(iOS 26, macOS 26, watchOS 26, *)
@@ -903,7 +903,7 @@ bash scripts/negative-compile-checks.sh
 The script compiles `Tests/NegativeCompileChecks` against the built module in two lanes:
 
 - `-typecheck`: the fixtures must compile without flags, and each `LEAK_*` flag (a `@Domain` member reached through the view model, a child, an optional child, a collection element, a key path, a binding, a scope or an enum payload, and the raw state) and `GENERIC_STATE` must fail with its expected diagnostic.
-- `-emit-sil -wmo -o /dev/null`, because region-isolation diagnostics come only from SIL passes: `NO_SENDABLE_BASELINE` (a non-`Sendable` state, action and dependency under `ViewModel`) must compile with `-warnings-as-errors`; `PERFORM_IN_EFFECT` must fail with `'perform' is unavailable from asynchronous contexts`, and `MAINACTOR_INTERACTOR_TO_TESTMODEL` (a main-actor interactor handed to `TestModel`) with a `sending main actor-isolated value … to actor-isolated initializer` error.
+- `-emit-sil -wmo -o /dev/null`, because region-isolation diagnostics come only from SIL passes: `NO_SENDABLE_BASELINE` (a non-`Sendable` state, action and dependency under `ViewModel`) must compile with `-warnings-as-errors`; `PERFORM_IN_EFFECT` must fail with `'perform' is unavailable from asynchronous contexts`, and `MAINACTOR_INTERACTOR_TO_TESTMODEL` (a main-actor interactor handed to `TestModel`) must fail with a `sending … risks causing data races` error whose note is `sending main actor-isolated value … to actor-isolated initializer`.
 
 Pass the build's options in `SWIFT_BUILD_FLAGS` when they are not the defaults, for example `SWIFT_BUILD_FLAGS="--scratch-path <dir>"`.
 
