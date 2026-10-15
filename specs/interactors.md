@@ -1,176 +1,371 @@
 # Interactors
 
-`Interactor` is the core domain primitive in Lattice. It synchronously handles an action, mutates its `State`, and returns an `Emission<Action>` that describes any follow-up work. In a feature, `State` is the feature's `@FeatureState` type and the interactor is its only mutator.
+`Interactor` is the core domain primitive in Lattice. It handles an action synchronously: it mutates the feature's state and queues asynchronous work through the `Effects` handle it is given. In a feature, `State` is the feature's `@FeatureState` type, and the interactor, with the effects it performs, is the only code that changes it. How effects run, are cancelled and stay on the shell's isolation is described in [Effects And Isolation](./effects-and-isolation.md).
 
 Key source files:
 
-- [Interactor.swift](../Sources/Lattice/Domain/Interactor.swift)
+- [Interactor.swift](../Sources/Lattice/Domain/Interactor.swift): `Interactor`, `InteractorOf`, `AnyInteractor`
 - [InteractorBuilder.swift](../Sources/Lattice/Domain/Interactor/InteractorBuilder.swift)
 - [Interact.swift](../Sources/Lattice/Domain/Interactor/Interactors/Interact.swift)
+- [Merge.swift](../Sources/Lattice/Domain/Interactor/Interactors/Merge.swift), [MergeMany.swift](../Sources/Lattice/Domain/Interactor/Interactors/MergeMany.swift), [ConditionalInteractor.swift](../Sources/Lattice/Domain/Interactor/Interactors/ConditionalInteractor.swift), [CollectInteractors.swift](../Sources/Lattice/Domain/Interactor/Interactors/CollectInteractors.swift), [EmptyInteractor.swift](../Sources/Lattice/Domain/Interactor/Interactors/EmptyInteractor.swift)
 - [When.swift](../Sources/Lattice/Domain/Interactor/Interactors/When.swift)
-- [Merge.swift](../Sources/Lattice/Domain/Interactor/Interactors/Merge.swift)
-- [MergeMany.swift](../Sources/Lattice/Domain/Interactor/Interactors/MergeMany.swift)
 - [Debounce.swift](../Sources/Lattice/Domain/Interactor/Interactors/Debounce.swift)
-- [Emission.swift](../Sources/Lattice/Domain/Emission.swift)
+- [Effects.swift](../Sources/Lattice/Domain/Effects.swift), [EffectID.swift](../Sources/Lattice/Domain/EffectID.swift)
+- Tests: [InteractorTests](../Tests/LatticeTests/DomainTests/InteractorTests) (`InteractorBuilderTests`, `Interactors+MergeTests`, `Interactors+MergeManyTests`, `Interactors+WhenTests`, `Interactors+DebounceTests`) and [EffectsTests](../Tests/LatticeTests/DomainTests/EffectsTests)
 
 ## Core Contract
 
-The protocol shape is:
+```swift
+public protocol Interactor<State, Action> {
+    associatedtype State
+    associatedtype Action
+    associatedtype Body: Interactor
+    @InteractorBuilder<State, Action> var body: Body { get }
+    func interact(state: inout State, action: Action, effects: Effects<State, Action>)
+}
+```
 
-- `associatedtype State: Sendable`
-- `associatedtype Action: Sendable`
-- `var body: Body`
-- `func interact(state: inout State, action: Action) -> Emission<Action>`
-
-`@Interactor<State, Action>` declares the conformance; see [Macros](./macros.md#interactor). `InteractorOf<I>` is `Interactor<I.State, I.Action>`.
-
-Interactors are synchronous at the mutation boundary:
-
-- State mutation happens immediately.
-- Async work is described by the returned `Emission<Action>`.
+- Nothing is required to be `Sendable`: not `State`, `Action`, the interactor, its dependencies or its effect closures.
+- `interact` mutates the state synchronously and queues effects. It never suspends and never sends: `effects.send` during `interact` is reported and dropped, and the effects it performs start after it returns.
+- The default `interact` forwards to `body`. A type that implements `interact` itself declares `var body: some InteractorOf<Self> { self }`; its `interact` takes precedence.
+- `@Interactor<State, Action>` declares the conformance, the `State` and `Action` typealiases and the builder attribute on `body`; see [Macros](./macros.md#interactor). `InteractorOf<I>` is `Interactor<I.State, I.Action>`.
+- `AnyInteractor<State, Action>` erases any interactor with the same `State` and `Action`, and `eraseToAnyInteractor()` builds one, with no constraint. `Feature(interactor:)` erases for you.
+- `Action` should be an enum: auto-cancel keys on its case (see [Auto-Cancel](./effects-and-isolation.md#auto-cancel)).
 
 ## The Interact Primitive
 
-Most interactors are built with `Interact`.
-
-`Interact` is a thin wrapper around a handler closure:
+Most interactors are built with `Interact`, a thin wrapper around a handler closure of type `(inout State, Action, Effects<State, Action>) -> Void`:
 
 ```swift
-Interact { state, action in
-    switch action {
-    case .increment:
-        state.count += 1
-        return .none
+@Interactor<CounterState, CounterAction>
+struct CounterInteractor {
+    var body: some InteractorOf<Self> {
+        Interact { state, action, _ in
+            switch action {
+            case .increment:
+                state.count += 1
+            case .decrement:
+                state.count -= 1
+            }
+        }
     }
 }
 ```
 
-That closure is the primary place for domain rules.
+An interactor that performs no effects ignores the handle (`_`). There is nothing to return.
 
 ## Builder Semantics
 
-`InteractorBuilder` powers the `body` property.
+`InteractorBuilder<State, Action>` powers `body`:
 
-It supports:
+| Builder input | Result |
+|---|---|
+| empty block | `EmptyInteractor` |
+| one child | the child itself |
+| several children | `Interactors.Merge`, through partial blocks, whatever their types |
+| a `for` loop | `Interactors.MergeMany`; `Interactors.MergeMany(interactors:)` also takes an array directly |
+| `if`/`else` | `Interactors.Conditional` |
+| `if` without `else` | erased to `AnyInteractor`, `EmptyInteractor` when false |
+| `if #available` | erased to `AnyInteractor` |
+| an expression typed `any Interactor<State, Action>` | erased to `AnyInteractor` |
 
-- Empty blocks via `EmptyInteractor`
-- Single-child pass-through
-- Multiple children via `Merge`
-- Arrays and loops via `MergeMany`
-- `if` and `if/else` via `Conditional`
-- Optional branches
-- Limited availability branches via type erasure
+```swift
+@Interactor<CounterState, CounterAction>
+struct AppCounterInteractor {
+    let isLogging: Bool
+    let extraCounters: Int
 
-When multiple interactors are composed in one body, they all run against the same mutable state value in sequence.
+    var body: some InteractorOf<Self> {
+        if isLogging {  // buildOptional: erased, `EmptyInteractor` when false
+            LoggingInteractor()
+        }
+        for _ in 0..<extraCounters {  // buildArray: `Interactors.MergeMany`
+            CounterInteractor()
+        }
+        CounterInteractor()  // consecutive children: `Interactors.Merge`, in order
+    }
+}
+```
+
+All children of one `body` run against the same mutable state, in order, with the same `Effects` handle. `body` is re-evaluated on every action, so a child built inside it is a new value each time; state and effect identity never live on an interactor instance (see [`@EffectID`](#effect-identity)).
 
 ## Composition Types
 
-### Merge
+- **`Interactors.Merge<I0, I1>`** runs both interactors for every action, in order, with the same handle. Their state mutations are sequential and their effects start in that order. Two children that perform for the same action both run, and re-handling that action cancels both.
+- **`Interactors.MergeMany<Element>`** is the array form of `Merge`: every element, in order.
+- **`Interactors.Conditional<First, Second>`** is the enum behind `if`/`else`: only the chosen branch runs.
+- **`Interactors.CollectInteractors<State, Action, Interactors>`** wraps an inline builder closure, so a builder result can be stored or passed around as one interactor value.
+- **`EmptyInteractor<State, Action>`** ignores every action and performs nothing.
 
-`Merge<I0, I1>` runs two interactors sequentially on the same state and combines their emissions with `.merge([emission0, emission1])`.
+## When
 
-Effect result:
+`Interactors.When` scopes a child interactor to part of the parent's state and to a case of the parent's action:
 
-- state mutation is sequential
-- emitted work is concurrent
+```swift
+@Interactor<ParentState, ParentAction>
+struct ParentInteractor {
+    var body: some InteractorOf<Self> {
+        Interactors.When(state: \.counter, action: \.counter) {
+            CounterInteractor()
+        }
+        Interact { state, action, _ in
+            switch action {
+            case .reset:
+                state.counter = CounterState()
+            case .counter, .other:
+                break
+            }
+        }
+        .when(state: \.other, action: \.other) {  // `Merge(When, self)`: the child runs first
+            CounterInteractor()
+        }
+    }
+}
 
-### MergeMany
+@Interactor<ScreenState, ScreenAction>
+struct ScreenInteractor {
+    var body: some InteractorOf<Self> {
+        Interactors.When(state: \.loaded, action: \.loaded) {  // only while the state is `.loaded`
+            LoadedInteractor()
+        }
+        Interact { state, action, _ in
+            if case .reload = action {
+                state = .loading
+            }
+        }
+    }
+}
+```
 
-`MergeMany` is the array and variadic equivalent of `Merge`.
+`ScreenState` is a `@CasePathable @FeatureState` enum with a `loaded(LoadedState)` case; like every `@FeatureState` enum it is declared alone in its file (see [FeatureState](./feature-state.md#limitations)).
 
-It applies each interactor in order to the same state, collects their emissions, and returns `.merge(emissions)`.
+- The state is a `WritableKeyPath` into a struct, or a `CaseKeyPath` into a `@CasePathable` enum. The action is always a `CaseKeyPath` into a `@CasePathable` action.
+- A parent action that is not the child's case is ignored.
+- Key-path form: the child mutates `state[keyPath:]` in place, so its member changes stay fine-grained.
+- Case-path form: the child state is extracted, mutated and re-embedded into the parent case after the child returns. While the case is not active, the child's actions are ignored: nothing is scoped, and the child path is not visited, so none of the child's effects is cancelled.
+- The child gets a scoped `Effects<ChildState, ChildAction>`. Its sends are embedded into parent actions, and its modifications are written back into the parent state (key-path assignment or case re-embedding), as one parent commit.
+- The child handle's path adds the child action's tag, so `.child(.other)` does not cancel the effects of `.child(.start)`, and re-sending `.child(.start)` does. Its scope path adds the `When`'s key path or case key path, so two `When`s over the same child type keep independent `@EffectID` effects. See [Auto-Cancel](./effects-and-isolation.md#auto-cancel).
+- A case-scoped child whose case went away changes nothing: its effects' sends and modifications are reported and dropped, and `effects.state` is reported and returns the last known value.
+- `.when(state:action:child:)` is the modifier form. It returns `Interactors.Merge(When(…), self)`, so the child runs before the interactor it modifies.
 
-### Conditional
+## Debounce
 
-`Conditional` is the result-builder form used for `if` and `if/else`.
+`Interactors.Debounce` delays every effect the child performs:
 
-Only the chosen branch runs.
+```swift
+@Interactor<ResultsState, QueryAction>
+struct DebouncedSearchInteractor {
+    private let queryInteractor: AnyInteractor<ResultsState, QueryAction>
 
-### CollectInteractors
+    init<C: Clock>(weatherService: WeatherService, clock: C, debounceDuration: C.Duration) {
+        queryInteractor = Interactors.Debounce(for: debounceDuration, clock: clock) {
+            SearchQueryInteractor(weatherService: weatherService)
+        }
+        .eraseToAnyInteractor()
+    }
 
-`CollectInteractors` is a wrapper around an interactor-builder closure. It is useful when an inline builder result needs to be stored or passed around as a single interactor value.
+    var body: some InteractorOf<Self> {
+        queryInteractor
+    }
+}
+```
 
-### When
+- It is an operation transform. Actions go through the child at once, so state changes immediately, and each effect the child performs first sleeps for `duration` on `clock`, then runs.
+- Coalescing is auto-cancel: re-handling the action case cancels the previous effect while it sleeps, so a burst ends in one effect, a full `duration` after the last action.
+- It holds no per-instance state, so it debounces the same whether it is stored, as above, or built inside `body` on every action.
+- Effects performed with an `@EffectID` are delayed too. They are replaced per key instead of auto-cancelled.
+- `init(for:clock:child:)` takes any `Clock`; `init(for:child:)` uses `ContinuousClock`. `DebounceInteractor<C, Child>` is a typealias.
+- A cancel that lands after the sleep has returned, while the effect hops back to the shell, does not stop the effect (see [Cancellation is cooperative](./effects-and-isolation.md#cancellation-is-cooperative)). A debounced effect that delivers a result a newer action supersedes checks for cancellation before its `modify`.
+- The other debounce shape is a `try await clock.sleep(for:)` at the top of the effect itself (the Todos auto-sort).
 
-`When` is the child-feature composition primitive.
+## Writing Effects
 
-It scopes a child interactor by:
+These patterns come from the example packages under `ExampleProject/`. The mechanics behind each are in [Effects And Isolation](./effects-and-isolation.md).
 
-- a writable key path for struct state, or
-- a case path for enum state
+### A result is a modification
 
-And it extracts child actions from the parent action enum through a case path.
+An effect writes its result with `effects.modify`. There is no response case to send and handle:
 
-Behavior:
+```swift
+case .refresh:
+    state.isRefreshing = true
+    effects.perform {
+        defer { try? effects.modify { $0.isRefreshing = false } }  // also runs when cancelled
+        let model = try await counterClient.fetch()
+        try effects.modify {
+            $0.count = model.count
+            $0.lastUpdatedAt = model.updatedAt
+        }
+    }
+```
 
-- Non-matching parent actions return `.none`.
-- Matching child actions are forwarded into child state.
-- Child emissions are mapped back into parent action space.
-- Enum-state scoping embeds the updated child state back into the parent after the child interactor runs.
+- One `modify` for several members is one commit and one test entry.
+- A cleanup flag is cleared in a `defer`, which runs when the effect is cancelled too.
+- A failure that leaves this effect while it is live is reported as `Effect threw: <error>`. Catch the errors you expect and turn them into state; see [Thrown Errors](./effects-and-isolation.md#thrown-errors).
 
-`when(state:action:child:)` is the ergonomic modifier that merges `When` with the parent interactor.
+### Send only for the three jobs
 
-## Emission Forms
+`effects.send(_:)` is for what a modification cannot do: start new effects, run interactor logic that a parent, a `Merge` sibling or a `When` reacts to, or auto-cancel by action case. A response case that only carried a guard becomes that guard inside the `modify` body, as long as nothing else has to react to it:
 
-Interactors return `Emission<Action>`, which has six runtime forms:
+```swift
+case .loadTapped:
+    effects.perform {
+        try await clock.sleep(for: loadDuration)
+        try effects.modify { state in
+            guard case .loading = state else { return }  // was the `.loaded` case's guard
+            state = .success(LoadSuccessState())
+        }
+    }
+```
 
-- `.none`: no follow-up action
-- `.action`: immediate follow-up action
-- `.perform`: one-shot async work returning `Action?`
-- `.observe`: async stream of actions
-- `.merge`: concurrent composition of emissions
-- `.append`: sequential composition of emissions
+### Loops and streams
 
-`.append` is normalized structurally when created:
+A timer is a `while true` loop around a throwing sleep, with one modification per tick:
 
-- nested `.append` is flattened
-- `.none` children are dropped
-- empty results become `.none`
-- one-child results unwrap to that child
+```swift
+case .startTicking:
+    // Sending `.startTicking` again auto-cancels the running ticker.
+    effects.perform {
+        while true {  // ends when cancelled: the sleep throws
+            try await clock.sleep(for: interval)
+            try effects.modify(tick)
+        }
+    }
+```
 
-## Debouncing
+- Write `try await clock.sleep(for:)`, never `try?`. Both `ContinuousClock` and test clocks throw at once after a cancel, so a `try?` loop spins, committing ticks, until the model is invalidated.
+- A `private func tick(_ state: inout State)` passed to `effects.modify(tick)` keeps the loop short.
+- A stream is a `for await` inside one effect: `for await value in stream { try effects.modify { $0.apply(value) } }`.
+- Several sequential steps are one effect doing them in order. Several concurrent ones are several `perform` calls, which interleave at their suspension points on the shell.
 
-Lattice has two debounce layers.
+### Stale results
 
-### Emission-Level Debounce
+A cancelled effect's `modify` is still committed. When a newer action supersedes the result, check for cancellation right before the `modify`:
 
-`Emission.debounce(using:)` wraps `.perform` work with a debouncer.
+```swift
+case .query(let query):
+    state.query = query
+    effects.perform {
+        let results: [String]
+        do {
+            results = try await weatherService.searchWeather(query: query)
+        } catch {
+            results = []
+        }
+        // A newer edit cancelled this search while it ran: its results are stale. A
+        // cancelled effect's modification is still committed, so check first.
+        try Task.checkCancellation()
+        try effects.modify { $0.results = results }
+    }
+```
 
-Behavior:
+- The check is required after `try?` or `catch`, which turn cancellation into a value, and whenever a superseded result differs from the current one.
+- It is not needed when the only suspension is a sleep that throws on cancel and every run writes the same guarded value, like the `.loadTapped` load above: a late commit writes what the next load would, and the guard turns it into a no-op once the case changed.
+- A `catch` that writes an error state checks for cancellation the same way, never with `error is CancellationError`.
 
-- `.none` and `.action` pass through unchanged
-- `.observe` passes through unchanged
-- `.merge` and `.append` recurse through their children with the same debouncer
+### Clock injection
 
-This is the most flexible debounce tool.
+An interactor that waits takes its clock as a generic parameter, and a `ContinuousClock` convenience initializer keeps the app's call sites short:
 
-### Interactor-Level Debounce
+```swift
+@Interactor<TickerState, TickerAction>
+struct TickerInteractor<C: Clock> {
+    private let clock: C
+    private let interval: C.Duration
 
-`Interactors.Debounce` wraps a child interactor and delays only top-level `.perform` child emissions.
+    init(clock: C, interval: C.Duration) {
+        self.clock = clock
+        self.interval = interval
+    }
 
-Important caveats:
+    var body: some InteractorOf<Self> {
+        Interact { _, action, effects in
+            switch action {
+            case .startTicking:
+                // Sending `.startTicking` again auto-cancels the running ticker.
+                effects.perform {
+                    while true {  // ends when cancelled: the sleep throws
+                        try await clock.sleep(for: interval)
+                        try effects.modify(tick)
+                    }
+                }
+            }
+        }
+    }
 
-- synchronous state mutation still happens immediately
-- top-level `.none` and `.action` are allowed
-- top-level `.observe`, `.merge`, and `.append` currently `fatalError`
+    private func tick(_ state: inout TickerState) {
+        state.ticks += 1
+    }
+}
 
-Use this when the interactor shape is intentionally limited to one-shot effect work.
+extension TickerInteractor where C == ContinuousClock {
+    init(interval: Duration = .seconds(1)) {
+        self.init(clock: ContinuousClock(), interval: interval)
+    }
+}
+```
 
-## Type Erasure And Sendability
+Tests pass a test-local gate clock; see [Testing Infrastructure](./testing-infrastructure.md#time).
 
-`AnyInteractor<State, Action>` stores any `Sendable` interactor behind a uniform type.
+### Effect identity
 
-There is also `UncheckedSendableInteractor` and `eraseToAnyInteractorUnchecked()` for cases where the interactor itself is not formally `Sendable` but the caller accepts responsibility for using it safely.
+Use `@EffectID` with `perform(id:)` when an effect must survive its action being ignored or repeated, or must be cancelled from another case. An anonymous effect is cancelled by every send of its case, including one the interactor ignores:
+
+```swift
+@Interactor<TodosState, TodosAction>
+struct TodosInteractor<C: Clock> {
+    /// Identified: replaced only by the next sort, never auto-cancelled, so a toggle the guards
+    /// below ignore leaves the pending sort alone.
+    @EffectID var autoSort
+    let clock: C
+    let autoSortDelay: C.Duration
+
+    var body: some InteractorOf<Self> {
+        Interact { state, action, effects in
+            switch action {
+            case .setTodoCompletion(let id, let isComplete):
+                guard let index = state.todos.firstIndex(where: { $0.id == id }) else { return }
+                guard state.todos[index].isComplete != isComplete else { return }
+                state.todos[index].isComplete = isComplete
+                effects.perform(id: autoSort) {
+                    try await clock.sleep(for: autoSortDelay)
+                    try effects.modify { state in
+                        state.todos.sort { !$0.isComplete && $1.isComplete }
+                    }
+                }
+            case .stopSorting:
+                effects.cancel(autoSort)  // another case: auto-cancel would not reach it
+            }
+        }
+    }
+}
+```
+
+When the view owns a long-lived effect, the simpler shape is no guard at all: re-sending the action replaces the running effect, and the view's `.task` cancels it when the view goes away (see [The Task `send` Returns](./effects-and-isolation.md#the-task-send-returns)).
+
+### Dependencies
+
+Dependencies are plain protocols, classes or closures, with no `Sendable`. In a module that does not enable `NonisolatedNonsendingByDefault`, their async methods are declared `nonisolated(nonsending)`, so that an effect calls them on the shell's isolation:
+
+```swift
+protocol WeatherService {
+    nonisolated(nonsending) func searchWeather(query: String) async throws -> [String]
+}
+```
+
+See [Concurrency Settings](./effects-and-isolation.md#concurrency-settings).
 
 ## Practical Guidance
 
-- Put domain mutation in the interactor, not in `ViewModel`.
-- Return emissions instead of starting tasks manually inside the view layer.
-- Use `When` for child features instead of flattening all child logic into one large switch.
-- Prefer `Emission.debounce(using:)` when you need recursive debounce behavior across composed emissions.
+- Put domain mutation in the interactor and its effects, not in the view model or the view.
+- Deliver results with `effects.modify`; send actions only for the three jobs.
+- Use `When` for child features instead of one large `switch`.
+- Inject clocks into interactors that wait, and keep the `ContinuousClock` initializer for the app.
+- Reach for `@EffectID` when an effect must survive an ignored or repeated action, or be cancelled from another case.
 
 ## Related Specs
 
-- [ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md)
+- [Effects And Isolation](./effects-and-isolation.md)
 - [FeatureState](./feature-state.md)
 - [Macros](./macros.md)
+- [Testing Infrastructure](./testing-infrastructure.md)

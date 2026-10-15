@@ -235,7 +235,7 @@ extension ScopedViewModel where Child.ViewState: CasePathable, ChildAction: Case
   `@dynamicMemberLookup`, so for an enum state `\.success` can only be a case key path, and a
   struct state has no case key paths.
 
-No changes to the action loop, `ScopedViewModel`'s stored representation, or Spec B's existing
+No changes to the runtime, `ScopedViewModel`'s stored representation, or Spec B's existing
 overloads were needed.
 
 ### Observation trace (why this is fine-grained)
@@ -283,7 +283,7 @@ private struct PhaseInteractor: Sendable {
         Interactors.When(state: \.success, action: \.success) {
             SuccessInteractor()
         }
-        Interact { state, action in
+        Interact { state, action, _ in
             switch action {
             case .load: state = .success(SuccessState(title: "t", count: 0))
             case .reset: state = .loading
@@ -292,7 +292,6 @@ private struct PhaseInteractor: Sendable {
                 if case .loading = state { state = .loading }
             case .success: break
             }
-            return .none
         }
     }
 }
@@ -354,7 +353,7 @@ exactly which boundaries a change crosses:
 // PhaseState.swift, alone in its file
 @CasePathable
 @FeatureState
-enum PhaseState: Equatable, Sendable {
+enum PhaseState: Equatable {
     case loading
     case success(SuccessState)
 }
@@ -362,35 +361,35 @@ enum PhaseState: Equatable, Sendable {
 // SubphaseState.swift, alone in its file
 @CasePathable
 @FeatureState
-enum SubphaseState: Equatable, Sendable {
+enum SubphaseState: Equatable {
     case idle
     case active(ActiveState)
 }
 
 // SuccessState.swift
 @FeatureState
-struct SuccessState: Equatable, Sendable {
-    var title: String = "Success"
-    var summary: SummaryState = SummaryState()   // sibling branch: count
-    var session: SessionState = SessionState()   // deep branch: name > telemetry
+struct SuccessState: Equatable {
+    var title = "Success"
+    var summary = SummaryState()  // sibling branch: count
+    var session = SessionState()  // deep branch: name > telemetry
 }
 
 @FeatureState
-struct SessionState: Equatable, Sendable {
-    var name: String = "Live sync"
-    var telemetry: TelemetryState = TelemetryState()
+struct SessionState: Equatable {
+    var name = "Live sync"
+    var telemetry = TelemetryState()
 }
 
 @FeatureState
-struct TelemetryState: Equatable, Sendable {
-    var status: String = "Connected"
+struct TelemetryState: Equatable {
+    var status = "Connected"
     var subphase: SubphaseState = .idle
 }
 
 @FeatureState
-struct ActiveState: Equatable, Sendable {   // the deep leaf
-    var tick: Int = 0
-    var note: String = ""
+struct ActiveState: Equatable {  // the deep leaf
+    var tick = 0
+    var note = ""
 }
 ```
 
@@ -410,15 +409,18 @@ PhaseEvent`, with `SummaryAction` as the sibling branch).
 payloads in place while staying in a case and replaces a case only on a real transition.
 Because the state is the enum itself, each case carries its own data:
 
-- `.loadTapped` fakes an async load (`.perform` that sleeps one second and returns `.loaded`).
-  `.loaded` moves `.loading → .success(SuccessState())` and is ignored in any other case.
-  `.resetTapped` returns to `.loading`, dropping the payload, so the next Load begins from the
-  defaults.
-- `.startTicking` starts a once-per-second tick stream (`.observe`). The root view's `.task`
-  sends it once; there is no start-once guard, because an enum state has no storage outside its
-  cases, and `Emission` has no cancellation API, so a re-appearing view would start a second
-  stream.
-- `.tick` increments `tick` only while `.active` is showing, so `Tick:` counts the ticks since
+- `.loadTapped` fakes an async load: an effect that sleeps for the load duration on the
+  interactor's injected clock (one second in the app), then moves
+  `.loading → .success(SuccessState())` with `effects.modify` and leaves any other case alone.
+  Tapping Load again auto-cancels the waiting load, so the success case comes a full delay after
+  the last tap. `.resetTapped` returns to `.loading`, dropping the payload, so the next Load
+  begins from the defaults.
+- `.startTicking` starts a once-per-second ticker: an effect that loops over
+  `try await clock.sleep(for:)` and `try effects.modify(tick)`. The root view's `.task` sends it
+  and forwards its own cancellation to the returned task, so the ticker stops with the view.
+  There is no start-once guard: re-sending `.startTicking` auto-cancels the running ticker, so a
+  re-appearing view never runs two.
+- Each tick increments `tick` only while `.active` is showing, so `Tick:` counts the ticks since
   Start. While a payload-less case (`.loading` or `.idle`) is showing, a tick changes nothing.
 - `.success(.session(.telemetry(.startTapped)))` moves `.idle → .active(ActiveState())`;
   `.stopTapped` returns to `.idle`, dropping the payload, so the next Start begins from the
@@ -432,8 +434,8 @@ buttons outside the switch and a render counter on **every** view in the chain. 
 mirrors the state tree:
 
 - `PhaseExampleView` — owns the outer `switch`; `.success` renders
-  `SuccessView(model: viewModel.scope(state: \.success, action: \.success))`; starts the tick
-  stream from `.task`.
+  `SuccessView(model: viewModel.scope(state: \.success, action: \.success))`; starts the ticker
+  from `.task` and cancels it when the view goes away.
 - `SuccessView` — title `TextField` via `binding(\.title, sending: \.titleChanged)`;
   `SummaryView(model: model.scope(state: \.summary, action: \.summary))` (sibling branch) and
   `SessionView(model: model.scope(state: \.session, action: \.session))`.
@@ -459,7 +461,7 @@ Expected, demonstrable behavior (all visible in the render counters):
 - Tapping **Load**/**Reset** (outer case change): `PhaseExampleView renders:` advances — the
   root `_$id` changed, the coarse fire re-renders the outer switch, and the success subtree is
   built or torn down. This is the intended coarse channel, not a regression.
-- While `.loading` is showing, the tick stream keeps committing once per second and **no**
+- While `.loading` is showing, the ticker keeps committing once per second and **no**
   counter advances: a tick changes only the `.active` payload, and `.loading` keeps its
   `_$inert`-stable identity across commits, so a commit that leaves `.loading` showing never
   counts as a wholesale replacement. This is the `_$inert` fix made visible. The same holds one
@@ -469,12 +471,15 @@ Each counter lives in its view value (`private final class Renders`), so it star
 SwiftUI re-creates that view (for example `ActiveView` after Start); compare which counters
 advance rather than absolute counts.
 
-`PhaseExampleTests` checks the same boundaries with observation probes:
-`tickWhileLoadingDoesNotInvalidateTheRootSwitch` (with `areStatesEqual: nil`, so only the
-`_$inert` identity prevents a fire), `tickWhileIdleInvalidatesNeitherSwitch`,
-`payloadEditsWhileActiveInvalidateOnlyTheirLeaf`, `caseTransitionsInvalidateExactlyTheirSwitch`,
-and `resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a `TestViewModel`
-walk-through).
+`PhaseExampleTests` checks the same boundaries with observation probes on a `ViewModel`, driving
+the load and the ticker on a test clock: `tickWhileLoadingDoesNotInvalidateTheRootSwitch` (with
+`areStatesEqual: nil`, so only the `_$inert` identity prevents a fire),
+`tickWhileIdleInvalidatesNeitherSwitch`, `payloadEditsWhileActiveInvalidateOnlyTheirLeaf` and
+`caseTransitionsInvalidateExactlyTheirSwitch`. Its `TestModel` tests cover the behaviour:
+`resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a walk-through),
+`loadShowsTheSuccessCaseAFullDelayAfterTheLastTap`,
+`ticksCountOnlyWhileActiveUntilTheTickerIsCancelled` and
+`startingTheTickerAgainReplacesTheRunningOne`.
 
 ## Validation
 

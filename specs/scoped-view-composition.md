@@ -25,9 +25,10 @@ effects, and lifetime**, forcing scope caching by identity to avoid recreating s
 each render (a historic source of bugs).
 
 Lattice's child is **stateless**: all state lives in the parent's stored state, all effects run
-in the parent's action loop (`SendScopeID`/`RootScopeState`), and all observation goes through
-the parent's registrar tree (Spec A). So the child projection is a **value type that is cheap
-to recreate every render** — no caching, no lifecycle, no parent↔child retain cycle to manage.
+in the parent's runtime (the `Core` behind the parent `ViewModel`), and all observation goes
+through the parent's registrar tree (Spec A). So the child projection is a **value type that is
+cheap to recreate every render** — no caching, no lifecycle, no parent↔child retain cycle to
+manage.
 This is the central design decision and the reason B is far smaller here than in TCA.
 
 ## Goal
@@ -66,8 +67,9 @@ parent feature `F` via two closures:
   child is recovered as `P.State` through the SPI `_state`, so `\.header` infers without
   annotation. Members read through the scope register on the child's own registrars, and the
   read through the parent registers the parent's root.
-- `send: (ChildAction) -> EventTask` — embeds the child action into the parent action and calls
-  `parent.sendViewEvent`, returning the parent's `EventTask`. The embedding is supplied either as
+- `send: (ChildAction) -> Task<Void, Never>?` — embeds the child action into the parent action
+  and calls `parent.sendViewEvent`, returning the parent's task for the effects the action
+  started (`nil` when it started none). The embedding is supplied either as
   a `CaseKeyPath` (sugar) or a plain `(ChildAction) -> Action` closure (general form, no
   `CasePathable` requirement). Both build the same closure.
 
@@ -98,10 +100,10 @@ The implementation is
 
 ```swift
 @MainActor @dynamicMemberLookup
-public struct ScopedViewModel<Child: FeatureState, ChildAction: Sendable> {
+public struct ScopedViewModel<Child: FeatureState, ChildAction> {
     public var viewState: Child.ViewState                                         // coarse value
     public subscript<V>(dynamicMember keyPath: KeyPath<Child.ViewState, V>) -> V  // fine-grained
-    @discardableResult public func sendViewEvent(_ action: ChildAction) -> EventTask
+    @discardableResult public func sendViewEvent(_ action: ChildAction) -> Task<Void, Never>?
     public func binding<V>(
         _ keyPath: KeyPath<Child.ViewState, V>, sending embed: CaseKeyPath<ChildAction, V>
     ) -> Binding<V>
@@ -132,11 +134,11 @@ the scope is still held. The enum-case overloads (`scopeIfActive(state:action:)`
 trapping `scope(state:action:fileID:line:)`) are specified in
 [`enum-case-scoping.md`](./enum-case-scoping.md) (Spec C).
 
-The read-only scope's send closure is unreachable; it is typed `(Never) -> EventTask` and
-returns `EventTask(rawValue: nil)`, the internal initializer `ViewModel` uses for a send without
-effects.
+The read-only scope's send closure is unreachable: it is typed `(Never) -> Task<Void, Never>?`,
+and `Never` has no values, so it is never called. The binding helper's setter discards the
+returned task.
 
-No changes to the action loop or the macro were needed. Both the closure and case-path forms
+No changes to the runtime or the macro were needed. Both the closure and case-path forms
 compile down to the same `send` closure — no new runtime representation.
 
 ## Why no caching/lifecycle is needed
@@ -145,7 +147,7 @@ compile down to the same `send` closure — no new runtime representation.
 struct each render re-derives the same value.
 - **Observation**: registration happens on the parent's stable registrar tree (Spec A +
 merge invariant), so re-creating the scope does not detach observers.
-- **Effects**: `sendViewEvent` runs in the parent's loop; the child starts/owns nothing.
+- **Effects**: `sendViewEvent` runs in the parent's runtime; the child starts/owns nothing.
 - **Identity**: the child view's `body` reads (e.g. `model.title`) register on the parent's
 registrar tree; whether `model` is a fresh struct each render is irrelevant.
 
@@ -171,8 +173,9 @@ read-light container views.
 `Tests/LatticeTests/PresentationTests/ScopedViewModelTests.swift` covers every overload on both
 `ViewModel` and `ScopedViewModel`:
 
-- Child: `scopedReadReflectsParentState`, `scopedSendEmbedsIntoParentAction`,
-  `scopedSendReturnsParentEventTaskForEffects`, `scopedComputedMemberReadsDomainMember`,
+- Child: `scopedReadReflectsParentState`, `scopedSendEmbedsIntoParentAction`, the test that
+  awaits the parent's task for an effect a scoped send started,
+  `scopedComputedMemberReadsDomainMember`,
   `scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate`,
   `scopedReadInvalidatesOnSliceChange`,
   `wholeSliceReadIsCoarse_inPlaceLeafMutationDoesNotInvalidate`,
@@ -269,31 +272,31 @@ Badge`, plus a `Footer` sibling):
 
 ```swift
 @FeatureState
-struct ScopedCompositionState: Equatable, Sendable {
-    var dashboard: DashboardState = DashboardState()
-    var footer: FooterState = FooterState()
+struct ScopedCompositionState: Equatable {
+    var dashboard = DashboardState()
+    var footer = FooterState()
 }
 
 @FeatureState
-struct DashboardState: Equatable, Sendable {
-    var header: HeaderState = HeaderState()
+struct DashboardState: Equatable {
+    var header = HeaderState()
 }
 
 @FeatureState
-struct HeaderState: Equatable, Sendable {
-    var title: String = "Dashboard"
-    var badge: BadgeState = BadgeState()
+struct HeaderState: Equatable {
+    var title = "Dashboard"
+    var badge = BadgeState()
 }
 
 @FeatureState
-struct BadgeState: Equatable, Sendable {
-    var label: String = "Badge"
-    var count: Int = 0
+struct BadgeState: Equatable {
+    var label = "Badge"
+    var count = 0
 }
 
 @FeatureState
-struct FooterState: Equatable, Sendable {
-    var status: String = "Ready"
+struct FooterState: Equatable {
+    var status = "Ready"
 }
 ```
 
@@ -415,12 +418,12 @@ and a built-in helper would have to pick a mismatch policy (silently drop vs. as
 on every consumer's behalf — turning a compile-time/loud error into a "button does nothing"
 bug. Children declared with `(Any) -> Void` are the consumer's own boundary; bridge them with
 the one-line cast shown on `sendViewEvent(_:)`, where the consumer owns the policy.
-- Constructing a `ScopedViewModel` **from** an existing `(Any) -> Void` sink. It is lossy in ways the type would hide: there is no parent action loop to run in,
-so `sendViewEvent` could only return `EventTask(rawValue: nil)` (every `await` becomes a
+- Constructing a `ScopedViewModel` **from** an existing `(Any) -> Void` sink. It is lossy in ways the type would hide: there is no parent runtime to run in,
+so `sendViewEvent` could only return `nil` (every `await` becomes a
 vacuous no-op, a correctness trap for tests), and the `state` getter would not be guaranteed
 to register on the parent's nested registrar (defeats Spec A's fine-grained observation). If a
 real call site appears where the root genuinely is not a `ViewModel` (e.g. a UIKit/legacy
 controller exposing only `(Any) -> Void`), add it then as an explicitly named adapter
-(`ScopedViewModel.erased(state:onEvent:)`) whose docs state it has no `EventTask` and no
+(`ScopedViewModel.erased(state:onEvent:)`) whose docs state it has no effect task and no
 observation guarantee — not as an overload of `scope` that would quietly contaminate the safe
 path.
