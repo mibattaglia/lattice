@@ -24,7 +24,7 @@ For new feature setup, use the bootstrap checklist in `resources/bootstrapping.m
 
 ## Quick start
 
-1. Add the `swift-lattice` package dependency (Swift 6.2 tools or later).
+1. Add the `lattice` package (`https://github.com/mibattaglia/lattice`) and depend on `.product(name: "Lattice", package: "lattice")` (Swift 6.2 tools or later).
 2. Add the `Lattice` product to your target's dependencies.
 3. `import Lattice` as needed. A file that declares a `@FeatureState` type also needs `Observation` in scope (`import Foundation` or `import SwiftUI` provides it).
 4. `@Interactor<State, Action>` requires explicit generic arguments.

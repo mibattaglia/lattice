@@ -25,7 +25,7 @@ Add package dependency:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mibattaglia/swift-lattice", from: "0.1.0")
+    .package(url: "https://github.com/mibattaglia/lattice", .upToNextMinor(from: "0.4.0"))
 ]
 ```
 
@@ -34,7 +34,7 @@ Add product dependency:
 ```swift
 .target(
     name: "MyApp",
-    dependencies: ["Lattice"]
+    dependencies: [.product(name: "Lattice", package: "lattice")]
 )
 ```
 
