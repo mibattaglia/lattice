@@ -23,6 +23,7 @@ struct TestModelExhaustivityTests {
         }
 
         #expect(issues.map(\.line) == [sendLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(
             issues.map(\.message) == [
                 """
@@ -50,6 +51,7 @@ struct TestModelExhaustivityTests {
         }
 
         #expect(issues.map(\.line) == [sendLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(issues.map(\.heading) == ["Must handle 2 modifications before sending another action."])
         #expect(issues.first?.message.contains("(Before: −, After: +)") == true)
         #expect(issues.first?.message.contains("Assert the modifications effects made with 'expect'.") == true)
@@ -69,6 +71,7 @@ struct TestModelExhaustivityTests {
         }
 
         #expect(issues.map(\.line) == [finishLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(issues.map(\.heading) == ["Received 2 unexpected actions left unhandled."])
     }
 
@@ -88,6 +91,7 @@ struct TestModelExhaustivityTests {
         }
 
         #expect(issues.map(\.line) == finishLines)
+        #expect(issues.map(\.isWarning) == [false, false])
         #expect(
             issues.map(\.heading) == [
                 "Received 2 unasserted modifications left unhandled.",
@@ -188,6 +192,7 @@ struct TestModelExhaustivityTests {
         }
 
         #expect(issues.map(\.line) == [sendLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(issues.map(\.heading) == ["Must handle 2 received actions before sending another action."])
     }
 

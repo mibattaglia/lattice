@@ -108,9 +108,10 @@ struct TestModelIsolationTests {
             #expect(log.entries == ["on the model's executor in the preamble"])
 
             // `.stop` cancels the sleeping effect, which carries on after its sleep. Checked before
-            // the wait, so a cancel that did not arrive fails the test instead of hanging it.
+            // the wait, so a cancel that did not arrive fails the test instead of hanging it. Only the
+            // first two entries: the cancelled effect may already have resumed and logged more.
             await model.send(.stop)
-            guard log.entries == ["on the model's executor in the preamble", "sleep cancelled"] else {
+            guard log.entries.prefix(2) == ["on the model's executor in the preamble", "sleep cancelled"] else {
                 Issue.record("The sleeping effect was not cancelled: \(log.entries)")
                 return
             }

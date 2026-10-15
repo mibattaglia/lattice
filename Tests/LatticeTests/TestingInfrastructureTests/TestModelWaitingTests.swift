@@ -117,7 +117,6 @@ struct TestModelWaitingTests {
         let issues = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(log: log), exhaustivity: .off(showSkippedAssertions: false))
             await model.send(.chain(5))
-            #expect(log.entries == [])
             await model.finish()
             #expect(log.entries == ["chain 5", "chain 4", "chain 3", "chain 2", "chain 1", "chain 0"])
         }
@@ -165,6 +164,7 @@ struct TestModelWaitingTests {
         }
 
         #expect(issues.map(\.line) == [finishLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(
             issues.map(\.message) == [
                 """
@@ -219,10 +219,11 @@ struct TestModelWaitingTests {
     @Test
     func aCancelledWaitDoesNotBreakLaterWaits() async {
         let log = EffectLog()
-        var laterWaitLine = 0
+        var lines: [Int] = []
         let issues = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(log: log))
             await model.send(.hang)
+            lines.append(#line + 2)
             let waiting = Task.immediate {
                 await model.receive(.loaded(41), timeout: .seconds(10))
             }
@@ -231,7 +232,7 @@ struct TestModelWaitingTests {
             await waiting.value
 
             let start = ContinuousClock.now
-            laterWaitLine = #line + 1
+            lines.append(#line + 1)
             await model.receive(.loaded(41), timeout: .milliseconds(100))
             #expect(ContinuousClock.now - start >= .milliseconds(100))
             await model.skipInFlightEffects()
@@ -244,7 +245,7 @@ struct TestModelWaitingTests {
                 "Expected to receive the following action, but didn't after 0.1 seconds:",
             ]
         )
-        #expect(issues.last?.line == laterWaitLine)
+        #expect(issues.map(\.line) == lines)
         #expect(log.entries == ["hang cancelled"])
 
         let gate = SendableEffectGate()

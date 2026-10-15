@@ -80,6 +80,7 @@ struct TestModelFoldingTests {
         }
 
         #expect(issues.map(\.line) == [expectLine])
+        #expect(issues.map(\.isWarning) == [false])
         #expect(issues.map(\.heading) == ["Must handle 1 received action before 'expect'."])
         #expect(
             issues.first?.message.contains(

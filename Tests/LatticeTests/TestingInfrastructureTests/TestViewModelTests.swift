@@ -110,6 +110,7 @@ struct TestViewModelTests {
         }
 
         #expect(issues.map(\.line) == lines)
+        #expect(issues.map(\.isWarning) == [false, false])
         #expect(
             issues.map(\.heading) == [
                 "Must handle 2 received actions before sending another action.",
