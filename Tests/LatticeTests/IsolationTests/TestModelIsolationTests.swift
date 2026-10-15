@@ -14,20 +14,6 @@ enum TestModelIsolationProbeAction: Equatable, Sendable {
     case stop
 }
 
-/// The test model under test, for its effect to check that it runs on the model's executor. The
-/// model's `host` and `core` are private, so the check goes through the model actor, which shares
-/// the core's executor. Weak, so the interactor does not keep its model alive, and locked: the test
-/// sets it, the effect reads it on the model's executor.
-final class TestModelReference: @unchecked Sendable {
-    private let lock = NSLock()
-    private weak var storage: (any Actor)?
-
-    var model: (any Actor)? {
-        get { lock.withLock { storage } }
-        set { lock.withLock { storage = newValue } }
-    }
-}
-
 // Declared at file scope, so the interactor and the effect literal in its `body` are nonisolated:
 // the effect gets the model's executor only from the start phase of the runtime. A literal written
 // in a context isolated to the model would hide a start phase that lost the isolation (an effect
@@ -38,11 +24,11 @@ struct TestModelIsolationProbeInteractor {
     @EffectID var probe
     let clock: TestClock<Duration>
     let log: EffectLog
-    let modelReference: TestModelReference
+    let modelReference: ActorShellReference
 
     /// Traps unless the effect runs on the test model's executor; logs `point` when it checked.
     private func checkIsolation(_ point: String) {
-        guard let model = modelReference.model else {
+        guard let model = modelReference.shell else {
             log.append("no model to check \(point)")
             return
         }
@@ -90,7 +76,7 @@ struct TestModelIsolationTests {
     @Test
     func effectFormedInANonisolatedContextResumesOnTheTestModelsExecutor() async throws {
         let log = EffectLog()
-        let modelReference = TestModelReference()
+        let modelReference = ActorShellReference()
         let issues = await reportedIssueDetails {
             let model = await TestModel(
                 initialState: TestModelIsolationProbeState(),
@@ -102,7 +88,7 @@ struct TestModelIsolationTests {
                     )
                 )
             )
-            modelReference.model = model
+            modelReference.shell = model
 
             let task = await model.send(.start)
             #expect(log.entries == ["on the model's executor in the preamble"])
