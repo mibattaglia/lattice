@@ -6,7 +6,7 @@ import Lattice
 /// not invalidate observers of the others, and the visible computed `phase` re-renders when the
 /// hidden `phaseActive` it derives from changes.
 @FeatureState
-struct FineGrainedState: Equatable, Sendable {
+struct FineGrainedState: Equatable {
     var title = "Hello"
     var count = 0
     @Domain var phaseActive = false
@@ -17,7 +17,7 @@ struct FineGrainedState: Equatable, Sendable {
 
 @CasePathable
 @dynamicMemberLookup
-enum FineGrainedPhase: Equatable, Sendable {
+enum FineGrainedPhase: Equatable {
     case idle
     case active(String)
 }
