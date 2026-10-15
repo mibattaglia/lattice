@@ -21,8 +21,12 @@ func enumTag<Value>(_ value: Value) -> Int {
 /// The feature runtime: state, interactor, effect queue and effect bookkeeping.
 ///
 /// Nonisolated, non-Sendable and lock-free: it is only ever touched on `isolation`, which the shell
-/// binds at construction (`ViewModel` → `MainActor.shared`) and which effect start asserts through
-/// `assumeIsolated`.
+/// binds at construction and which effect start asserts through `assumeIsolated`. The bindings:
+///
+/// - `ViewModel` → `MainActor.shared`
+/// - `ActorModel` → its own `DefaultIsolation`
+/// - `TestModel` → its own `DefaultIsolation`, through `TestHost`
+/// - `TestViewModel` → `MainActor.shared`, through `TestHost`
 final class Core<State: FeatureState, Action>: Observable {
     private struct PerformContext {
         /// Every tag path reached while routing the action (root, then each `When` hop): the
@@ -244,6 +248,9 @@ final class Core<State: FeatureState, Action>: Observable {
                     do {
                         try await operation()
                     } catch is CancellationError {
+                    } catch _ where Task.isCancelled {
+                        // Cancellation can surface as another error (`URLError(.cancelled)`, a
+                        // dependency's own): a cancelled effect's throw is not reported either.
                     } catch {
                         reportIssue("Effect threw: \(error)")
                     }

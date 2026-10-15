@@ -146,6 +146,51 @@ struct CancelledEffectInteractor {
     }
 }
 
+// MARK: - Thrown errors
+
+/// A dependency's own error. Some dependencies surface cancellation as one rather than as
+/// `CancellationError`: URLSession throws `URLError(.cancelled)`.
+struct DependencyError: Error {}
+
+@FeatureState
+struct ThrownErrorState: Equatable {}
+
+enum ThrownErrorAction {
+    case request
+    case cancelRequest
+}
+
+/// `.request`'s effect waits at a cancellation-aware gate and ends in a `DependencyError` either
+/// way: cancelled meanwhile, it throws one in place of the gate's `CancellationError`; otherwise
+/// the request fails with one.
+@Interactor<ThrownErrorState, ThrownErrorAction>
+struct ThrownErrorInteractor {
+    @EffectID var request
+    let log: EffectLog
+    let gate: EffectGate
+
+    var body: some InteractorOf<Self> {
+        Interact { _, action, effects in
+            switch action {
+            case .request:
+                effects.perform(id: request) {
+                    do {
+                        try await gate.pass()
+                    } catch {
+                        log.append("request cancelled")
+                        throw DependencyError()
+                    }
+                    log.append("request failed")
+                    throw DependencyError()
+                }
+
+            case .cancelRequest:
+                effects.cancel(request)
+            }
+        }
+    }
+}
+
 // MARK: - Teardown
 
 @FeatureState
@@ -438,6 +483,50 @@ struct SchedulingTests {
 
         // The cancelled effects threw at their sleep: none of their decrements arrived.
         #expect(viewModel.count == 100)
+    }
+
+    // MARK: Thrown errors
+
+    /// Cancellation can surface as an error other than `CancellationError`, so whatever an effect
+    /// throws once its task is cancelled is not reported.
+    @Test(.timeLimit(.minutes(1)))
+    func errorThrownByACancelledEffectIsNotReported() async {
+        let log = EffectLog()
+        let gate = EffectGate()
+        let viewModel = ViewModel(
+            initialState: ThrownErrorState(),
+            feature: Feature(interactor: ThrownErrorInteractor(log: log, gate: gate))
+        )
+
+        let issues = await reportedIssues {
+            let task = viewModel.sendViewEvent(.request)
+            viewModel.sendViewEvent(.cancelRequest)  // cancels the effect while it waits at the gate
+            gate.open()
+            await task?.value
+        }
+
+        #expect(log.entries == ["request cancelled"])  // it threw a `DependencyError` while cancelled
+        #expect(issues == [])
+    }
+
+    /// The same error from an effect that was not cancelled is a failure, and is reported.
+    @Test(.timeLimit(.minutes(1)))
+    func errorThrownByALiveEffectIsReported() async {
+        let log = EffectLog()
+        let gate = EffectGate()
+        let viewModel = ViewModel(
+            initialState: ThrownErrorState(),
+            feature: Feature(interactor: ThrownErrorInteractor(log: log, gate: gate))
+        )
+
+        let issues = await reportedIssues {
+            let task = viewModel.sendViewEvent(.request)
+            gate.open()
+            await task?.value
+        }
+
+        #expect(log.entries == ["request failed"])
+        #expect(issues == ["Effect threw: DependencyError()"])
     }
 
     // MARK: Teardown
