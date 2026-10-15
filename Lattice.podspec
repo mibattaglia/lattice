@@ -43,5 +43,5 @@ Pod::Spec.new do |s|
   s.dependency 'swift-identified-collections', '0.1.0'
   s.dependency 'CasePaths', '0.1.1'
   s.dependency 'CasePathsCore', '0.1.1'
-  s.dependency 'IssueReporting'
+  s.dependency 'IssueReporting', '~> 2.1'
 end
