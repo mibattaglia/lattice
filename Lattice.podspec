@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.license        = { type: 'MIT' }
   s.platforms      = { ios: '17.0', macos: '14.0', watchos: '10.0' }
   s.source         = { git: 'https://github.com/mibattaglia/lattice.git', tag: s.version.to_s }
-  s.swift_version  = '6.0'
+  s.swift_version  = '6.2'
 
   s.static_framework = true
 
@@ -23,10 +23,11 @@ Pod::Spec.new do |s|
   # Runs in the pod root for both local and remote installs.
   s.prepare_command = 'bash ./scripts/rebuild-macro.sh'
 
-  # Configure build flags to load the macro plugin
+  # Configure build flags to load the macro plugin, and enable the upcoming feature the Lattice
+  # target enables in Package.swift
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable ${PODS_TARGET_SRCROOT}/Macros/LatticeMacros#LatticeMacros'
+    'OTHER_SWIFT_FLAGS' => '-load-plugin-executable ${PODS_TARGET_SRCROOT}/Macros/LatticeMacros#LatticeMacros -enable-upcoming-feature NonisolatedNonsendingByDefault'
   }
 
   # For the main app target (if it uses macros directly)
@@ -38,9 +39,9 @@ Pod::Spec.new do |s|
 
   # CocoaPods dependencies for modules imported by Lattice
   s.dependency 'swift-collections', '~> 1.1'
-  s.dependency 'DequeModule', '~> 1.0.2'
   s.dependency 'OrderedCollections', '~> 1.0.2'
   s.dependency 'swift-identified-collections', '0.1.0'
   s.dependency 'CasePaths', '0.1.1'
   s.dependency 'CasePathsCore', '0.1.1'
+  s.dependency 'IssueReporting'
 end
