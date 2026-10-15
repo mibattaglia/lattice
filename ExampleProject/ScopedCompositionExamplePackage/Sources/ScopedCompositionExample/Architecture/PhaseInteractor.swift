@@ -20,9 +20,12 @@ struct PhaseInteractor<C: Clock> {
             switch event {
             case .loadTapped:
                 // Fake an async load so the .loading -> .success case change is visible. Tapping
-                // Load again auto-cancels this load at its sleep, so only the last tap's load ends.
+                // Load again auto-cancels this load while it sleeps, so the success case comes a
+                // full delay after the last tap.
                 effects.perform {
                     try await clock.sleep(for: loadDuration)
+                    // No `checkCancellation()` here, unlike Search: every load writes the same
+                    // case, and the `.loading` guard turns a late commit into a no-op.
                     try effects.modify { state in
                         // A Load tap while loaded leaves the loaded payload alone.
                         guard case .loading = state else { return }

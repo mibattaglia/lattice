@@ -10,11 +10,13 @@ import Testing
 
 @Suite
 struct TimerLeakTests {
-    /// Every tick counts and rebuilds the child wholesale, but only every hundredth tick shows a
-    /// new value: the other rebuilds are content-equal, which is the leak path the demo profiles.
+    /// Every tick counts, and only every hundredth tick shows a new value. Each tick also rebuilds
+    /// the child wholesale, but a content-equal rebuild leaves no trace in state (the current child,
+    /// its `_$id` and its registrars are kept), so only profiling, the resident-memory overlay,
+    /// shows those rebuilds.
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
-    func everyTickRebuildsTheChildAndEveryHundredthShowsANewValue() async {
+    func everyTickCountsAndEveryHundredthShowsANewValue() async {
         let clock = GateClock()
         let model = await makeModel(clock: clock)
 
