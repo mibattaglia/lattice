@@ -268,10 +268,10 @@
                 }
                 """,
                 expandedSource: """
-                struct Box<Value> {
-                    var value: Value
-                }
-                """,
+                    struct Box<Value> {
+                        var value: Value
+                    }
+                    """,
                 diagnostics: [
                     DiagnosticSpec(
                         message:
@@ -284,7 +284,7 @@
                             "'@FeatureState' cannot be applied to generic type 'Box': the generated projection uses a nested protocol, which Swift does not allow inside generic types (SE-0404). Make 'Box' non-generic or wrap the generic data in a non-generic state type.",
                         line: 2,
                         column: 11
-                    )
+                    ),
                 ],
                 macroSpecs: Self.recoveryMacroSpecs
             )
@@ -299,39 +299,39 @@
                 }
                 """,
                 expandedSource: """
-                struct CounterState {
-                    struct ViewState {}
+                    struct CounterState {
+                        struct ViewState {}
 
-                    var _$observationRegistrar = Lattice.ObservationStateRegistrar()
+                        var _$observationRegistrar = Lattice.ObservationStateRegistrar()
 
-                    public var _$id: Lattice.ObservableStateID {
-                        _$observationRegistrar.id
+                        public var _$id: Lattice.ObservableStateID {
+                            _$observationRegistrar.id
+                        }
+
+                        public mutating func _$willModify() {
+                            _$observationRegistrar._$willModify()
+                        }
+
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu_>(_ lhs: __macro_local_6MemberfMu_, _ rhs: __macro_local_6MemberfMu_) -> Bool {
+                            true
+                        }
+
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu0_: Equatable>(_ lhs: __macro_local_6MemberfMu0_, _ rhs: __macro_local_6MemberfMu0_) -> Bool {
+                            lhs != rhs
+                        }
+
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu1_: AnyObject>(_ lhs: __macro_local_6MemberfMu1_, _ rhs: __macro_local_6MemberfMu1_) -> Bool {
+                            lhs !== rhs
+                        }
+
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
+                            lhs != rhs
+                        }
                     }
 
-                    public mutating func _$willModify() {
-                        _$observationRegistrar._$willModify()
+                    extension CounterState: Observation.Observable {
                     }
-
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu_>(_ lhs: __macro_local_6MemberfMu_, _ rhs: __macro_local_6MemberfMu_) -> Bool {
-                        true
-                    }
-
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu0_: Equatable>(_ lhs: __macro_local_6MemberfMu0_, _ rhs: __macro_local_6MemberfMu0_) -> Bool {
-                        lhs != rhs
-                    }
-
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu1_: AnyObject>(_ lhs: __macro_local_6MemberfMu1_, _ rhs: __macro_local_6MemberfMu1_) -> Bool {
-                        lhs !== rhs
-                    }
-
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
-                        lhs != rhs
-                    }
-                }
-
-                extension CounterState: Observation.Observable {
-                }
-                """,
+                    """,
                 diagnostics: [
                     DiagnosticSpec(
                         message:
@@ -353,54 +353,54 @@
                 }
                 """,
                 expandedSource: """
-                struct RowState: Identifiable {
-                    let id: Int
+                    struct RowState: Identifiable {
+                        let id: Int
 
-                    var _$observationRegistrar = Lattice.ObservationStateRegistrar()
+                        var _$observationRegistrar = Lattice.ObservationStateRegistrar()
 
-                    public var _$id: Lattice.ObservableStateID {
-                        _$observationRegistrar.id
-                    }
+                        public var _$id: Lattice.ObservableStateID {
+                            _$observationRegistrar.id
+                        }
 
-                    public mutating func _$willModify() {
-                        _$observationRegistrar._$willModify()
-                    }
+                        public mutating func _$willModify() {
+                            _$observationRegistrar._$willModify()
+                        }
 
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu_>(_ lhs: __macro_local_6MemberfMu_, _ rhs: __macro_local_6MemberfMu_) -> Bool {
-                        true
-                    }
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu_>(_ lhs: __macro_local_6MemberfMu_, _ rhs: __macro_local_6MemberfMu_) -> Bool {
+                            true
+                        }
 
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu0_: Equatable>(_ lhs: __macro_local_6MemberfMu0_, _ rhs: __macro_local_6MemberfMu0_) -> Bool {
-                        lhs != rhs
-                    }
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu0_: Equatable>(_ lhs: __macro_local_6MemberfMu0_, _ rhs: __macro_local_6MemberfMu0_) -> Bool {
+                            lhs != rhs
+                        }
 
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu1_: AnyObject>(_ lhs: __macro_local_6MemberfMu1_, _ rhs: __macro_local_6MemberfMu1_) -> Bool {
-                        lhs !== rhs
-                    }
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu1_: AnyObject>(_ lhs: __macro_local_6MemberfMu1_, _ rhs: __macro_local_6MemberfMu1_) -> Bool {
+                            lhs !== rhs
+                        }
 
-                    private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
-                        lhs != rhs
-                    }
+                        private nonisolated func shouldNotifyObservers<__macro_local_6MemberfMu2_: Equatable & AnyObject>(_ lhs: __macro_local_6MemberfMu2_, _ rhs: __macro_local_6MemberfMu2_) -> Bool {
+                            lhs != rhs
+                        }
 
-                    protocol _$ViewStateTypes {
-                    }
+                        protocol _$ViewStateTypes {
+                        }
 
-                    struct _$ViewStateWitness: _$ViewStateTypes {
-                    }
+                        struct _$ViewStateWitness: _$ViewStateTypes {
+                        }
 
-                    @Lattice._IdentifiableIfPossible(RowState.self)
-                    @Lattice._EquatableIfPossible(RowState.self)
-                    struct ViewState: Lattice.ViewStateProjection {
-                        @_spi(Lattice) public let _state: RowState
-                        init(_ state: RowState) {
-                            self._state = state
+                        @Lattice._IdentifiableIfPossible(RowState.self)
+                        @Lattice._EquatableIfPossible(RowState.self)
+                        struct ViewState: Lattice.ViewStateProjection {
+                            @_spi(Lattice) public let _state: RowState
+                            init(_ state: RowState) {
+                                self._state = state
+                            }
                         }
                     }
-                }
 
-                extension RowState: Lattice.FeatureState, Observation.Observable {
-                }
-                """,
+                    extension RowState: Lattice.FeatureState, Observation.Observable {
+                    }
+                    """,
                 diagnostics: [
                     DiagnosticSpec(
                         message:

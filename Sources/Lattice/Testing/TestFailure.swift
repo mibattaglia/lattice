@@ -212,7 +212,8 @@ extension TestFailure {
         actual: State,
         didExpectStateChange: Bool
     ) -> Self {
-        let heading = didExpectStateChange
+        let heading =
+            didExpectStateChange
             ? "A state change does not match expectation."
             : "State was not expected to change, but a change occurred."
         return Self(
@@ -354,8 +355,8 @@ private func diffMessage<T>(
         """
 }
 
-private extension String {
-    func indent(by indent: Int) -> String {
+extension String {
+    fileprivate func indent(by indent: Int) -> String {
         let indentation = String(repeating: " ", count: indent)
         return indentation + self.replacingOccurrences(of: "\n", with: "\n\(indentation)")
     }
