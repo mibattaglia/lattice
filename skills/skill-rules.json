@@ -6,14 +6,14 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Lattice architecture: Interactor, Feature, ViewModel, FeatureState, @Domain, ViewState projection, Emission",
+      "description": "Lattice architecture: Interactor, Effects, @EffectID, Feature, ViewModel, ActorModel, FeatureState, @Domain, ViewState projection",
       "promptTriggers": {
-        "keywords": ["lattice", "interactor", "viewmodel", "featurestate", "feature state", "@domain", "viewstate projection", "emission", "scope", "scopedviewmodel"],
+        "keywords": ["lattice", "interactor", "viewmodel", "actormodel", "featurestate", "feature state", "@domain", "viewstate projection", "effects", "effectid", "debounce", "scope", "scopedviewmodel"],
         "intentPatterns": ["(build|create|design).*?(feature|interactor|view model)", "(scope|compose).*?(view|child)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Sources/Lattice/**"],
-        "contentPatterns": ["@Interactor", "ViewModel", "@FeatureState", "@Domain", "ScopedViewModel"]
+        "contentPatterns": ["@Interactor", "ViewModel", "ActorModel", "@FeatureState", "@Domain", "@EffectID", "effects\\.perform", "effects\\.modify", "ScopedViewModel"]
       }
     },
     "lattice-case-paths": {
@@ -34,9 +34,9 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "medium",
-      "description": "SwiftUI with Lattice ViewModel and @Bindable",
+      "description": "SwiftUI with Lattice ViewModel, @Bindable, and the task sendViewEvent returns",
       "promptTriggers": {
-        "keywords": ["swiftui", "view", "@bindable", "sendviewevent", "scoped view", "child view"],
+        "keywords": ["swiftui", "view", "@bindable", "sendviewevent", "refreshable", "task cancellation", "scoped view", "child view"],
         "intentPatterns": ["(build|wire|connect|scope).*?(swiftui|view)"]
       },
       "fileTriggers": {
@@ -62,14 +62,14 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Testing Lattice features with TestViewModel, TestEventTask, and TestClock",
+      "description": "Testing Lattice features with TestModel, TestViewModel, exhaustivity, and a gate clock",
       "promptTriggers": {
-        "keywords": ["test", "testviewmodel", "testeventtask", "testclock", "exhaustivity"],
-        "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|emission)"]
+        "keywords": ["test", "testmodel", "testviewmodel", "testclock", "gateclock", "gate clock", "exhaustivity"],
+        "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|effect)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Tests/**"],
-        "contentPatterns": ["TestViewModel", "TestEventTask", "TestClock", "skipReceivedActions", "skipInFlightEffects", "receive\\("]
+        "contentPatterns": ["TestModel", "TestViewModel", "TestClock", "GateClock", "skipReceived", "skipInFlightEffects", "receive\\(", "expect\\s*\\{"]
       }
     }
   }
