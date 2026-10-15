@@ -1,3 +1,5 @@
+import IssueReporting
+
 /// The test engine shared by ``TestModel`` and ``TestViewModel``: it runs the feature's `Core` and
 /// records every commit made outside the action under test until an assertion describes it.
 ///
@@ -99,7 +101,7 @@ final class TestHost<State: FeatureState, Action> {
     /// right away), or until `timeout` (default ``timeout``). Folds into the assertion the commits
     /// pending before the match (exhaustive: each non-matching action fails; `.off`: they are
     /// skipped) and the modifications committed right after it. A failed `receive` consumes
-    /// everything pending.
+    /// everything pending; one that overlaps another wait only reports it.
     nonisolated(nonsending) func receive(
         matching isMatching: (Action) -> Bool,
         expectation: ReceiveExpectation<Action>,
@@ -108,11 +110,10 @@ final class TestHost<State: FeatureState, Action> {
         at location: TestIssueLocation
     ) async {
         let timeout = duration ?? self.timeout
-        if !pending.contains(where: { $0.action.map(isMatching) ?? false }) {
-            _ = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
-                pending.contains(where: { $0.action.map(isMatching) ?? false }) || core.inFlightTasks.isEmpty
-            }
+        let outcome = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
+            pending.contains(where: { $0.action.map(isMatching) ?? false }) || core.inFlightTasks.isEmpty
         }
+        if case .overlapping = outcome { return }
         guard var matchIndex = pending.firstIndex(where: { $0.action.map(isMatching) ?? false }) else {
             failReceive(expectation, timeout: timeout, at: location)
             return
@@ -162,17 +163,23 @@ final class TestHost<State: FeatureState, Action> {
 
     /// Waits on the signal until `core.inFlightTasks` is empty, re-reading it on every signal since
     /// effects start effects, failing after `timeout` (default ``timeout``); then handles what is
-    /// pending (reported when exhaustive, skipped when `.off`).
+    /// pending (reported when exhaustive, skipped when `.off`). One that overlaps another wait only
+    /// reports it.
     nonisolated(nonsending) func finish(timeout duration: Duration?, at location: TestIssueLocation) async {
         let timeout = duration ?? self.timeout
-        let didFinish = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
+        let outcome = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
             core.inFlightTasks.isEmpty
         }
-        if !didFinish {
+        switch outcome {
+        case .overlapping:
+            return
+        case .timedOut:
             reportTestFailure(
                 .expectedEffectsToFinish(count: core.inFlightTasks.count, timeout: timeout),
                 at: location
             )
+        case .done:
+            break
         }
         settlePending(at: .finish, location: location)
     }
@@ -190,7 +197,8 @@ final class TestHost<State: FeatureState, Action> {
     }
 
     /// Cancels every in-flight effect and waits, up to ``timeout``, until they have all finished.
-    /// What they commit while unwinding stays pending.
+    /// What they commit while unwinding stays pending. One that overlaps another wait only reports
+    /// it and cancels nothing.
     nonisolated(nonsending) func skipInFlightEffects(strict: Bool, at location: TestIssueLocation) async {
         guard !core.inFlightTasks.isEmpty else {
             if strict {
@@ -198,7 +206,7 @@ final class TestHost<State: FeatureState, Action> {
             }
             return
         }
-        let didFinish = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
+        let outcome = await waitForSignal(until: .now.advanced(by: timeout), at: location) {
             // Cancels on every signal: a cancelled effect can still send an action that starts more.
             let inFlightTasks = core.inFlightTasks
             for task in inFlightTasks {
@@ -206,7 +214,7 @@ final class TestHost<State: FeatureState, Action> {
             }
             return inFlightTasks.isEmpty
         }
-        if !didFinish {
+        if case .timedOut = outcome {
             reportTestFailure(
                 .expectedEffectsToFinish(count: core.inFlightTasks.count, timeout: timeout),
                 at: location
@@ -217,9 +225,9 @@ final class TestHost<State: FeatureState, Action> {
     /// Teardown, from the shell's `isolated deinit`: handles what is still pending at the line that
     /// created the model, then cancels every effect.
     ///
-    /// Best effort: an isolated deinit runs without the test's task-locals, so Swift Testing records
-    /// the report as an unattributed warning that cannot fail the test. Exhaustive tests end with
-    /// `finish()`.
+    /// Best effort, and reported as a warning: an isolated deinit runs without the test's
+    /// task-locals, so under Swift Testing the report is unattributed and cannot fail the test.
+    /// Exhaustive tests end with `finish()`.
     func invalidate() {
         settlePending(at: .deallocation, location: creationLocation)
         core.invalidate()
@@ -274,8 +282,17 @@ final class TestHost<State: FeatureState, Action> {
         guard !actions.isEmpty || !modifications.isEmpty else { return }
         switch exhaustivity {
         case .on:
+            // The deinit report runs without the test's context; under Swift Testing it cannot fail
+            // the test (see `invalidate()`), so it is a warning.
+            let severity: IssueSeverity
+            if case .deallocation = checkpoint {
+                severity = .warning
+            } else {
+                severity = .error
+            }
             reportTestFailure(
                 .unhandledCommits(actions: actions, modifications: modifications, at: checkpoint),
+                severity: severity,
                 at: location
             )
         case .off(let showSkippedAssertions):
@@ -347,20 +364,29 @@ final class TestHost<State: FeatureState, Action> {
     }
 
     /// Suspends on `signal` until `isDone()` holds, re-evaluating it after every signal: a commit,
-    /// an effect starting or finishing, or the deadline. Returns `false` once `deadline` has passed
-    /// or the waiting task is cancelled (which ends the stream), `true` when `isDone()` holds.
+    /// an effect starting or finishing, or the deadline. An overlapping wait is detected before
+    /// `isDone()` first runs, so the overlapping call reports it and does nothing else (in
+    /// particular, `skipInFlightEffects` cancels nothing).
     private nonisolated(nonsending) func waitForSignal(
         until deadline: ContinuousClock.Instant,
         at location: TestIssueLocation,
         _ isDone: () -> Bool
-    ) async -> Bool {
-        guard !isDone() else { return true }
+    ) async -> SignalWait {
         guard !isWaiting else {
             reportTestFailure(.overlappingWait(), at: location)
-            return false
+            return .overlapping
         }
+        guard !isDone() else { return .done }
         isWaiting = true
-        defer { isWaiting = false }
+        defer {
+            isWaiting = false
+            // Cancelling the waiting task ends the stream for good, also when the wait then leaves
+            // through a `return` (a signal delivered just before the cancellation finished the
+            // stream). Only cancellation ends it, so a cancelled exit is the one to renew after.
+            if Task.isCancelled {
+                (signal, signalContinuation) = Self.makeSignal()
+            }
+        }
         let continuation = signalContinuation
         let deadlineTask = Task.detached {
             guard (try? await Task.sleep(until: deadline, clock: .continuous)) != nil else { return }
@@ -368,18 +394,26 @@ final class TestHost<State: FeatureState, Action> {
         }
         defer { deadlineTask.cancel() }
         for await _ in signal {
-            if isDone() { return true }
-            if ContinuousClock.now >= deadline { return false }
+            if isDone() { return .done }
+            if ContinuousClock.now >= deadline { return .timedOut }
         }
-        // Only a cancelled wait ends the stream, and an ended stream never yields again: later waits
-        // get a new one.
-        (signal, signalContinuation) = Self.makeSignal()
-        return isDone()
+        return isDone() ? .done : .timedOut
     }
 
     private static func makeSignal() -> (AsyncStream<Void>, AsyncStream<Void>.Continuation) {
         AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
     }
+}
+
+/// How a `TestHost` wait on the signal ended.
+private enum SignalWait {
+    /// The awaited condition holds.
+    case done
+    /// The deadline passed, or the waiting task was cancelled.
+    case timedOut
+    /// Another `receive`, `finish` or `skipInFlightEffects` was already waiting; the overlap was
+    /// reported and the call does nothing more.
+    case overlapping
 }
 
 /// What a `receive` waits for, and how its failures describe it.

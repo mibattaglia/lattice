@@ -22,6 +22,7 @@
 ///     await model.send(.task) { $0.isRefreshing = true }?.value
 ///     await model.expect {  // the effect wrote its result, then its `defer` cleared the flag
 ///         $0.count = 4
+///         $0.lastUpdatedAt = StubClient.date
 ///         $0.isRefreshing = false
 ///     }
 ///     await model.finish()
@@ -31,7 +32,7 @@
 /// The testing contract:
 ///
 /// - ``send(_:assert:fileID:filePath:line:column:)`` asserts the action's change, plus the
-///   modifications its effects made before their first suspension.
+///   modifications its effects committed synchronously, up to the first action they sent.
 /// - ``receive(_:timeout:assert:fileID:filePath:line:column:)`` waits for an action an effect sent
 ///   and asserts it, folding in the modifications around it.
 /// - ``expect(_:fileID:filePath:line:column:)`` asserts the modifications effects made, which are
@@ -42,8 +43,8 @@
 ///
 /// With ``Exhaustivity/on`` every commit must be asserted. End exhaustive tests with `finish()`: the
 /// model also reports what is still pending when it is deallocated, but its deinit runs without the
-/// test's context, so that report is a warning that cannot fail the test. Deallocating the model
-/// cancels its effects.
+/// test's context, so under Swift Testing that report is a warning that cannot fail the test.
+/// Deallocating the model cancels its effects.
 ///
 /// Assertions compare states with the feature's ``FeatureProtocol/areStatesEqual``, or with the
 /// equality passed to ``init(initialState:feature:areStatesEqual:exhaustivity:timeout:fileID:filePath:line:column:)``
@@ -139,8 +140,8 @@ public actor TestModel<F: FeatureProtocol> {
     ///
     /// The action is processed synchronously: when `send` returns, every effect it started has run
     /// to its first suspension. `update` describes the action's change plus the modifications those
-    /// effects made before suspending. Exhaustive: anything still pending is reported first; `.off`:
-    /// it is skipped.
+    /// effects committed synchronously, up to the first action they sent. Exhaustive: anything still
+    /// pending is reported first; `.off`: it is skipped.
     ///
     /// - Returns: The task for the effects this action started (not for effects those effects
     ///   start), or `nil` when it started none.
@@ -163,7 +164,8 @@ public actor TestModel<F: FeatureProtocol> {
     /// Waits for an effect to send `expectedAction` and asserts the resulting state.
     ///
     /// Waits until the action is pending, until no effect is left in flight, or for `timeout`
-    /// (default: the model's). `update` describes the modifications pending before the action, the
+    /// (default: the model's). `update` describes the modifications pending before the action (when
+    /// exhaustive; `.off` skips them, so `update` starts from the state right before the action), the
     /// action's change and the modifications committed right after it. Exhaustive: a different
     /// action pending before it fails.
     public func receive(

@@ -27,7 +27,7 @@ enum PendingCheckpoint {
     /// Only the actions that precede the modifications `expect` folds.
     case expect
     case finish
-    /// The test model's deinit, which reports at the line that created it.
+    /// The test model's deinit, which reports at the line that created it, as a warning.
     case deallocation
 }
 
@@ -63,8 +63,8 @@ extension TestFailure {
         case .deallocation:
             heading = "Received \(leftSummary) left unhandled when the test model was deallocated."
             footer = """
-                This report comes from the test model's deinit and cannot fail the test: end \
-                exhaustive tests with 'finish()'.
+                This report comes from the test model's deinit, which under Swift Testing cannot fail \
+                the test: end exhaustive tests with 'finish()'.
                 """
         }
         if footer == nil, !modifications.isEmpty {
@@ -229,8 +229,9 @@ extension TestFailure {
     static func overlappingWait() -> Self {
         Self(
             """
-            The test model is already waiting for its effects: 'receive', 'finish' and \
-            'skipInFlightEffects' each wait, so await one before starting another.
+            The test model is already waiting for its effects, so this call did nothing: \
+            'receive', 'finish' and 'skipInFlightEffects' each wait; await one before starting \
+            another.
             """
         )
     }
