@@ -67,8 +67,8 @@ struct TestModelIsolationProbeInteractor {
     }
 }
 
-/// The `TestModel` half of the isolation regression (the `ViewModel` half is
-/// `ViewModelIsolationTests`). It is the shape that detects the effect start losing the model's
+/// The `TestModel` part of the isolation regression (with `ViewModelIsolationTests` and
+/// `ActorModelIsolationTests`). It is the shape that detects the effect start losing the model's
 /// isolation: with the forbidden `map` in `Core.startQueued`, `preconditionIsolated` traps.
 @Suite
 struct TestModelIsolationTests {

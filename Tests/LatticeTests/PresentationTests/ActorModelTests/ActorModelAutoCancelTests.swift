@@ -6,9 +6,9 @@ import Testing
 @testable import Lattice
 
 // Every fixture is declared at file scope, so the interactors and their effect literals are
-// nonisolated, as `ActorModel` requires. The sleeping effects log only from their cancellation
-// handlers, which run synchronously inside the `send` that cancels them, so the log is settled
-// whenever a `send` has returned.
+// nonisolated, as `ActorModel` requires. The sleeping effects log only in their preambles and from
+// their cancellation handlers, both inside a `send` (the one that starts them and the one that
+// cancels them), so the log is settled whenever a `send` has returned.
 
 // MARK: - Child
 

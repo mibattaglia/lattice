@@ -6,10 +6,10 @@ import Testing
 
 // Every fixture is declared at file scope, so the interactors and their effect literals are
 // nonisolated, as `ActorModel` requires. The tests are nonisolated too and observe effects only
-// through `send(…)?.value`, `await model.state`, gates and cancellation-handler logs: an effect may
-// resume on the model's executor as soon as a model call returns, so a log is read right after a
-// call only when every effect that could still append to it waits at a closed gate or in a sleep
-// that only cancellation ends.
+// through `send(…)?.value`, the model's state, gates and logs: an effect may resume on the model's
+// executor as soon as a model call returns, so a log is read right after a call only when every
+// effect that could still append to it waits at a closed gate or in a sleep that only cancellation
+// ends.
 
 // MARK: - Start order and modifications
 
@@ -134,6 +134,7 @@ struct ActorModelCounterInteractor {
                 // `Task.yield()` ignores cancellation: an auto-cancelled effect still gets here.
                 effects.perform {
                     await Task.yield()
+                    log.append(Task.isCancelled ? "cancelled effect sends" : "effect sends")
                     try effects.send(.decrement)
                 }
 
@@ -141,6 +142,7 @@ struct ActorModelCounterInteractor {
                 state.count += 1
                 effects.perform {
                     await Task.yield()
+                    log.append(Task.isCancelled ? "cancelled effect modifies" : "effect modifies")
                     try effects.modify { $0.count -= 1 }
                 }
 
@@ -198,6 +200,40 @@ struct ActorModelTeardownInteractor {
             }
         }
     }
+}
+
+// MARK: - One job on the model's executor
+
+// Each helper is isolated to the model and never suspends, so it runs as one job on the model's
+// executor: no effect job queued there runs before it returns. A read through a later model call
+// would come after such jobs and could not tell an effect that ran inside `send` from one that ran
+// right after it.
+
+/// Sends `action` and reads the count that `send` committed.
+@available(iOS 26, macOS 26, watchOS 26, *)
+private func sendThenReadCount(
+    _ action: ActorModelOrderAction,
+    on model: isolated ActorModel<Feature<ActorModelOrderAction, ActorModelOrderState>>
+) -> Int {
+    model.send(action)
+    return model.state.count
+}
+
+/// Sends `action` `times` times, then reads the count. No effect resumes in between, so every send
+/// after the first re-handles the case while the previous effect is still suspended.
+@available(iOS 26, macOS 26, watchOS 26, *)
+private func sendInOneJob(
+    _ action: ActorModelCounterAction,
+    times: Int,
+    on model: isolated ActorModel<Feature<ActorModelCounterAction, ActorModelCounterState>>
+) -> (tasks: [Task<Void, Never>], count: Int) {
+    var tasks: [Task<Void, Never>] = []
+    for _ in 0..<times {
+        if let task = model.send(action) {
+            tasks.append(task)
+        }
+    }
+    return (tasks, model.state.count)
 }
 
 // MARK: - Tests
@@ -313,34 +349,34 @@ struct ActorModelSchedulingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func reHandledCaseStillDeliversSendsOfEffectsThatIgnoreCancellation() async {
-        let model = await makeCounterModel()
+        let log = EffectLog()
+        let model = await makeCounterModel(log: log)
 
-        var tasks: [Task<Void, Never>] = []
-        for _ in 0..<100 {
-            if let task = await model.send(.incrementThenSendDecrement) {
-                tasks.append(task)
-            }
-        }
+        let (tasks, count) = await sendInOneJob(.incrementThenSendDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
+        #expect(count == 100)
 
         for task in tasks { await task.value }
+        // Every send but the last cancelled the previous effect while it was suspended at its yield.
+        #expect(log.entries.sorted() == Array(repeating: "cancelled effect sends", count: 99) + ["effect sends"])
         #expect(await model.state.count == 0)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func reHandledCaseStillCommitsModificationsOfEffectsThatIgnoreCancellation() async {
-        let model = await makeCounterModel()
+        let log = EffectLog()
+        let model = await makeCounterModel(log: log)
 
-        var tasks: [Task<Void, Never>] = []
-        for _ in 0..<100 {
-            if let task = await model.send(.incrementThenModifyDecrement) {
-                tasks.append(task)
-            }
-        }
+        let (tasks, count) = await sendInOneJob(.incrementThenModifyDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
+        #expect(count == 100)
 
         for task in tasks { await task.value }
+        // Every send but the last cancelled the previous effect while it was suspended at its yield.
+        #expect(
+            log.entries.sorted() == Array(repeating: "cancelled effect modifies", count: 99) + ["effect modifies"]
+        )
         #expect(await model.state.count == 0)
     }
 
@@ -350,13 +386,9 @@ struct ActorModelSchedulingTests {
         let log = EffectLog()
         let model = await makeCounterModel(log: log)
 
-        var tasks: [Task<Void, Never>] = []
-        for _ in 0..<100 {
-            if let task = await model.send(.incrementThenSleepThenModifyDecrement) {
-                tasks.append(task)
-            }
-        }
+        let (tasks, count) = await sendInOneJob(.incrementThenSleepThenModifyDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
+        #expect(count == 100)
 
         // Each send auto-cancelled the previous effect; the last one still sleeps.
         try #require(log.entries == Array(repeating: "sleep cancelled", count: 99))
@@ -379,9 +411,9 @@ struct ActorModelSchedulingTests {
     func preambleModificationIsVisibleWhenSendReturns() async {
         let model = await makeOrderModel(log: EffectLog())
 
-        await model.send(.modifyInPreamble)
-
-        #expect(await model.state.count == 11)
+        // Read in the job of the send: a preamble that ran as a job of its own would come after it.
+        let count = await sendThenReadCount(.modifyInPreamble, on: model)
+        #expect(count == 11)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
