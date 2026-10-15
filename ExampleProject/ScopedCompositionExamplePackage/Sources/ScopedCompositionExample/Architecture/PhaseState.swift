@@ -12,7 +12,7 @@ import Lattice
 /// so the render counters can show exactly which boundaries a change crosses.
 @CasePathable
 @FeatureState
-enum PhaseState: Equatable, Sendable {
+enum PhaseState: Equatable {
     case loading
     case success(SuccessState)
 }

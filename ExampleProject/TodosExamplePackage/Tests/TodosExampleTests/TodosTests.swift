@@ -97,7 +97,7 @@ struct TodosTests {
         await model.finish()
     }
 
-    /// Toggling again within the delay auto-cancels the waiting sort and starts the delay over:
+    /// Toggling again within the delay replaces the waiting sort and starts the delay over:
     /// the list is sorted once, a full delay after the last toggle.
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))

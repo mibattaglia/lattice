@@ -120,6 +120,9 @@ final class Gate: @unchecked Sendable {
         }
     }
 
+    /// Opens the gate for good: every parked request resumes, and a later ``wait()`` returns at once
+    /// instead of parking. A ``waitForWaiters(_:)`` that is still waiting, or that starts after this,
+    /// is not released: it ends only when its task is cancelled (the test's time limit).
     func open() {
         let waiting = lock.withLock {
             isOpen = true
