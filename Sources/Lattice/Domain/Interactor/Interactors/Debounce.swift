@@ -37,7 +37,9 @@ extension Interactors {
         ///
         /// - Parameters:
         ///   - duration: How long each effect waits before it runs.
-        ///   - clock: The clock to use for timing. Inject `TestClock` for testing.
+        ///   - clock: The clock to use for timing. Tests inject a clock they control and wait for
+        ///     the sleep to register before moving time: `TestClock.advance` right after a send
+        ///     races the sleep's registration.
         ///   - child: A closure that returns the child interactor to wrap.
         public init(for duration: C.Duration, clock: C, child: () -> Child) {
             self.duration = duration

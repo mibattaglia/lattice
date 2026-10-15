@@ -110,7 +110,7 @@ struct WhenKeyPathTests {
     }
 
     @Test
-    func childEmissionMapsToParentAction() async throws {
+    func childEffectSendIsEmbeddedInTheParentAction() async throws {
         let childInteractor = Interact<CounterState, CounterAction> { state, action, effects in
             switch action {
             case .increment:

@@ -173,8 +173,8 @@ read-light container views.
 `Tests/LatticeTests/PresentationTests/ScopedViewModelTests.swift` covers every overload on both
 `ViewModel` and `ScopedViewModel`:
 
-- Child: `scopedReadReflectsParentState`, `scopedSendEmbedsIntoParentAction`, the test that
-  awaits the parent's task for an effect a scoped send started,
+- Child: `scopedReadReflectsParentState`, `scopedSendEmbedsIntoParentAction`,
+  `scopedSendReturnsParentTaskForEffects`,
   `scopedComputedMemberReadsDomainMember`,
   `scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate`,
   `scopedReadInvalidatesOnSliceChange`,

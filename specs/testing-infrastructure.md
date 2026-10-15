@@ -68,7 +68,7 @@ func loadsTheProfile() async {
 }
 ```
 
-The stub suspends before it answers, so the effect's modifications commit after `send` returns and `expect` describes them. An effect that never suspends finishes inside `send`, and `send`'s `assert` then describes its modifications too.
+The stub suspends before it answers, so the effect's modifications commit after `send` returns and `expect` describes them. An effect that never suspends finishes inside `send`, and `send`'s `assert` then describes its modifications too, up to the first action it sends.
 
 Both shells have the same two initializers, each with `exhaustivity: Exhaustivity = .on`, `timeout: Duration = .seconds(1)` and the caller's location:
 

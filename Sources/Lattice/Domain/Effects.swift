@@ -21,12 +21,20 @@ public typealias EffectOperation = nonisolated(nonsending) () async throws -> Vo
 ///         state.isRefreshing = true
 ///         effects.perform {
 ///             defer { try? effects.modify { $0.isRefreshing = false } }   // also runs when cancelled
-///             let items = try await client.fetch()
-///             try effects.modify { $0.items = items }
+///             do {
+///                 let items = try await client.fetch()
+///                 try effects.modify { $0.items = items }
+///             } catch {
+///                 try Task.checkCancellation()   // a cancelled refresh writes no error
+///                 try effects.modify { $0.errorMessage = "\(error)" }
+///             }
 ///         }
 ///     }
 /// }
 /// ```
+///
+/// A run that a newer `.refresh` cancels still runs its `defer`, after the newer run has started,
+/// so `isRefreshing` can turn `false` while the newer refresh is still running.
 public struct Effects<State, Action> {
     /// The committed state, untracked; `nil` when the runtime is gone or a case-scoped child is
     /// no longer active.
@@ -68,6 +76,9 @@ public struct Effects<State, Action> {
     /// suspension. Without an `id`, the effect is auto-cancelled the next time this action case is
     /// handled; with an `id` (``EffectID``), it replaces the previous effect of that key and is
     /// cancelled only through ``cancel(_:)``.
+    ///
+    /// An error thrown out of a live effect is reported as an issue (`Effect threw: …`); whatever
+    /// the effect throws once its task is cancelled is not.
     @available(*, noasync)
     public func perform(id: EffectID.Key? = nil, _ operation: @escaping EffectOperation) {
         enqueue(path, scopePath, id, operation)

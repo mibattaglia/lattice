@@ -1,15 +1,11 @@
 extension Interactors {
     /// Combines an array of interactors into one, forwarding each action to all.
     ///
-    /// `MergeMany` is used internally by ``InteractorBuilder`` when interactors are
-    /// provided via array syntax or variadic parameters:
+    /// ``InteractorBuilder`` builds a `MergeMany` for a `for` loop in `body`; construct one
+    /// directly from an array with ``init(interactors:)``:
     ///
     /// ```swift
     /// var body: some InteractorOf<Self> {
-    ///     // Array literal
-    ///     [LoggingInteractor(), AnalyticsInteractor()]
-    ///
-    ///     // Or via buildArray
     ///     for feature in features {
     ///         FeatureInteractor(feature: feature)
     ///     }

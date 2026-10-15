@@ -176,7 +176,7 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
         #expect(vm.viewState.header.title == "new")
     }
 
-    @Test func scopedSendReturnsParentEventTaskForEffects() async {
+    @Test func scopedSendReturnsParentTaskForEffects() async {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
         // .refreshTapped performs an effect in the parent's runtime; the returned task is the

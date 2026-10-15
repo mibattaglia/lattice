@@ -34,8 +34,13 @@ import Foundation
 ///         state.isLoading = true
 ///         effects.perform {
 ///             defer { try? effects.modify { $0.isLoading = false } }
-///             let data = try await api.fetch()
-///             try effects.modify { $0.data = data }
+///             do {
+///                 let data = try await api.fetch()
+///                 try effects.modify { $0.data = data }
+///             } catch {
+///                 try Task.checkCancellation()   // a cancelled fetch writes no error
+///                 try effects.modify { $0.errorMessage = "\(error)" }
+///             }
 ///         }
 ///     }
 /// }
