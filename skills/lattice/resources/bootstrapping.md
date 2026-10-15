@@ -20,7 +20,7 @@ Use this guide when standing up a feature from scratch.
 ## Setup checklist
 
 1. Define the `@FeatureState` state and the `Action` enum. Import `Foundation` (or `SwiftUI`, or `Observation`) in the state's file.
-2. Add `@Interactor<State, Action>` to the feature interactor, as its first attribute. Bare `@Interactor` is not valid.
+2. Add `@Interactor<State, Action>` to the feature interactor. Bare `@Interactor` is not valid.
 3. Add computed members for what views render, and mark members views must not read `@Domain`.
 4. Model child features as nested `@FeatureState` members or enum-case payloads, so views can scope into them.
 5. Build `Feature(interactor:)`; it compares states with `==` when the state is `Equatable`.

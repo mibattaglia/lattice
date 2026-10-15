@@ -332,10 +332,6 @@ struct CounterInteractor {
 
 A known Swift 6.4 compiler bug can crash the compiler (a segfault in `TypeCheckPrimaryFileRequest`) when a source file holds a `@FeatureState` enum together with other macro-annotated declarations: other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, and so on. Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration. Files whose `@FeatureState` types are all structs are not affected. This is a temporary layout rule that works around the compiler bug, not a design choice; see [`specs/feature-state.md`](specs/feature-state.md#limitations).
 
-### Known Issue: `@Interactor` Must Be the First Attribute
-
-`@Interactor` reads its generic arguments from the declaration's first attribute, so write `@Interactor<State, Action>` before any other attribute. With another attribute first, such as `@available(macOS 26, *)`, the expansion reports `@Interactor requires 2 generic arguments: one for the Interactor's state type and one for its action type.` and the type does not conform to `Interactor`; see [`specs/macros.md`](specs/macros.md#interactor).
-
 ## Bindings
 
 Use `@Bindable` with case-path actions:

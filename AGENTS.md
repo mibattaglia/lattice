@@ -44,7 +44,6 @@
 
 ## Macro notes
 - `@FeatureState` and `@Domain` are implemented in `Sources/LatticeMacros/Plugins/` (`FeatureStateMacro.swift`, `ObservationStateMacros.swift`, the `ViewState` projection in `FeatureStateMacro+ViewState.swift`, `ViewStateMember.swift` and `ViewStateRenderer.swift`, and `FeatureStateSupportMacros.swift`), declared in `Sources/Lattice/Macros.swift`, and registered in `Sources/LatticeMacros/Plugins/Plugin.swift`.
-- `@Interactor` (`InteractorMacro.swift`) reads its generic arguments from the declaration's first attribute, so `@Interactor<State, Action>` must be the first attribute. After another attribute, such as `@available(macOS 26, *)`, the expansion reports `@Interactor requires 2 generic arguments: …` and the type does not conform.
 - Macro tests are `MacroTesting` snapshots (`assertMacro`); the extension role only expands with `MacroSpec(type:conformances:)`.
 - Swift 6.4 compiler bug: a file that holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …) can crash the compiler (segfault in `TypeCheckPrimaryFileRequest`). Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration; files whose `@FeatureState` types are all structs are not affected. This is a temporary workaround for the compiler bug, not a design rule.
 

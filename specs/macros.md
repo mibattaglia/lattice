@@ -52,8 +52,6 @@ Current diagnostics include:
 
 A first argument spelled with the bare name `State` (a sibling type, or a top-level type literally named `State`) generates `typealias State = State`, which fails with "type alias 'State' references itself"; qualify it (`@Interactor<Foo.State, Foo.Action>`). `Action` behaves the same way.
 
-The member role reads the generic arguments from the declaration's first attribute, so `@Interactor` must be written first. With another attribute before it, such as `@available(macOS 26, *)`, the expansion reports `@Interactor requires 2 generic arguments: one for the Interactor's state type and one for its action type.` and the type does not conform.
-
 See [InteractorMacroTests.swift](../Tests/LatticeMacrosTests/InteractorMacroTests.swift).
 
 ## `@FeatureState`
