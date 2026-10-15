@@ -39,6 +39,19 @@ Writing `TestModel` tests:
 ## Creating A Test Shell
 
 ```swift
+final class StubProfileClient: ProfileClient {
+    let name: String
+
+    init(name: String) {
+        self.name = name
+    }
+
+    nonisolated(nonsending) func fetch() async throws -> Profile {
+        await Task.yield()  // suspends, so the result commits after `send` returns
+        return Profile(name: name)
+    }
+}
+
 @available(iOS 26, macOS 26, watchOS 26, *)
 @Test
 func loadsTheProfile() async {
@@ -54,6 +67,8 @@ func loadsTheProfile() async {
     await model.finish()
 }
 ```
+
+The stub suspends before it answers, so the effect's modifications commit after `send` returns and `expect` describes them. An effect that never suspends finishes inside `send`, and `send`'s `assert` then describes its modifications too.
 
 Both shells have the same two initializers, each with `exhaustivity: Exhaustivity = .on`, `timeout: Duration = .seconds(1)` and the caller's location:
 
@@ -144,7 +159,7 @@ await model.receive(\.saved, timeout: .seconds(2)) {  // Action: @CasePathable
 
 `Exhaustivity` is `.on` by default.
 
-- `.on` requires every commit to be described: actions with `receive`, modifications with `expect`, or folded into the enclosing `send` or `receive`. What is still pending is reported at the next `send` or `expect`, at `finish`, and, as a warning, at deinit. A modification that leaves the state equal to what it was is exempt.
+- `.on` requires every commit to be described: actions with `receive`, modifications with `expect`, or folded into the enclosing `send` or `receive`. What is still pending is reported at the next `send`, as leading actions at the next `expect` (which folds the pending modifications, so an undescribed one fails as that `expect`'s state diff), at `finish`, and, as a warning, at deinit. A modification that leaves the state equal to what it was is exempt.
 - `.off(showSkippedAssertions:)` skips what no assertion describes, to the latest state, before the next assertion: `send` skips everything pending, `receive` what precedes the match, `expect` the actions ahead of the modifications, and `finish` and deinit everything. `showSkippedAssertions` defaults to `true`, so `.off()` reports each skip as a warning (`Skipped 1 received action before receiving <action>.`, `Skipped 2 modifications before sending another action.`, `Skipped … at finish.`); pass `false` to skip silently. Under XCTest, IssueReporting turns warnings into failures.
 
 | Checkpoint | `.on` | `.off` |
@@ -160,7 +175,7 @@ await model.receive(\.saved, timeout: .seconds(2)) {  // Action: @CasePathable
 Each shell's `isolated deinit` hands what is still pending to the same handling, at the line that created the model, then cancels every effect.
 
 - The report is a warning. An `isolated deinit` runs without the test's task-locals, so under Swift Testing the report is unattributed: it is recorded as a warning of an unknown test at the creation line, without its message text, because IssueReporting falls back to its XCTest path there. It cannot fail the test and cannot be asserted. Under XCTest, the same report fails whichever test is running.
-- A `TestModel`'s deinit is a job on its executor; when the release is the test's last statement, it can run after the process has exited, and the report is lost.
+- A `TestModel`'s deinit is a job on its executor; when the release is the test's last statement, the process can exit before it runs, and the report is lost.
 - End exhaustive tests with `finish()`.
 
 ## Waiting

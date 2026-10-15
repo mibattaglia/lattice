@@ -111,6 +111,8 @@ struct ProfileInteractor {
 }
 ```
 
+The `defer` runs on every path, cancelled or not. A run that is replaced or auto-cancelled runs it after its replacement has started, so a flag shared by consecutive runs can be cleared early: here, a second `.task` replaces the first load, and the first load's `defer` sets `isLoading` to `false` while the second load is still running.
+
 | Member | Legal from | Otherwise |
 |---|---|---|
 | `perform` | `interact` | A compile error in async contexts: `'perform' is unavailable from asynchronous contexts`. From a synchronous escape it is reported and dropped: `'effects.perform' must be called during interact; dropped`, or `Can't perform an effect inside 'modify'; dropped` inside a `modify` body. |
@@ -176,7 +178,7 @@ The action is processed synchronously and depth-first, with no hop, and `send` r
 | a parent effect performed for `.child(.start)`, at `[tag(.child)]` | any `.child(…)` | the parent effect |
 | two `Merge` children's effects for `.go` | `.go` | both |
 
-- A case-path `When` whose case is not active returns before it scopes, so the action does not visit the child path. The child's earlier effects keep running until the case is active and that child case is handled again (`childActionForAnInactiveCaseIsIgnoredAndCancelsNothing`).
+- A case-path `When` whose case is not active returns before it scopes, so the action does not visit the child path. The child's earlier effects keep running until the case is active and that child case is handled again (`childActionForAnInactiveCaseIsIgnoredAndCancelsNothing`). If the case becomes active again, those effects read and write the new payload, because their handle only checks whether the case is active; the suite has no test for re-activation.
 - A non-enum `Action` has no tag. Every action then shares one path, and any send cancels every anonymous effect of the root handle. `Action` should be an enum; this is documented, not diagnosed.
 
 ### Ignored actions still auto-cancel
@@ -186,7 +188,7 @@ The action is processed synchronously and depth-first, with no hop, and `send` r
 - Identify the effect with `@EffectID` and `perform(id:)`. An identified effect is never auto-cancelled; only the next effect of its key replaces it. In the Todos example, a toggle the interactor ignores leaves the pending sort alone.
 - When the view owns the effect, drop the guard. Re-sending the action then replaces the running effect, so there is never more than one (the TimerLeak and Phase tickers).
 
-A running flag kept in state does not work with cancellation the view owns, unless the effect clears the flag in a `defer`: the flag stays set after the cancel and the guard refuses the next start.
+A guard on a running flag kept in state does not avoid this, and a `defer` that clears the flag does not fix it: a re-sent action that the guard ignores still cancels the running effect and starts none. Use one of the two remedies.
 
 ### Cancellation is cooperative
 
@@ -342,7 +344,7 @@ The effect start loop in `Core.startQueued` is the one place that vouches for is
 - A modification runs no interactor logic: a parent or `Merge` sibling cannot react to it, and it cannot start effects. Send an action when one must.
 - `effects.state` is get-only.
 - `ActorModel` and `TestModel` require OS 26 (`Task.immediate`, and actor `isolated deinit`).
-- The pre-OS-26 paths, `Task.startOnMainActor` and the main-actor `isolated deinit` back-deployment, are compile-checked at the deployment floors but run only on newer hosts.
+- The pre-OS-26 paths, `Task.startOnMainActor` and the main-actor `isolated deinit` back-deployment, are compile-checked at the deployment floors but have never run in the test suites, which have run only on OS 26 and later hosts.
 
 ## Related Specs
 

@@ -1164,6 +1164,11 @@ Deviations:
   `reportTestFailure(_:severity:at:)` that runs on the calling shell's isolation, in the test's
   task. The old "assertion closure made no changes" special case is gone: an `update` that changes
   nothing while the state changed reports the ordinary state-diff mismatch (381bbc0).
+- §5.4 tests: waits that must overlap or be cancelled start their waiter with `Task.immediate` and
+  are ordered by a call on the model, not by sleeps; the two old `skipInFlightEffects` tests are
+  one, because preambles always ran when `send` returns; the port of
+  `finishReportsBufferedReceivesProducedWhileWaiting` asserts the state instead of a trailing
+  `receive`, because `finish` consumes what it reports (764a3f1).
 - §5.5: the `areStatesEqual:` initializers of `TestModel` and `TestViewModel` take the same
   defaulted `fileID:filePath:line:column:` as the other initializer (introduced in 381bbc0; found
   while writing the docs).
@@ -1213,11 +1218,7 @@ Deviations:
   matches error and note lines (764a3f1).
 - §8 test infrastructure: deinit leftover reports are not asserted (decision A), and at `expect`
   the pending modifications are folded, so an undescribed modification shows as the `expect`'s
-  state diff; the leftover report at `expect` is for actions (764a3f1). Waits that must overlap or
-  be cancelled start their waiter with `Task.immediate` and are ordered by a call on the model; the
-  two old `skipInFlightEffects` tests are one; the port of
-  `finishReportsBufferedReceivesProducedWhileWaiting` asserts the state instead of a trailing
-  `receive`, because `finish` consumes what it reports (764a3f1).
+  state diff; the leftover report at `expect` is for actions (764a3f1).
 - §8 parallelism: a parameterized test cannot time its own cases, so the `@Test(arguments: 1...500)`
   tests of each shell share a timing record, and the case that completes it compares the wall
   times. The comparison runs only when all the variants run, and it is skipped for a shell whose

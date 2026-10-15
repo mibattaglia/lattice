@@ -54,7 +54,7 @@ A `@Domain` member is rejected at every read site with `'x' is unavailable: 'x' 
 
 ## Sending Actions
 
-`sendViewEvent(_:) -> Task<Void, Never>?` is the only production event entry point. It is `@discardableResult` and synchronous: when it returns, the interactor has run, the new state is committed, the previous effects of the action's case are cancelled, and every effect the action started has run its synchronous preamble. The returned task waits for exactly those effects; it is `nil` when the action started none, and cancelling it cancels them. See [Handling An Action](./effects-and-isolation.md#handling-an-action) and [The Task `send` Returns](./effects-and-isolation.md#the-task-send-returns).
+`sendViewEvent(_:) -> Task<Void, Never>?` is the only production event entry point. It is `@discardableResult` and synchronous: when it returns, the interactor has run, the new state is committed, the previous anonymous effects of the action's case are cancelled (at the root and at each child case a `When` routes it into), and every effect the action started has run its synchronous preamble. The returned task waits for exactly those effects; it is `nil` when the action started none, and cancelling it cancels them. See [Handling An Action](./effects-and-isolation.md#handling-an-action) and [The Task `send` Returns](./effects-and-isolation.md#the-task-send-returns).
 
 ```swift
 .refreshable { await viewModel.sendViewEvent(.refresh)?.value }

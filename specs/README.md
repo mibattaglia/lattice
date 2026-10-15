@@ -34,7 +34,7 @@ At a high level, the production path is:
 
 1. A view sends an action through `ViewModel.sendViewEvent(_:)`, which hands it to the view model's `Core` on the main actor.
 2. The core runs the interactor on a working copy of the state. Each member change notifies only that member's observers, and every effect the interactor performs is only queued.
-3. The core commits the working copy. A content-equal wholesale replacement is dropped, and only a new root identity fires the coarse key path that every reader registers; otherwise views re-render only for the members they read that changed. Then it cancels the effects previously started for the same action case.
+3. The core commits the working copy. A content-equal wholesale replacement is dropped, and only a new root identity fires the coarse key path that every reader registers; otherwise views re-render only for the members they read that changed. Then it cancels the anonymous effects previously started for the same action case, at the root and at each child case a `When` routes the action into; effects with an `@EffectID` are never auto-cancelled.
 4. The core starts the queued effects in order on the main actor. Each runs until its first suspension before `sendViewEvent(_:)` returns, which hands back the task for those effects.
 5. Effects resume on the main actor after every suspension. They deliver results with `effects.modify`, which commits by the same rules, and send actions only to start effects, run interactor logic or cancel by action case.
 

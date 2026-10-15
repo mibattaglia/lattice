@@ -145,7 +145,7 @@ struct ScreenInteractor {
 - Case-path form: the child state is extracted, mutated and re-embedded into the parent case after the child returns. While the case is not active, the child's actions are ignored: nothing is scoped, and the child path is not visited, so none of the child's effects is cancelled.
 - The child gets a scoped `Effects<ChildState, ChildAction>`. Its sends are embedded into parent actions, and its modifications are written back into the parent state (key-path assignment or case re-embedding), as one parent commit.
 - The child handle's path adds the child action's tag, so `.child(.other)` does not cancel the effects of `.child(.start)`, and re-sending `.child(.start)` does. Its scope path adds the `When`'s key path or case key path, so two `When`s over the same child type keep independent `@EffectID` effects. See [Auto-Cancel](./effects-and-isolation.md#auto-cancel).
-- A case-scoped child whose case went away changes nothing: its effects' sends and modifications are reported and dropped, and `effects.state` is reported and returns the last known value.
+- A case-scoped child whose case went away changes nothing: its effects' sends and modifications are reported and dropped, and `effects.state` is reported and returns the last known value. If the case becomes active again, those effects read and write the new payload.
 - `.when(state:action:child:)` is the modifier form. It returns `Interactors.Merge(When(…), self)`, so the child runs before the interactor it modifies.
 
 ## Debounce
@@ -180,11 +180,11 @@ struct DebouncedSearchInteractor {
 
 ## Writing Effects
 
-These patterns come from the example packages under `ExampleProject/`. The mechanics behind each are in [Effects And Isolation](./effects-and-isolation.md).
+These patterns come from the example packages under `ExampleProject/` and from the root tests, trimmed to the point each block shows. The mechanics behind each are in [Effects And Isolation](./effects-and-isolation.md).
 
 ### A result is a modification
 
-An effect writes its result with `effects.modify`. There is no response case to send and handle:
+An effect writes its result with `effects.modify`. There is no response case to send and handle (adapted from `TestModelExampleTests`' `CounterExampleInteractor`):
 
 ```swift
 case .refresh:
@@ -201,6 +201,7 @@ case .refresh:
 
 - One `modify` for several members is one commit and one test entry.
 - A cleanup flag is cleared in a `defer`, which runs when the effect is cancelled too.
+- A run that is auto-cancelled or replaced runs its `defer` after its replacement has started, so a flag shared by consecutive runs can be cleared early: re-sending `.refresh` here sets `isRefreshing` to `false` once the cancelled run unwinds, while the new run is still refreshing.
 - A failure that leaves this effect while it is live is reported as `Effect threw: <error>`. Catch the errors you expect and turn them into state; see [Thrown Errors](./effects-and-isolation.md#thrown-errors).
 
 ### Send only for the three jobs
@@ -309,7 +310,7 @@ Tests pass a test-local gate clock; see [Testing Infrastructure](./testing-infra
 
 ### Effect identity
 
-Use `@EffectID` with `perform(id:)` when an effect must survive its action being ignored or repeated, or must be cancelled from another case. An anonymous effect is cancelled by every send of its case, including one the interactor ignores:
+Use `@EffectID` with `perform(id:)` when an effect must survive its action being ignored (a repeat that performs it again replaces it), or must be cancelled from another case. An anonymous effect is cancelled by every send of its case, including one the interactor ignores. Adapted from the Todos example's `TodosInteractor`, with a `.stopSorting` case added to show `cancel`:
 
 ```swift
 @Interactor<TodosState, TodosAction>
@@ -361,7 +362,7 @@ See [Concurrency Settings](./effects-and-isolation.md#concurrency-settings).
 - Deliver results with `effects.modify`; send actions only for the three jobs.
 - Use `When` for child features instead of one large `switch`.
 - Inject clocks into interactors that wait, and keep the `ContinuousClock` initializer for the app.
-- Reach for `@EffectID` when an effect must survive an ignored or repeated action, or be cancelled from another case.
+- Reach for `@EffectID` when an effect must survive an ignored action (a repeat that performs it again replaces it), or be cancelled from another case.
 
 ## Related Specs
 
