@@ -49,6 +49,28 @@ struct CounterInteractorTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test
+    func twoParameterInteractHandlesActions() async {
+        let interactor = Interact<CounterState, CounterAction> { state, action in
+            switch action {
+            case .increment:
+                state.count += 1
+            case .decrement:
+                state.count -= 1
+            case .reset:
+                state.count = 0
+            }
+        }
+        let model = await TestModel(initialState: CounterState(count: 0), feature: Feature(interactor: interactor))
+
+        await model.send(.increment) { $0.count = 1 }
+        await model.send(.increment) { $0.count = 2 }
+
+        #expect(await model.state == .init(count: 2))
+        await model.finish()
+    }
+
+    @available(iOS 26, macOS 26, watchOS 26, *)
     private func makeModel(
         fileID: StaticString = #fileID,
         filePath: StaticString = #filePath,

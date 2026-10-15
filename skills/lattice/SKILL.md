@@ -49,7 +49,7 @@ enum CounterAction {
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .decrementButtonTapped:
                 state.count -= 1
@@ -63,7 +63,7 @@ struct CounterInteractor {
 
 - Do name actions after user intent (`incrementButtonTapped`), not the state change.
 - Do keep raw values `@Domain` and expose display values as computed members; there is no separate view-state type or reducer.
-- `Interact { state, action, effects in … }` handles an action synchronously and returns nothing. Ignore the `Effects` handle (`_`) when the interactor performs no effects.
+- `Interact { state, action, effects in … }` handles an action synchronously and returns nothing. When the handler performs no effects, drop the `effects` parameter: `Interact { state, action in … }`.
 - Do make `Action` an enum: automatic cancellation keys on its case.
 
 ## Connect to SwiftUI

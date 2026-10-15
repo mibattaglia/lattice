@@ -31,7 +31,7 @@ Use the `Task<Void, Never>?` returned from `sendViewEvent(_:)` when the UI needs
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1

@@ -11,7 +11,7 @@ import Foundation
 /// @Interactor<CounterState, CounterAction>
 /// struct CounterInteractor {
 ///     var body: some InteractorOf<Self> {
-///         Interact { state, action, effects in
+///         Interact { state, action in
 ///             switch action {
 ///             case .increment:
 ///                 state.count += 1
@@ -49,6 +49,8 @@ import Foundation
 /// ## State Management
 ///
 /// - The handler receives an `inout State` that can be mutated directly.
+/// - When the handler performs no effects, drop the `effects` parameter:
+///   `Interact { state, action in … }`.
 /// - Effects performed during the handler start after it returns, in `perform` order.
 /// - Effects change state through ``Effects/modify(_:)`` and send actions through
 ///   ``Effects/send(_:)`` only to start new effects or run interactor logic.
@@ -63,6 +65,14 @@ public struct Interact<State, Action>: Interactor {
     /// - Parameter handler: A closure that mutates state and enqueues effects for each action.
     public init(handler: @escaping Handler) {
         self.handler = handler
+    }
+
+    /// Creates an `Interact` primitive for an interactor that performs no effects.
+    ///
+    /// Drop the `effects` parameter when the handler only mutates state:
+    /// `Interact { state, action in … }`. To perform effects, use the three-parameter form.
+    public init(handler: @escaping (inout State, Action) -> Void) {
+        self.handler = { state, action, _ in handler(&state, action) }
     }
 
     public var body: some Interactor<State, Action> { self }

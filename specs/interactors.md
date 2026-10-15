@@ -34,13 +34,16 @@ public protocol Interactor<State, Action> {
 
 ## The Interact Primitive
 
-Most interactors are built with `Interact`, a thin wrapper around a handler closure of type `(inout State, Action, Effects<State, Action>) -> Void`:
+Most interactors are built with `Interact`, a thin wrapper around a handler closure of type `(inout State, Action, Effects<State, Action>) -> Void` (`Interact.Handler`). It has two initializers, both `init(handler:)`, and the closure's parameter count picks one:
+
+- `Interact { state, action, effects in … }` stores the handler as it is. A handler that performs effects uses this form.
+- `Interact { state, action in … }` takes an `(inout State, Action) -> Void` handler and stores it wrapped in a `Handler` that ignores the `Effects` handle. A handler that performs no effects uses this form, as this counter does:
 
 ```swift
 @Interactor<CounterState, CounterAction>
 struct CounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
@@ -52,7 +55,7 @@ struct CounterInteractor {
 }
 ```
 
-An interactor that performs no effects ignores the handle (`_`). There is nothing to return.
+Either way, the handler returns nothing.
 
 ## Builder Semantics
 
@@ -108,7 +111,7 @@ struct ParentInteractor {
         Interactors.When(state: \.counter, action: \.counter) {
             CounterInteractor()
         }
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .reset:
                 state.counter = CounterState()
@@ -128,7 +131,7 @@ struct ScreenInteractor {
         Interactors.When(state: \.loaded, action: \.loaded) {  // only while the state is `.loaded`
             LoadedInteractor()
         }
-        Interact { state, action, _ in
+        Interact { state, action in
             if case .reload = action {
                 state = .loading
             }

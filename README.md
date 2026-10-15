@@ -95,7 +95,7 @@ struct CounterInteractor {
 }
 ```
 
-- `Interact { state, action, effects in … }` handles an action synchronously and returns nothing. An interactor that performs no effects ignores the handle: `Interact { state, action, _ in … }`.
+- `Interact { state, action, effects in … }` handles an action synchronously and returns nothing. When the handler performs no effects, drop the `effects` parameter: `Interact { state, action in … }`.
 - `effects.perform { … }` only queues the effect. It starts after the closure returns, and it runs until its first suspension before `sendViewEvent(_:)` returns. It runs on the main actor under `ViewModel` and resumes there after every suspension.
 - The effect delivers its result with `effects.modify`: one commit, with no response action.
 - Sending `.load` again cancels the `.load` effect that is still running; see [Effects and Cancellation](#effects-and-cancellation).
@@ -555,7 +555,7 @@ struct ParentInteractor {
         Interactors.When(state: \.child, action: \.child) {
             ChildInteractor()
         }
-        Interact { state, action, _ in
+        Interact { state, action in
             switch action {
             case .reset:
                 state.child = ChildState()
