@@ -22,6 +22,7 @@ enum LoaderAction: Equatable {
     case probe
     case cancelThenProbe
     case loadThenCancel
+    case cancelThenLoad
     case cancelFromEffect
     case finishInPreamble
     case mixed
@@ -70,6 +71,16 @@ struct LoaderInteractor {
                 }
                 effects.cancel(load)
 
+            case .cancelThenLoad:
+                effects.cancel(load)
+                effects.perform(id: load) {
+                    log.append("\(name) replacement load started isRunning=\(effects.isRunning(load))")
+                    try await log.sleepUntilCancelled(
+                        on: clock,
+                        appendingOnCancel: "\(name) replacement load cancelled"
+                    )
+                }
+
             case .cancelFromEffect:
                 effects.perform {
                     effects.cancel(load)
@@ -86,11 +97,17 @@ struct LoaderInteractor {
                 let run = state.mixedRuns
                 if run == 1 {
                     effects.perform(id: load) {
-                        try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "\(name) identified effect cancelled")
+                        try await log.sleepUntilCancelled(
+                            on: clock,
+                            appendingOnCancel: "\(name) identified effect cancelled"
+                        )
                     }
                 }
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "\(name) anonymous effect #\(run) cancelled")
+                    try await log.sleepUntilCancelled(
+                        on: clock,
+                        appendingOnCancel: "\(name) anonymous effect #\(run) cancelled"
+                    )
                 }
 
             case .download(let row):
@@ -266,6 +283,27 @@ struct EffectIDTests {
     }
 
     @Test
+    func cancelQueuedDuringInteractRunsInOrderBeforeTheEffectPerformedAfterIt() {
+        let log = EffectLog()
+        let viewModel = makeViewModel(log: log)
+
+        viewModel.sendViewEvent(.a(.load))
+        viewModel.sendViewEvent(.a(.cancelThenLoad))
+
+        // The queued cancel ran first and cancelled only the running effect; the effect performed
+        // after it started and keeps running.
+        #expect(
+            log.entries == [
+                "a load started isRunning=true",
+                "a load cancelled",
+                "a replacement load started isRunning=true",
+            ]
+        )
+        viewModel.sendViewEvent(.a(.probe))
+        #expect(viewModel.a.probes == [true])
+    }
+
+    @Test
     func cancelFromAnEffectIsImmediate() {
         let log = EffectLog()
         let viewModel = makeViewModel(log: log)
@@ -298,13 +336,18 @@ struct EffectIDTests {
     /// Current behaviour: the task `send` returns cancels its effects from its own cancellation
     /// handler, off the model's isolation, so the runtime learns of it only when the effect ends.
     @Test
-    func isRunningStaysTrueAfterTheSendTaskIsCancelledUntilTheEffectUnwinds() async {
+    func isRunningStaysTrueAfterTheSendTaskIsCancelledUntilTheEffectUnwinds() async throws {
         let log = EffectLog()
         let viewModel = makeViewModel(log: log)
 
         let task = viewModel.sendViewEvent(.a(.load))
         task?.cancel()
-        #expect(log.entries == ["a load started isRunning=true", "a load cancelled"])
+        if #available(iOS 26, macOS 26, watchOS 26, *) {
+            // The send task started immediately (`Task.immediate`), so its cancellation handler has
+            // already cancelled the effect. Earlier OS versions start it later, as a plain `Task`.
+            // Checked before the wait, so a cancel that did not arrive fails instead of hanging.
+            try #require(log.entries == ["a load started isRunning=true", "a load cancelled"])
+        }
         viewModel.sendViewEvent(.a(.probe))
 
         await task?.value

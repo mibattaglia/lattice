@@ -4,9 +4,10 @@ import Testing
 /// Runs `operation` and returns the message of every issue reported while it runs, in order,
 /// recording each one as a known issue.
 ///
-/// Assert the exact list: a missing report and an unexpected one both fail the test. An effect
-/// inherits the known-issue context when it is created, so start and await every effect whose
-/// reports are expected inside `operation`; an effect created before it reports an ordinary
+/// The known-issue scope is intermittent, so it never fails a test by itself: assert the exact list
+/// (`#expect(issues == [...])`), which is what fails on a missing report and on an unexpected one.
+/// An effect inherits the known-issue context when it is created, so start and await every effect
+/// whose reports are expected inside `operation`; an effect created before it reports an ordinary
 /// failure.
 @MainActor
 func reportedIssues(_ operation: @MainActor () async -> Void) async -> [String] {

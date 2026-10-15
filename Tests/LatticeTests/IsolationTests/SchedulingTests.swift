@@ -325,19 +325,32 @@ struct SchedulingTests {
         #expect(log.entries.contains("outer effect 1 resumed"))
     }
 
-    @Test
+    /// A task that waited for the inner effect, which sleeps until cancelled, would stall this
+    /// test: the time limit reports the stall under the test's name, and the wait is
+    /// cancellation-aware so the test then ends instead of hanging the run.
+    @Test(.timeLimit(.minutes(1)))
     func sendTaskDoesNotCoverTheEffectsOfSendsItsEffectsMake() async throws {
         let log = EffectLog()
         let nestedTask = NestedTaskBox()
         let viewModel = makeStartOrderViewModel(log: log, nestedTask: nestedTask)
 
-        await viewModel.sendViewEvent(.outerSendingLongInner)?.value
+        let outerTask = viewModel.sendViewEvent(.outerSendingLongInner)
+        await withTaskCancellationHandler {
+            await outerTask?.value
+        } onCancel: {
+            outerTask?.cancel()
+        }
 
         // The outer effect finished; the inner effect it started through `effects.send` still sleeps.
         #expect(log.entries == ["outer effect finished"])
 
         let innerTask = try #require(nestedTask.task)
         innerTask.cancel()
+        if #available(iOS 26, macOS 26, watchOS 26, *) {
+            // The send task started immediately, so cancelling it cancelled the effect; checked
+            // before the wait, so a cancel that did not arrive fails instead of hanging.
+            try #require(log.entries == ["outer effect finished", "inner effect cancelled"])
+        }
         await innerTask.value
         #expect(log.entries == ["outer effect finished", "inner effect cancelled"])
     }

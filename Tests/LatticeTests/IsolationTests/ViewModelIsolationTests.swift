@@ -11,6 +11,7 @@ struct IsolationProbeState: Equatable {
 
 enum IsolationProbeAction {
     case start
+    case stop
 }
 
 /// Synchronous, so an effect can call it (`Thread.isMainThread` is unavailable in async code).
@@ -23,6 +24,7 @@ private func isOnMainThread() -> Bool { pthread_main_np() != 0 }
 // inside `assumeIsolated` starts synchronously but resumes on the global executor).
 @Interactor<IsolationProbeState, IsolationProbeAction>
 struct IsolationProbeInteractor {
+    @EffectID var probe
     let clock: TestClock<Duration>
     let log: EffectLog
 
@@ -30,13 +32,17 @@ struct IsolationProbeInteractor {
         Interact { _, action, effects in
             switch action {
             case .start:
-                effects.perform {
+                effects.perform(id: probe) {
                     log.append("preamble main=\(isOnMainThread())")
                     // `TestClock.sleep` is `@concurrent`: the effect hops to the global executor and
-                    // must come back. The test ends the sleep by cancelling the effect, because an
+                    // must come back. `.stop` ends the sleep by cancelling the effect, because an
                     // `advance` right after the send races the sleeper's registration there.
                     do {
-                        try await clock.sleep(for: .seconds(1))
+                        try await withTaskCancellationHandler {
+                            try await clock.sleep(for: .seconds(1))
+                        } onCancel: { [log] in
+                            log.append("sleep cancelled")  // synchronously, inside the cancelling send
+                        }
                         log.append("TestClock.sleep returned")
                     } catch {
                         MainActor.assertIsolated("The effect resumed off the main actor after TestClock.sleep")
@@ -47,6 +53,9 @@ struct IsolationProbeInteractor {
                     log.append("after Task.yield main=\(isOnMainThread())")
                     try effects.modify { $0.isFinished = true }
                 }
+
+            case .stop:
+                effects.cancel(probe)
             }
         }
     }
@@ -56,7 +65,7 @@ struct IsolationProbeInteractor {
 @Suite
 struct ViewModelIsolationTests {
     @Test
-    func effectFormedInANonisolatedContextResumesOnTheMainActor() async {
+    func effectFormedInANonisolatedContextResumesOnTheMainActor() async throws {
         let clock = TestClock()
         let log = EffectLog()
         let viewModel = ViewModel(
@@ -67,12 +76,16 @@ struct ViewModelIsolationTests {
         let task = viewModel.sendViewEvent(.start)
         #expect(log.entries == ["preamble main=true"])
 
-        task?.cancel()  // ends the sleep; the effect carries on after it
+        // `.stop` cancels the sleeping effect, which carries on after its sleep. Checked before the
+        // wait, so a cancel that did not arrive fails the test instead of hanging it.
+        viewModel.sendViewEvent(.stop)
+        try #require(log.entries == ["preamble main=true", "sleep cancelled"])
         await task?.value
 
         #expect(
             log.entries == [
                 "preamble main=true",
+                "sleep cancelled",
                 "after TestClock.sleep main=true",
                 "after Task.yield main=true",
             ]

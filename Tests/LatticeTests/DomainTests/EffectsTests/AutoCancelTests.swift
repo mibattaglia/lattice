@@ -117,7 +117,10 @@ struct ChildActionObservingInteractor {
         Interact { _, action, effects in
             if case .a(.start) = action {
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "parent effect for a.start cancelled")
+                    try await log.sleepUntilCancelled(
+                        on: clock,
+                        appendingOnCancel: "parent effect for a.start cancelled"
+                    )
                 }
             }
         }
