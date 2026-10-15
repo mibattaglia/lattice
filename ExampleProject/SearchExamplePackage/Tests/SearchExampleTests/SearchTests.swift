@@ -86,7 +86,9 @@ struct SearchTests {
 
         let staleSearch = await model.send(.search(.query("ne"))) { $0 = makeSearchState(query: "ne") }
         await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(300))  // the "ne" search runs and waits for its answer
+        clock.moveForward(by: .milliseconds(300))  // the "ne" search wakes and calls the service
+        await answers.waitForWaiters(1)  // it is waiting for its answer
+        #expect(searches.entries == ["ne"])
         let search = await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
         answers.open()  // the "ne" answer arrives after the edit cancelled its search
         await staleSearch?.value

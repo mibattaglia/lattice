@@ -42,13 +42,17 @@ struct TodosTests {
 
         await model.send(.newTodoTextChanged("Third")) { $0.newTodoText = "Third" }
         await model.send(.addTodo) { appendTodo(title: "Third", order: 1, in: &$0) }
+        await model.send(.newTodoTextChanged("Fourth")) { $0.newTodoText = "Fourth" }
+        await model.send(.addTodo) { appendTodo(title: "Fourth", order: 2, in: &$0) }
 
+        // Moving "Fourth" to the top leaves the completed "First" above the active "Third",
+        // which the pending sort will fix.
         let idsBeforeMove = await model.state.todos.map(\.id)
-        await model.send(.moveTodos(ids: [idsBeforeMove[1]], destination: 0)) { state in
-            state.todos.swapAt(0, 1)
+        await model.send(.moveTodos(ids: [idsBeforeMove[2]], destination: 0)) { state in
+            state.todos.insert(state.todos.removeLast(), at: 0)
             normalizeTodoOrder(&state)
         }
-        #expect(await model.state.todos.first?.id == idsBeforeMove[1])
+        #expect(await model.state.todos.map(\.title) == ["Fourth", "First", "Third"])
 
         await clock.waitForSleepers(1)
         clock.moveForward(by: .milliseconds(300))
@@ -56,9 +60,8 @@ struct TodosTests {
         await model.expect { applyAutoSort(&$0) }  // the sort wrote the new order directly
 
         let sorted = await model.state.todos
-        #expect(sorted.map(\.id) == [idsBeforeMove[1], idsBeforeMove[0]])
-        #expect(sorted[0].isComplete == false)
-        #expect(sorted[1].isComplete == true)
+        #expect(sorted.map(\.id) == [idsBeforeMove[2], idsBeforeMove[1], idsBeforeMove[0]])
+        #expect(sorted.map(\.isComplete) == [false, false, true])
         await model.finish()
     }
 
@@ -128,6 +131,43 @@ struct TodosTests {
         await model.expect { applyAutoSort(&$0) }
 
         #expect(await model.state.todos.map(\.title) == ["Third", "First", "Second"])
+        await model.finish()
+    }
+
+    /// A toggle the interactor ignores (an unknown todo, or a value that is already set) performs
+    /// nothing, so the sort an earlier toggle scheduled still runs on time. The sort is identified
+    /// by a key, which only a new sort replaces; an anonymous effect would be cancelled by every
+    /// `.setTodoCompletion`, ignored or not.
+    @available(macOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func ignoredTogglesLeaveThePendingSortAlone() async {
+        let clock = GateClock()
+        let todos = [
+            makeTodo(title: "First", isComplete: false, order: 0),
+            makeTodo(title: "Second", isComplete: false, order: 1),
+        ]
+        let model = await makeModel(
+            initialState: TodosState(todos: todos, filter: .all, newTodoText: "", nextOrder: 2),
+            clock: clock
+        )
+
+        let autoSort = await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)) {
+            $0.todos[0].isComplete = true
+        }
+        await clock.waitForSleepers(1)
+
+        let ignored = [
+            await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)),
+            await model.send(.setTodoCompletion(id: UUID(), isComplete: true)),
+        ]
+        #expect(ignored.allSatisfy { $0 == nil })
+        #expect(clock.pendingSleeps == [.milliseconds(300)])  // still the first toggle's sort
+
+        clock.moveForward(by: .milliseconds(300))
+        await autoSort?.value
+        await model.expect { applyAutoSort(&$0) }
+
+        #expect(await model.state.todos.map(\.title) == ["Second", "First"])
         await model.finish()
     }
 

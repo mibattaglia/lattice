@@ -3,6 +3,10 @@ import Lattice
 
 @Interactor<TodosState, TodosEvent>
 struct TodosInteractor<C: Clock> {
+    /// The pending auto-sort. An identified effect is replaced only by the next effect of its key
+    /// and never auto-cancelled; an anonymous one would be cancelled by every `.setTodoCompletion`,
+    /// including one the interactor ignores, and the list would stay unsorted.
+    @EffectID var autoSort
     private let clock: C
     private let autoSortDelay: C.Duration
 
@@ -38,9 +42,10 @@ struct TodosInteractor<C: Clock> {
                 }
                 guard state.todos[index].isComplete != isComplete else { return }
                 state.todos[index].isComplete = isComplete
-                // The debounced auto-sort: another toggle within the delay auto-cancels this
-                // sleeping effect and starts its own.
-                effects.perform {
+                // The debounced auto-sort: the next toggle within the delay replaces this sleeping
+                // effect with its own. A toggle that returns above performs nothing, so it leaves
+                // the pending sort alone (see `autoSort`).
+                effects.perform(id: autoSort) {
                     try await clock.sleep(for: autoSortDelay)
                     try effects.modify { state in
                         state.todos.sort(by: sortedTodos)

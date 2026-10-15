@@ -107,15 +107,17 @@ final class GateClock: Clock, @unchecked Sendable {
     }
 
     /// Moves time forward by `duration` and wakes, before it returns, every live sleep whose
-    /// deadline the new time reaches.
+    /// deadline the new time reaches, soonest first (sleeps due together in the order they started).
     func moveForward(by duration: Duration) {
         let woken = lock.withLock { () -> [Sleep] in
             currentInstant = currentInstant.advanced(by: duration)
-            let due = sleeps.filter { $0.value.deadline <= currentInstant }
-            for id in due.keys {
+            let due = sleeps
+                .filter { $0.value.deadline <= currentInstant }
+                .sorted { ($0.value.deadline, $0.key) < ($1.value.deadline, $1.key) }
+            for (id, _) in due {
                 sleeps[id] = nil
             }
-            return Array(due.values)
+            return due.map(\.value)
         }
         for sleep in woken {
             sleep.continuation.resume()
