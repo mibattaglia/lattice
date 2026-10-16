@@ -211,7 +211,9 @@ struct EffectClockTests {
             let ticker = await model.send(.start)
             await model.send(.query("new")) { $0.query = "new" }
             #expect(
-                clock.pendingDeadlines == [EffectClock.Instant(offset: debounce), EffectClock.Instant(offset: interval)]
+                clock.pendingDeadlines == [
+                    EffectClock.Instant(offset: debounce), EffectClock.Instant(offset: interval),
+                ]
             )
 
             await model.advance(clock, by: interval * 2)
