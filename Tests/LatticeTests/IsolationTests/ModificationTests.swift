@@ -4,6 +4,13 @@ import Testing
 
 @testable import Lattice
 
+// The fixtures are declared at file scope, so the interactors and their effect literals are
+// nonisolated, as `TestModel` requires; `ModificationObservationTests` and `ViewModelTeardownTests`
+// drive the same fixtures through `ViewModel`. Results are recorded in state, and a fixture that runs
+// where it must not records an issue or a modification the test would have to assert. Only what an
+// effect sees after it may no longer write state (a stale case-scoped child, an invalidated model)
+// goes to an `EffectLog`.
+
 // MARK: - Root feature
 
 @FeatureState
@@ -62,9 +69,9 @@ struct ModificationChildInteractor {
 
 @Interactor<ModificationState, ModificationAction>
 struct ModificationInteractor {
-    let log: EffectLog
-    let gate: EffectGate
-    let escaped: EscapedEffects
+    var log = EffectLog()
+    var gate = Gate()
+    var escaped = EscapedEffects()
 
     var body: some InteractorOf<Self> {
         Interactors.When(state: \.child, action: \.child) {
@@ -74,7 +81,7 @@ struct ModificationInteractor {
             switch action {
             case .modifyDuringInteract:
                 try? effects.modify { committed in
-                    log.append("modify body ran")
+                    Issue.record("The body of a 'modify' called during interact ran")
                     committed.count = 99
                 }
                 state.count += 1
@@ -92,7 +99,7 @@ struct ModificationInteractor {
                     try effects.modify { state in
                         state.count += 1
                         let task = try? effects.send(.increment)
-                        log.append(task == nil ? "nested send returned nil" : "nested send returned a task")
+                        state.note = task == nil ? "nested send returned nil" : "nested send returned a task"
                     }
                 }
 
@@ -100,7 +107,7 @@ struct ModificationInteractor {
                 effects.perform {
                     try effects.modify { state in
                         state.count += 1
-                        effects.perform { log.append("nested effect ran") }
+                        effects.perform { try effects.modify { $0.title = "nested effect ran" } }
                     }
                 }
 
@@ -160,9 +167,9 @@ struct ModificationInteractor {
 }
 
 /// Performs an effect through a handle outside `interact`. Synchronous, because `perform` is
-/// unavailable from asynchronous contexts such as the test body.
-private func performThroughEscapedHandle(_ effects: Effects<ModificationState, ModificationAction>, log: EffectLog) {
-    effects.perform { log.append("escaped effect ran") }
+/// unavailable from asynchronous contexts such as the test body. The effect would write `title`.
+private func performThroughEscapedHandle(_ effects: Effects<ModificationState, ModificationAction>) {
+    effects.perform { try effects.modify { $0.title = "escaped effect ran" } }
 }
 
 /// Every commit `Core.didCommit` reported: the action (`nil` for a modification) and the state.
@@ -183,6 +190,7 @@ enum GatedChildAction: Equatable {
     case modifyBeforeAndAfterGate
     case readAfterGate
     case bumpAfterYield
+    case bumpInPreamble
 }
 
 @CasePathable
@@ -191,10 +199,14 @@ enum GatedModeAction: Equatable {
     case deactivate
 }
 
+/// `.modifyBeforeAndAfterGate` waits on `writeGate`, `.readAfterGate` on `readGate`, so a test opens
+/// them one at a time. After its gate, an effect logs what its send returned and what it read: after a
+/// deactivation, those are what a stale child sees, which it cannot write into state.
 @Interactor<GatedChildState, GatedChildAction>
 struct GatedChildInteractor {
     let log: EffectLog
-    let gate: EffectGate
+    let writeGate: Gate
+    let readGate: Gate
 
     var body: some InteractorOf<Self> {
         Interact { _, action, effects in
@@ -202,16 +214,16 @@ struct GatedChildInteractor {
             case .modifyBeforeAndAfterGate:
                 effects.perform {
                     try effects.modify { $0.value += 1 }  // live: written back through the case path
-                    await gate.wait()
+                    await writeGate.wait()
                     try effects.modify { $0.value += 100 }  // stale: reported and dropped
-                    let task = try effects.send(.bumpAfterYield)  // stale: reported, nil
-                    log.append(task == nil ? "stale send returned nil" : "stale send returned a task")
+                    let task = try effects.send(.bumpInPreamble)  // stale: reported, nil
+                    log.append(task == nil ? "send returned nil" : "send returned a task")
                 }
 
             case .readAfterGate:
                 effects.perform {
-                    await gate.wait()
-                    log.append("stale read value=\(effects.state.value)")  // the first read
+                    await readGate.wait()
+                    log.append("read value=\(effects.state.value)")  // the first read
                 }
 
             case .bumpAfterYield:
@@ -219,6 +231,9 @@ struct GatedChildInteractor {
                     await Task.yield()
                     try effects.modify { $0.value += 1 }
                 }
+
+            case .bumpInPreamble:
+                effects.perform { try effects.modify { $0.value += 1 } }
             }
         }
     }
@@ -226,8 +241,9 @@ struct GatedChildInteractor {
 
 @Interactor<GatedModeState, GatedModeAction>
 struct GatedModeInteractor {
-    let log: EffectLog
-    let gate: EffectGate
+    var log = EffectLog()
+    var writeGate = Gate()
+    var readGate = Gate()
 
     var body: some InteractorOf<Self> {
         Interact { state, action in
@@ -242,103 +258,128 @@ struct GatedModeInteractor {
             }
         }
         Interactors.When(state: \.active, action: \.active) {
-            GatedChildInteractor(log: log, gate: gate)
+            GatedChildInteractor(log: log, writeGate: writeGate, readGate: readGate)
         }
     }
 }
 
 // MARK: - Tests
 
-@MainActor
+/// `effects.modify`: its guards, one commit per call, the preamble's modification inside `send`, and
+/// case-scoped children that went away. Which observations a modification fires is
+/// `ModificationObservationTests`'.
 @Suite
 struct ModificationTests {
-    private func makeViewModel(
-        log: EffectLog = EffectLog(),
-        gate: EffectGate = EffectGate(),
-        escaped: EscapedEffects = EscapedEffects(),
-        areStatesEqual: ((ModificationState, ModificationState) -> Bool)? = { $0 == $1 }
-    ) -> ViewModel<Feature<ModificationAction, ModificationState>> {
-        ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    private func makeModel(
+        fileID: StaticString = #fileID,
+        filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) async -> TestModel<Feature<ModificationAction, ModificationState>> {
+        await TestModel(
             initialState: ModificationState(),
-            feature: Feature(
-                interactor: ModificationInteractor(log: log, gate: gate, escaped: escaped),
-                areStatesEqual: areStatesEqual
-            )
+            feature: Feature(interactor: ModificationInteractor()),
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
         )
     }
 
-    private func makeModeViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    private func makeModeModel(
         _ initialState: GatedModeState,
         log: EffectLog,
-        gate: EffectGate
-    ) -> ViewModel<Feature<GatedModeAction, GatedModeState>> {
-        ViewModel(initialState: initialState, feature: Feature(interactor: GatedModeInteractor(log: log, gate: gate)))
+        writeGate: Gate = Gate(),
+        readGate: Gate = Gate(),
+        fileID: StaticString = #fileID,
+        filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) async -> TestModel<Feature<GatedModeAction, GatedModeState>> {
+        await TestModel(
+            initialState: initialState,
+            feature: Feature(interactor: GatedModeInteractor(log: log, writeGate: writeGate, readGate: readGate)),
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
+        )
     }
 
     // MARK: Guards
 
+    /// The `modify` body records an issue if it runs, so the exact issue list also shows that it
+    /// did not.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func modifyDuringInteractIsReportedAndItsBodyDoesNotRun() async {
-        let log = EffectLog()
-        let viewModel = makeViewModel(log: log)
-
-        let issues = await reportedIssues {
-            viewModel.sendViewEvent(.modifyDuringInteract)
+        let issues = await reportedIssueDetails {
+            let model = await makeModel()
+            await model.send(.modifyDuringInteract) { $0.count = 1 }
+            await model.finish()
         }
 
-        #expect(issues == ["Can't modify state from effects during interact; mutate the 'state' argument instead"])
-        #expect(log.entries.isEmpty)
-        #expect(viewModel.count == 1)
+        #expect(
+            issues.map(\.message) == [
+                "Can't modify state from effects during interact; mutate the 'state' argument instead"
+            ]
+        )
     }
 
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func modifyInsideAModifyBodyIsReportedAndDropped() async {
-        let viewModel = makeViewModel()
-
-        let issues = await reportedIssues {
-            await viewModel.sendViewEvent(.modifyInsideModify)?.value
+        let issues = await reportedIssueDetails {
+            let model = await makeModel()
+            await model.send(.modifyInsideModify) { $0.count = 1 }  // the outer modification only
+            await model.finish()
         }
 
-        #expect(issues == ["Can't modify state inside another 'modify'; dropped"])
-        #expect(viewModel.count == 1)
+        #expect(issues.map(\.message) == ["Can't modify state inside another 'modify'; dropped"])
     }
 
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func sendInsideAModifyBodyIsReportedAndDropped() async {
-        let log = EffectLog()
-        let viewModel = makeViewModel(log: log)
-
-        let issues = await reportedIssues {
-            await viewModel.sendViewEvent(.sendInsideModify)?.value
+        let issues = await reportedIssueDetails {
+            let model = await makeModel()
+            await model.send(.sendInsideModify) {  // and no `.increment`
+                $0.count = 1
+                $0.note = "nested send returned nil"
+            }
+            await model.finish()
         }
 
-        #expect(issues == ["Can't send increment inside 'modify'; dropped"])
-        #expect(log.entries == ["nested send returned nil"])
-        #expect(viewModel.count == 1)
+        #expect(issues.map(\.message) == ["Can't send increment inside 'modify'; dropped"])
     }
 
+    /// The dropped effect would write `title`: `finish` would report that modification.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func performInsideAModifyBodyIsReportedAndDropped() async {
-        let log = EffectLog()
-        let viewModel = makeViewModel(log: log)
-
-        let issues = await reportedIssues {
-            await viewModel.sendViewEvent(.performInsideModify)?.value
+        let issues = await reportedIssueDetails {
+            let model = await makeModel()
+            await model.send(.performInsideModify) { $0.count = 1 }
+            await model.finish()
         }
 
-        #expect(issues == ["Can't perform an effect inside 'modify'; dropped"])
-        #expect(log.entries.isEmpty)
-        #expect(viewModel.count == 1)
+        #expect(issues.map(\.message) == ["Can't perform an effect inside 'modify'; dropped"])
     }
 
+    /// A bare `Core`: the test invalidates it while the effect waits on a gate that ignores
+    /// cancellation, which no shell lets a test do. The invalidated effect can no longer write
+    /// state, so what its calls threw is logged.
+    @MainActor
     @Test
     func modifyAndSendAfterInvalidationThrowCancellationErrorWithoutAnIssue() async {
         let log = EffectLog()
-        let gate = EffectGate()
+        let gate = Gate()
         let core = Core(
             isolation: MainActor.shared,
             initialState: ModificationState(),
-            interactor: ModificationInteractor(log: log, gate: gate, escaped: EscapedEffects()).eraseToAnyInteractor(),
+            interactor: ModificationInteractor(log: log, gate: gate).eraseToAnyInteractor(),
             areStatesEqual: { $0 == $1 }
         )
 
@@ -356,59 +397,46 @@ struct ModificationTests {
         #expect(issues == ["Can't send increment to an invalidated model"])
     }
 
+    /// `TestViewModel`: the test calls the escaped, non-`Sendable` handle itself, on the main actor
+    /// where the feature runs. The dropped effect would write `title`: `finish` would report that
+    /// modification.
+    @MainActor
     @Test
-    func modifyAndSendThroughAHandleThatOutlivedItsViewModelThrowAndAreReported() async throws {
-        let log = EffectLog()
+    func performOutsideInteractFromASynchronousEscapeIsReportedAndDropped() async {
         let escaped = EscapedEffects()
-        do {
-            let viewModel = makeViewModel(escaped: escaped)
-            viewModel.sendViewEvent(.escapeHandle)
-        }
-        let effects = try #require(escaped.effects)
+        let issues = await reportedIssueDetails {
+            let model = TestViewModel(
+                initialState: ModificationState(),
+                feature: Feature(interactor: ModificationInteractor(escaped: escaped))
+            )
+            model.send(.escapeHandle)
+            guard let effects = escaped.effects else {
+                Issue.record("The interactor did not let its handle escape")
+                return
+            }
 
-        // The caller is not a cancelled effect, so the late calls are reported as well as thrown.
-        let issues = await reportedIssues {
-            do { try effects.modify { $0.count = 1 } } catch { log.append("modify threw \(type(of: error))") }
-            do { try effects.send(.increment) } catch { log.append("send threw \(type(of: error))") }
+            performThroughEscapedHandle(effects)
+
+            // Dropped, not queued: the next send does not start it either.
+            let task = model.send(.increment) { $0.count = 1 }
+            #expect(task == nil)
+            await model.finish()
         }
 
-        #expect(
-            issues == [
-                "Effect modified state after the model was invalidated",
-                "Effect sent increment after the model was invalidated",
-            ]
-        )
-        #expect(log.entries == ["modify threw CancellationError", "send threw CancellationError"])
+        #expect(issues.map(\.message) == ["'effects.perform' must be called during interact; dropped"])
     }
 
-    @Test
-    func performOutsideInteractFromASynchronousEscapeIsReportedAndDropped() async throws {
-        let log = EffectLog()
-        let escaped = EscapedEffects()
-        let viewModel = makeViewModel(log: log, escaped: escaped)
-        viewModel.sendViewEvent(.escapeHandle)
-        let effects = try #require(escaped.effects)
+    // MARK: Commit
 
-        let issues = await reportedIssues {
-            performThroughEscapedHandle(effects, log: log)
-        }
-
-        #expect(issues == ["'effects.perform' must be called during interact; dropped"])
-        // Dropped, not queued: the next send does not start it either.
-        #expect(viewModel.sendViewEvent(.increment) == nil)
-        #expect(log.entries.isEmpty)
-    }
-
-    // MARK: Commit and observation
-
+    /// A bare `Core`: the commits are `Core.didCommit`'s, which the test shells fold.
+    @MainActor
     @Test
     func modifyIsOneCommitHoweverManyMembersItChanges() {
         let commits = CommitLog()
         let core = Core(
             isolation: MainActor.shared,
             initialState: ModificationState(),
-            interactor: ModificationInteractor(log: EffectLog(), gate: EffectGate(), escaped: EscapedEffects())
-                .eraseToAnyInteractor(),
+            interactor: ModificationInteractor().eraseToAnyInteractor(),
             areStatesEqual: { $0 == $1 }
         )
         core.didCommit = { action, state in
@@ -423,188 +451,123 @@ struct ModificationTests {
         #expect(commits.states.last == ModificationState(count: 1, title: "title", note: "note"))
     }
 
+    /// The preamble's modification is committed before `send` returns, so `send` folds it in.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
-    func modifyNotifiesOnlyTheObserversOfTheMembersItChanges() async {
-        let viewModel = makeViewModel()
+    func preambleModificationIsVisibleWhenSendReturns() async {
+        let model = await makeModel()
 
-        let task = viewModel.sendViewEvent(.modifyCountAndTitleAfterYield)
-        let count = ObservationProbe { _ = viewModel.count }
-        let title = ObservationProbe { _ = viewModel.title }
-        let note = ObservationProbe { _ = viewModel.note }
-        let childValue = ObservationProbe { _ = viewModel.child.value }
-        let root = ObservationProbe { _ = viewModel.viewState }
-        await task?.value
-
-        #expect(count.didFire)
-        #expect(title.didFire)
-        #expect(!note.didFire)
-        #expect(!childValue.didFire)
-        #expect(!root.didFire)
-        #expect(viewModel.count == 1)
-        #expect(viewModel.title == "title")
-    }
-
-    @Test
-    func contentEqualReplacementInModifyNotifiesNothing() async {
-        let viewModel = makeViewModel()
-        let rootID = viewModel.state._$id
-
-        let task = viewModel.sendViewEvent(.replaceWithEqualContentAfterYield)
-        let root = ObservationProbe { _ = viewModel.viewState }
-        let count = ObservationProbe { _ = viewModel.count }
-        let childValue = ObservationProbe { _ = viewModel.child.value }
-        await task?.value
-
-        #expect(!root.didFire)
-        #expect(!count.didFire)
-        #expect(!childValue.didFire)
-        #expect(viewModel.state._$id == rootID)
-    }
-
-    /// Control for the test above: the same replacement goes through the commit's state-equality gate.
-    @Test
-    func contentEqualReplacementInModifyNotifiesTheRootWithoutStateEquality() async {
-        let viewModel = makeViewModel(areStatesEqual: nil)
-
-        let task = viewModel.sendViewEvent(.replaceWithEqualContentAfterYield)
-        let root = ObservationProbe { _ = viewModel.viewState }
-        await task?.value
-
-        #expect(root.didFire)
-    }
-
-    @Test
-    func preambleModificationIsVisibleWhenSendViewEventReturns() {
-        let viewModel = makeViewModel()
-
-        viewModel.sendViewEvent(.modifyInPreamble)
-
-        #expect(viewModel.title == "interact")
-        #expect(viewModel.count == 10)
+        await model.send(.modifyInPreamble) {
+            $0.title = "interact"
+            $0.count = 10
+        }
+        await model.finish()
     }
 
     // MARK: Scoped children
 
-    @Test
-    func childModifyIsWrittenBackThroughAWhenKeyPath() async {
-        let viewModel = makeViewModel()
-
-        let task = viewModel.sendViewEvent(.child(.bumpAfterYield))
-        let childValue = ObservationProbe { _ = viewModel.child.value }
-        let count = ObservationProbe { _ = viewModel.count }
-        let root = ObservationProbe { _ = viewModel.viewState }
-        await task?.value
-
-        #expect(viewModel.child.value == 1)
-        #expect(childValue.didFire)
-        #expect(!count.didFire)
-        #expect(!root.didFire)
-    }
-
-    @Test
-    func childModifyIsWrittenBackThroughAWhenCasePath() async {
-        let viewModel = makeModeViewModel(.active(GatedChildState(value: 0)), log: EffectLog(), gate: EffectGate())
-        let rootID = viewModel.state._$id
-
-        let task = viewModel.sendViewEvent(.active(.bumpAfterYield))
-        let root = ObservationProbe { _ = viewModel.viewState }
-        #expect(viewModel.state == .active(GatedChildState(value: 0)))
-        await task?.value
-
-        #expect(viewModel.state == .active(GatedChildState(value: 1)))
-        #expect(!root.didFire)
-        #expect(viewModel.state._$id == rootID)
-    }
-
-    @Test
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
     func staleCaseScopedChildModifyAndSendAreReportedAndLeaveTheParentUntouched() async {
         let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = makeModeViewModel(.active(GatedChildState()), log: log, gate: gate)
-        var stateAfterSend: GatedModeState?
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.active(.modifyBeforeAndAfterGate))
-            stateAfterSend = viewModel.state
-            viewModel.sendViewEvent(.deactivate)
-            gate.open()
+        let writeGate = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await makeModeModel(.active(GatedChildState()), log: log, writeGate: writeGate)
+            let task = await model.send(.active(.modifyBeforeAndAfterGate)) {
+                $0.modify(\.active) { $0.value = 1 }  // the live modification, from the preamble
+            }
+            await model.send(.deactivate) { $0 = .inactive }
+            writeGate.open()
             await task?.value
+            await model.finish()  // the stale modification and send were dropped: nothing reached the parent
         }
 
         #expect(
-            issues == [
+            issues.map(\.message) == [
                 "Child effect modified state after its state was removed from the parent; dropped",
-                "Child effect sent bumpAfterYield after its state was removed from the parent; dropped",
+                "Child effect sent bumpInPreamble after its state was removed from the parent; dropped",
             ]
         )
-        #expect(stateAfterSend == .active(GatedChildState(value: 1)))
-        #expect(viewModel.state == .inactive)
-        #expect(log.entries == ["stale send returned nil"])
+        #expect(log.entries == ["send returned nil"])
     }
 
-    @Test
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
     func staleCaseScopedChildReadBeforeAnySuccessfulReadReturnsTheSeededValue() async {
         let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = makeModeViewModel(.active(GatedChildState(value: 5)), log: log, gate: gate)
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.active(.readAfterGate))
-            viewModel.sendViewEvent(.deactivate)
-            gate.open()
+        let readGate = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await makeModeModel(.active(GatedChildState(value: 5)), log: log, readGate: readGate)
+            let task = await model.send(.active(.readAfterGate))
+            await model.send(.deactivate) { $0 = .inactive }
+            readGate.open()
             await task?.value
+            await model.finish()
         }
 
-        #expect(issues == ["Read 'effects.state' after the model was invalidated or the scoped state went away"])
-        #expect(log.entries == ["stale read value=5"])
+        #expect(
+            issues.map(\.message) == ["Read 'effects.state' after the model was invalidated or the scoped state went away"]
+        )
+        #expect(log.entries == ["read value=5"])
     }
 
     /// The child handle is seeded with the child state `When` routed to, which is the working copy's:
     /// here the case was entered by the same `interact`, so the committed state never had it.
-    @Test
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
     func staleCaseScopedChildReadReturnsTheWorkingValueItWasSeededWith() async {
         let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = makeModeViewModel(.inactive, log: log, gate: gate)
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.active(.readAfterGate))
-            #expect(viewModel.state == .active(GatedChildState(value: 7)))
-            viewModel.sendViewEvent(.deactivate)
-            gate.open()
+        let readGate = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await makeModeModel(.inactive, log: log, readGate: readGate)
+            let task = await model.send(.active(.readAfterGate)) { $0 = .active(GatedChildState(value: 7)) }
+            await model.send(.deactivate) { $0 = .inactive }
+            readGate.open()
             await task?.value
+            await model.finish()
         }
 
-        #expect(issues == ["Read 'effects.state' after the model was invalidated or the scoped state went away"])
-        #expect(log.entries == ["stale read value=7"])
+        #expect(
+            issues.map(\.message) == ["Read 'effects.state' after the model was invalidated or the scoped state went away"]
+        )
+        #expect(log.entries == ["read value=7"])
     }
 
-    /// A case-scoped child effect that outlives a deactivation writes, sends and reads through the new
-    /// payload once the case is active again.
+    /// A case-scoped child effect that outlives a deactivation writes and sends through the new
+    /// payload once the case is active again, and a read goes through it too. The gates open one
+    /// at a time, so the read comes after the write and the send.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func caseScopedChildEffectUsesTheNewPayloadAfterReactivation() async {
         let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = makeModeViewModel(.active(GatedChildState(value: 0)), log: log, gate: gate)
-        var stateAfterReentry: GatedModeState?
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.active(.modifyBeforeAndAfterGate))  // +1, then waits
-            viewModel.sendViewEvent(.deactivate)
-            let reentry = viewModel.sendViewEvent(.active(.readAfterGate))  // re-enters as .active(7)
-            stateAfterReentry = viewModel.state
-            gate.open()
-            await task?.value
-            await reentry?.value
-            for _ in 0..<100 where viewModel.state != .active(GatedChildState(value: 108)) {
-                await Task.yield()  // `.bumpAfterYield`'s effect was started by a send from the effect
+        let writeGate = Gate()
+        let readGate = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await makeModeModel(
+                .active(GatedChildState(value: 0)),
+                log: log,
+                writeGate: writeGate,
+                readGate: readGate
+            )
+            let task = await model.send(.active(.modifyBeforeAndAfterGate)) {
+                $0.modify(\.active) { $0.value = 1 }  // then it waits
             }
+            await model.send(.deactivate) { $0 = .inactive }
+            let reentry = await model.send(.active(.readAfterGate)) {  // re-enters the case
+                $0 = .active(GatedChildState(value: 7))
+            }
+
+            writeGate.open()
+            await task?.value
+            await model.receive(.active(.bumpInPreamble)) {  // 7 + 100, then the bump's effect adds 1
+                $0.modify(\.active) { $0.value = 108 }
+            }
+            readGate.open()
+            await reentry?.value
+            await model.finish()
         }
 
-        #expect(stateAfterReentry == .active(GatedChildState(value: 7)))
         #expect(issues == [])  // nothing "removed from the parent": the case is active again
-        // The fixture's "stale" log wording is historical: these calls are live because the case is active again.
-        #expect(log.entries == ["stale send returned a task", "stale read value=107"])
-        #expect(viewModel.state == .active(GatedChildState(value: 108)))  // 7 + 100 + 1
+        #expect(log.entries == ["send returned a task", "read value=108"])
     }
 }

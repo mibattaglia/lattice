@@ -12,7 +12,7 @@ struct TestModelCancellationTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func skipInFlightEffectsCancelsAWaitingEffectWhoseDeferModificationStaysPending() async {
-        let gate = SendableEffectGate()
+        let gate = Gate()
         let issues = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(gate: gate))
             let task = await model.send(.gated) { $0.isLoading = true }
@@ -27,17 +27,16 @@ struct TestModelCancellationTests {
     }
 
     /// A cancelled effect can still send an action that starts another effect:
-    /// `skipInFlightEffects` cancels again on every signal until nothing is left in flight.
+    /// `skipInFlightEffects` cancels again on every signal until nothing is left in flight. Both
+    /// hangs end only when cancelled, so a wait that missed one would report a timeout.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func skipInFlightEffectsAlsoCancelsTheEffectsACancelledEffectStarts() async {
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel(LoadInteractor(log: log))
+            let model = await makeLoadModel()
             await model.send(.hangThenHangAgainWhenCancelled)
             await model.skipInFlightEffects()
-            #expect(log.entries == ["first hang cancelled", "hang cancelled"])
-            await model.receive(.hang)
+            await model.receive(.hang)  // sent by the first hang once it was cancelled
             await model.finish()
         }
 

@@ -31,7 +31,7 @@ Key source files:
 
 Writing `TestModel` tests:
 
-- Put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
+- When the test target deploys below iOS 26, macOS 26 or watchOS 26, put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
 - Keep the suite nonisolated, without `@MainActor`. The interactor, its effect closures and the closures the test passes (`assert`, a `receive` predicate) must be formed in nonisolated code, such as file scope in the test target. A main-actor interactor or a closure formed in a `@MainActor` test is a compile error (see [Main-actor interactors](./effects-and-isolation.md#main-actor-interactors)). Such features use `TestViewModel`.
 - `await model.state` crosses the actor, so it needs `State: Sendable`; otherwise it fails with `non-Sendable type '…State' … of property 'state' cannot exit actor-isolated context`. Internal value types are inferred `Sendable`. The `assert` closures work with any state.
 - A helper that receives a non-`Sendable` dependency and builds the model from it takes the parameter as `sending`.
@@ -248,7 +248,7 @@ await model.finish()
 
 A sleep that reaches an `EffectClock` with no caller isolation came after a hop off the effect's isolation: it registers after `send` returned, and `advance` can miss it. `EffectClock` reports it, `EffectClock registered this sleep late: …`, then sleeps. That catches `sleep(for:tolerance:)`, `Task.sleep(for:clock:)` and `sleep(until:tolerance:)` on a generic clock, which reach the `sleep(until:tolerance:)` witness after the standard library's hop, and a `clock.sleep(for:)` inside a `@concurrent` function, which reaches the overload's registering path with no isolation. `sleep(until:)` called on a concrete `EffectClock` runs on the caller's isolation and is not reported. A wrapper such as swift-clocks' `AnyClock` reaches the clock through `sleep(until:tolerance:)` after a hop, so it is reported too.
 
-Interactors take the clock as a generic parameter; see [Clock injection](./interactors.md#clock-injection). The library's isolation and cancellation suites (`TestModelIsolationTests`, `AutoCancelTests` and others) keep swift-clocks' `TestClock` for sleeps that end only by cancellation; the isolation suites rely on its `@concurrent` hop, which the overload's `sleep(until:tolerance:)` branch keeps. None of them moves that clock after a send.
+Interactors take the clock as a generic parameter; see [Clock injection](./interactors.md#clock-injection). The library's suites sleep on an `EffectClock` and move it with `advance`; a sleep that only cancellation ends is one on a clock the test never advances. The three isolation suites (`ViewModelIsolationTests`, `TestModelIsolationTests`, `ActorModelIsolationTests`) keep swift-clocks' `TestClock` for its `@concurrent` hop, which the overload's `sleep(until:tolerance:)` branch keeps, and never move it after a send.
 
 ## Asserting Reported Issues
 
@@ -280,7 +280,7 @@ let issues = await reportedIssueDetails {
 
 ## Parallelism
 
-`TestModel` runs each test's feature on its own executor, so nonisolated suites run in parallel on the cooperative pool: in `ParallelismTests`, 500 cases with a 1 ms blocking effect take about 0.15 s under `TestModel` against about 0.8 s for the same cases serialized on the main actor under `ViewModel`, on an 11-core machine.
+`TestModel` runs each test's feature on its own executor, so nonisolated suites run in parallel on the cooperative pool. `ParallelismTests` checks it with a rendezvous: two models whose effects each signal and then wait up to five seconds for the other's meet only if the models run at the same time.
 
 ## Related Specs
 

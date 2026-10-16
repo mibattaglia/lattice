@@ -1,15 +1,24 @@
 import CasePaths
-import Clocks
 import Foundation
 import Testing
 
 @testable import Lattice
+
+// Every fixture is declared at file scope, so the interactors and their effect literals are
+// nonisolated, as `TestModel` requires. Each effect sleeps on an `EffectClock`, then records that it
+// completed: an effect that auto-cancel cancelled throws at its sleep and never completes, so after
+// `advance`, `expect` shows which effects auto-cancel left running. A test that shows what a send
+// leaves running advances twice: first past the effects those sends left alone, then past the ones
+// a re-handled case cancelled.
+
+private let effectDuration: Duration = .seconds(1)
 
 // MARK: - Child
 
 @FeatureState
 struct AutoCancelChildState: Equatable {
     var starts = 0
+    var completed: [Int] = []
 }
 
 @CasePathable
@@ -18,12 +27,11 @@ enum AutoCancelChildAction: Equatable {
     case other
 }
 
-/// `.start` performs an effect that sleeps until cancelled and logs its cancellation synchronously.
+/// `.start` counts, then performs an effect that sleeps and records the start's number in
+/// `completed`.
 @Interactor<AutoCancelChildState, AutoCancelChildAction>
 struct AutoCancelChildInteractor {
-    let name: String
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -32,7 +40,8 @@ struct AutoCancelChildInteractor {
                 state.starts += 1
                 let start = state.starts
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "\(name) start #\(start) cancelled")
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.completed.append(start) }
                 }
             case .other:
                 break
@@ -48,6 +57,9 @@ struct AutoCancelState: Equatable {
     var a = AutoCancelChildState()
     var b = AutoCancelChildState()
     var results: [String] = []
+    var goRuns = 0
+    var goStarted: [String] = []
+    var goCompleted: Set<String> = []
 }
 
 @CasePathable
@@ -61,43 +73,44 @@ enum AutoCancelAction: Equatable {
 
 @Interactor<AutoCancelState, AutoCancelAction>
 struct AutoCancelInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
-    let gate: EffectGate
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interactors.When(state: \.a, action: \.a) {
-            AutoCancelChildInteractor(name: "a", log: log, clock: clock)
+            AutoCancelChildInteractor(clock: clock)
         }
         Interactors.When(state: \.b, action: \.b) {
-            AutoCancelChildInteractor(name: "b", log: log, clock: clock)
+            AutoCancelChildInteractor(clock: clock)
         }
-        Interact { _, action, effects in
+        Interact { state, action, effects in
             switch action {
             case .search(let query):
                 effects.perform {
-                    try await withTaskCancellationHandler {
-                        try await gate.pass()
-                    } onCancel: { [log] in
-                        log.append("search \(query) cancelled")
-                    }
+                    try await clock.sleep(for: effectDuration)
                     try effects.modify { $0.results.append(query) }
                 }
+
             case .go:
+                state.goRuns += 1
+                let name = "go effect 1 of run \(state.goRuns)"
                 effects.perform {
-                    log.append("go effect 1 started")
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "go effect 1 cancelled")
+                    try effects.modify { $0.goStarted.append(name) }
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.goCompleted.insert(name) }
                 }
+
             case .a, .b, .other:
                 break
             }
         }
         // Merged with the interactor above: both perform for `.go`.
-        Interact { _, action, effects in
+        Interact { state, action, effects in
             if case .go = action {
+                let name = "go effect 2 of run \(state.goRuns)"
                 effects.perform {
-                    log.append("go effect 2 started")
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "go effect 2 cancelled")
+                    try effects.modify { $0.goStarted.append(name) }
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.goCompleted.insert(name) }
                 }
             }
         }
@@ -107,20 +120,17 @@ struct AutoCancelInteractor {
 /// A parent that performs its own effect when it handles the child action `.a(.start)`.
 @Interactor<AutoCancelState, AutoCancelAction>
 struct ChildActionObservingInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interactors.When(state: \.a, action: \.a) {
-            AutoCancelChildInteractor(name: "a", log: log, clock: clock)
+            AutoCancelChildInteractor(clock: clock)
         }
         Interact { _, action, effects in
             if case .a(.start) = action {
                 effects.perform {
-                    try await log.sleepUntilCancelled(
-                        on: clock,
-                        appendingOnCancel: "parent effect for a.start cancelled"
-                    )
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.results.append("parent effect for a.start") }
                 }
             }
         }
@@ -139,8 +149,7 @@ enum AutoCancelModeAction: Equatable {
 
 @Interactor<AutoCancelModeState, AutoCancelModeAction>
 struct AutoCancelModeInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { state, action in
@@ -154,7 +163,7 @@ struct AutoCancelModeInteractor {
             }
         }
         Interactors.When(state: \.active, action: \.active) {
-            AutoCancelChildInteractor(name: "active", log: log, clock: clock)
+            AutoCancelChildInteractor(clock: clock)
         }
     }
 }
@@ -173,6 +182,8 @@ private struct NotAnEnum {}
 @FeatureState
 struct TreeState: Equatable {
     var nodes = 0
+    var completedNodes: [Int] = []
+    var completedLeaves: [String] = []
 }
 
 indirect enum TreeAction {
@@ -180,24 +191,25 @@ indirect enum TreeAction {
     case node(TreeAction, TreeAction)
 }
 
-/// Every action performs an effect labelled with its root case and a running count of `.node`s.
+/// Every action performs an effect that sleeps, then records the leaf's name or the node's number.
 @Interactor<TreeState, TreeAction>
 struct TreeInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
             switch action {
             case .leaf(let name):
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "leaf \(name) cancelled")
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.completedLeaves.append(name) }
                 }
             case .node:
                 state.nodes += 1
                 let node = state.nodes
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "node #\(node) cancelled")
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.completedNodes.append(node) }
                 }
             }
         }
@@ -208,119 +220,174 @@ struct TreeInteractor {
 
 /// Anonymous effects are cancelled when the enum-tag path that performed them is handled again:
 /// the root action's case, then one child case per `When` hop.
-@MainActor
 @Suite
 struct AutoCancelTests {
-    private func makeViewModel(
-        log: EffectLog,
-        gate: EffectGate = EffectGate()
-    ) -> ViewModel<Feature<AutoCancelAction, AutoCancelState>> {
-        ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    private func makeModel(
+        clock: EffectClock,
+        fileID: StaticString = #fileID,
+        filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) async -> TestModel<Feature<AutoCancelAction, AutoCancelState>> {
+        await TestModel(
             initialState: AutoCancelState(),
-            feature: Feature(interactor: AutoCancelInteractor(log: log, clock: TestClock(), gate: gate))
+            feature: Feature(interactor: AutoCancelInteractor(clock: clock)),
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
         )
     }
 
-    @Test
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
     func reHandlingAnActionCaseCancelsOnlyThatCasesPreviousEffects() async {
-        let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = makeViewModel(log: log, gate: gate)
+        let clock = EffectClock()
+        let model = await makeModel(clock: clock)
 
-        let first = viewModel.sendViewEvent(.search("a"))
-        #expect(viewModel.sendViewEvent(.other) == nil)  // another case: cancels nothing
-        #expect(log.entries.isEmpty)
-        let second = viewModel.sendViewEvent(.search("b"))
-        #expect(log.entries == ["search a cancelled"])
+        await model.send(.search("a"))
+        #expect(await model.send(.other) == nil)  // another case: starts nothing
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.results = ["a"] }  // and cancels nothing
 
-        // Both searches resume; the cancelled one stops at its cancellation-aware suspension point.
-        gate.open()
-        await first?.value
-        await second?.value
-        #expect(viewModel.results == ["b"])
+        await model.send(.search("b"))
+        await model.send(.other)
+        await model.send(.search("c"))  // re-handles `.search`: cancels "b" while it sleeps
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.results = ["a", "c"] }  // "b" never completed
+        await model.finish()
     }
 
-    @Test
-    func reHandlingAChildCaseThroughAWhenKeyPathCancelsOnlyThatChildCasesEffects() {
-        let log = EffectLog()
-        let viewModel = makeViewModel(log: log)
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func reHandlingAChildCaseThroughAWhenKeyPathCancelsOnlyThatChildCasesEffects() async {
+        let clock = EffectClock()
+        let model = await makeModel(clock: clock)
 
-        viewModel.sendViewEvent(.a(.start))
-        viewModel.sendViewEvent(.a(.other))  // another case of the same child
-        viewModel.sendViewEvent(.other)  // another root case
-        viewModel.sendViewEvent(.b(.start))  // the same case of a sibling child
-        #expect(log.entries.isEmpty)
+        await model.send(.a(.start)) { $0.a.starts = 1 }
+        await model.send(.a(.other))  // another case of the same child
+        await model.send(.other)  // another root case
+        await model.send(.b(.start)) { $0.b.starts = 1 }  // the same case of a sibling child
+        await model.advance(clock, by: effectDuration)
+        await model.expect {  // none of those sends cancelled a #1
+            $0.a.completed = [1]
+            $0.b.completed = [1]
+        }
 
-        viewModel.sendViewEvent(.a(.start))
-        #expect(log.entries == ["a start #1 cancelled"])
+        await model.send(.a(.start)) { $0.a.starts = 2 }
+        await model.send(.a(.other))
+        await model.send(.other)
+        await model.send(.b(.start)) { $0.b.starts = 2 }
+        await model.send(.a(.start)) { $0.a.starts = 3 }  // re-handles `.a(.start)`: cancels a #2
+        await model.advance(clock, by: effectDuration)
+        await model.expect {
+            $0.a.completed = [1, 3]  // a #2 never completed
+            $0.b.completed = [1, 2]
+        }
+        await model.finish()
     }
 
-    @Test
-    func reHandlingAChildCaseThroughAWhenCasePathCancelsOnlyThatChildCasesEffects() {
-        let log = EffectLog()
-        let viewModel = ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func reHandlingAChildCaseThroughAWhenCasePathCancelsOnlyThatChildCasesEffects() async {
+        let clock = EffectClock()
+        let model = await TestModel(
             initialState: AutoCancelModeState.active(AutoCancelChildState()),
-            feature: Feature(interactor: AutoCancelModeInteractor(log: log, clock: TestClock()))
+            feature: Feature(interactor: AutoCancelModeInteractor(clock: clock))
         )
 
-        viewModel.sendViewEvent(.active(.start))
-        viewModel.sendViewEvent(.active(.other))  // another case of the same child
-        viewModel.sendViewEvent(.other)  // another root case
-        #expect(log.entries.isEmpty)
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 1 } }
+        await model.send(.active(.other))  // another case of the same child
+        await model.send(.other)  // another root case
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.modify(\.active) { $0.completed = [1] } }  // neither cancelled start #1
 
-        viewModel.sendViewEvent(.active(.start))
-        #expect(log.entries == ["active start #1 cancelled"])
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 2 } }
+        await model.send(.active(.other))
+        await model.send(.other)
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 3 } }  // cancels start #2
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.modify(\.active) { $0.completed = [1, 3] } }  // start #2 never completed
+        await model.finish()
     }
 
     /// A parent effect performed for `.a(.start)` sits at the parent's path, `[tag(a)]`, so any
     /// action of that child cancels it, while the child's own effect sits at `[tag(a), tag(start)]`.
-    @Test
-    func parentEffectForAChildActionIsCancelledByAnyActionOfThatChild() {
-        let log = EffectLog()
-        let viewModel = ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func parentEffectForAChildActionIsCancelledByAnyActionOfThatChild() async {
+        let clock = EffectClock()
+        let model = await TestModel(
             initialState: AutoCancelState(),
-            feature: Feature(interactor: ChildActionObservingInteractor(log: log, clock: TestClock()))
+            feature: Feature(interactor: ChildActionObservingInteractor(clock: clock))
         )
 
-        viewModel.sendViewEvent(.a(.start))
-        viewModel.sendViewEvent(.a(.other))
+        // Left alone, both effects complete.
+        await model.send(.a(.start)) { $0.a.starts = 1 }
+        await model.advance(clock, by: effectDuration)
+        await model.expect {
+            $0.a.completed = [1]
+            $0.results = ["parent effect for a.start"]
+        }
 
-        #expect(log.entries == ["parent effect for a.start cancelled"])
+        await model.send(.a(.start)) { $0.a.starts = 2 }
+        await model.send(.a(.other))  // cancels the parent's effect, not the child's
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.a.completed = [1, 2] }  // the second parent effect never completed
+        await model.finish()
     }
 
-    @Test
-    func mergedInteractorsBothStartTheirEffectsAndReHandlingTheCaseCancelsBoth() {
-        let log = EffectLog()
-        let viewModel = makeViewModel(log: log)
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func mergedInteractorsBothStartTheirEffectsAndReHandlingTheCaseCancelsBoth() async {
+        let clock = EffectClock()
+        let model = await makeModel(clock: clock)
 
-        viewModel.sendViewEvent(.go)
-        #expect(log.entries == ["go effect 1 started", "go effect 2 started"])
+        await model.send(.go) {  // both preambles ran inside `send`, in merge order
+            $0.goRuns = 1
+            $0.goStarted = ["go effect 1 of run 1", "go effect 2 of run 1"]
+        }
+        await model.send(.go) {  // cancels both effects of run 1, then starts run 2's
+            $0.goRuns = 2
+            $0.goStarted += ["go effect 1 of run 2", "go effect 2 of run 2"]
+        }
 
-        viewModel.sendViewEvent(.go)
-        let cancelled = log.entries.filter { $0.hasSuffix("cancelled") }
-        #expect(cancelled.sorted() == ["go effect 1 cancelled", "go effect 2 cancelled"])
-        #expect(log.entries.suffix(2) == ["go effect 1 started", "go effect 2 started"])
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.goCompleted = ["go effect 1 of run 2", "go effect 2 of run 2"] }  // not run 1's
+        await model.finish()
     }
 
     /// Current behaviour: `When` over a case path resolves the child before scoping, so an action
     /// for an inactive case returns early without visiting the child's path, and the effects the
     /// child started while it was active keep running until the case is handled again.
-    @Test
-    func childActionForAnInactiveCaseIsIgnoredAndCancelsNothing() {
-        let log = EffectLog()
-        let viewModel = ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func childActionForAnInactiveCaseIsIgnoredAndCancelsNothing() async {
+        let clock = EffectClock()
+        let model = await TestModel(
             initialState: AutoCancelModeState.active(AutoCancelChildState()),
-            feature: Feature(interactor: AutoCancelModeInteractor(log: log, clock: TestClock()))
+            feature: Feature(interactor: AutoCancelModeInteractor(clock: clock))
         )
 
-        viewModel.sendViewEvent(.active(.start))
-        viewModel.sendViewEvent(.deactivate)
-        #expect(viewModel.sendViewEvent(.active(.start)) == nil)
-        #expect(log.entries.isEmpty)
+        // Start #1 runs on through the deactivation, the ignored action and the reactivation, and
+        // completes into the new payload.
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 1 } }
+        await model.send(.deactivate) { $0 = .idle }
+        #expect(await model.send(.active(.start)) == nil)  // ignored: starts and cancels nothing
+        await model.send(.activate(starts: 10)) { $0 = .active(AutoCancelChildState(starts: 10)) }
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.modify(\.active) { $0.completed = [1] } }
 
-        viewModel.sendViewEvent(.activate(starts: 10))
-        viewModel.sendViewEvent(.active(.start))
-        #expect(log.entries == ["active start #1 cancelled"])
+        // Handling the case again once it is active cancels what the child started before.
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 11 } }
+        await model.send(.deactivate) { $0 = .idle }
+        #expect(await model.send(.active(.start)) == nil)
+        await model.send(.activate(starts: 20)) { $0 = .active(AutoCancelChildState(starts: 20)) }
+        await model.send(.active(.start)) { $0.modify(\.active) { $0.starts = 21 } }  // cancels start #11
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.modify(\.active) { $0.completed = [21] } }  // start #11 never completed
+        await model.finish()
     }
 
     @Test
@@ -336,19 +403,28 @@ struct AutoCancelTests {
         #expect(enumTag(NotAnEnum()) == -1)
     }
 
-    @Test
-    func reHandlingAnIndirectCaseCancelsItsEffectsWhateverThePayload() {
-        let log = EffectLog()
-        let viewModel = ViewModel(
-            initialState: TreeState(),
-            feature: Feature(interactor: TreeInteractor(log: log, clock: TestClock()))
-        )
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func reHandlingAnIndirectCaseCancelsItsEffectsWhateverThePayload() async {
+        let clock = EffectClock()
+        let model = await TestModel(initialState: TreeState(), feature: Feature(interactor: TreeInteractor(clock: clock)))
 
-        viewModel.sendViewEvent(.node(.leaf("x"), .leaf("y")))
-        viewModel.sendViewEvent(.leaf("z"))  // another case
-        #expect(log.entries.isEmpty)
+        await model.send(.node(.leaf("x"), .leaf("y"))) { $0.nodes = 1 }
+        await model.send(.leaf("z"))  // another case
+        await model.advance(clock, by: effectDuration)
+        await model.expect {  // `.leaf` cancelled nothing
+            $0.completedNodes = [1]
+            $0.completedLeaves = ["z"]
+        }
 
-        viewModel.sendViewEvent(.node(.node(.leaf("p"), .leaf("q")), .leaf("r")))
-        #expect(log.entries == ["node #1 cancelled"])
+        await model.send(.node(.leaf("x"), .leaf("y"))) { $0.nodes = 2 }
+        await model.send(.leaf("w"))
+        await model.send(.node(.node(.leaf("p"), .leaf("q")), .leaf("r"))) { $0.nodes = 3 }  // cancels node #2
+        await model.advance(clock, by: effectDuration)
+        await model.expect {
+            $0.completedNodes = [1, 3]  // node #2 never completed
+            $0.completedLeaves = ["z", "w"]
+        }
+        await model.finish()
     }
 }

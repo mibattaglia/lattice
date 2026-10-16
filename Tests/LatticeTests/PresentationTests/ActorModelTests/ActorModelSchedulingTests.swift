@@ -1,21 +1,22 @@
-import Clocks
 import Foundation
 import Testing
 
 @testable import Lattice
 
 // Every fixture is declared at file scope, so the interactors and their effect literals are
-// nonisolated, as `ActorModel` requires. The tests are nonisolated too and observe effects only
-// through `send(…)?.value`, the model's state, gates and logs: an effect may resume on the model's
-// executor as soon as a model call returns, so a log is read right after a call only when every
-// effect that could still append to it waits at a closed gate or in a sleep that only cancellation
-// ends.
+// nonisolated, as `ActorModel` requires. The tests are nonisolated too and observe effects through
+// `send(…)?.value` and the model's state, where the fixtures record what ran and in which order: an
+// effect may resume on the model's executor as soon as a model call returns, so the state is read
+// right after a call only when every effect that could still change it waits for an answer the
+// test has not opened, or sleeps on a clock nothing advances, which only cancellation ends.
 
 // MARK: - Start order and modifications
 
 @FeatureState
 struct ActorModelOrderState: Equatable, Sendable {
     var count = 0
+    /// What ran, in order: `interact` appends to `state`, effects through `modify`.
+    var order: [String] = []
 }
 
 enum ActorModelOrderAction: Equatable, Sendable {
@@ -25,81 +26,71 @@ enum ActorModelOrderAction: Equatable, Sendable {
     case outerSendingLongInner
     case longInner
     case modifyInPreamble
-    case modifyAfterGate
-}
-
-/// The task an effect got back from its own `effects.send`. Locked: the effect sets it on the
-/// model's executor, and the test reads it.
-final class LockedNestedTaskBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: Task<Void, Never>?
-
-    var task: Task<Void, Never>? {
-        get { lock.withLock { storage } }
-        set { lock.withLock { storage = newValue } }
-    }
+    case modifyAfterAnswer
 }
 
 @Interactor<ActorModelOrderState, ActorModelOrderAction>
 struct ActorModelOrderInteractor {
-    let log: EffectLog
-    let gate: SendableEffectGate
-    let clock: TestClock<Duration>
+    /// The answer of a slow dependency: the effects that wait for it resume when the test opens it.
+    let answer: Gate
+    /// Never advanced: a sleep on it ends only when it is cancelled.
+    let clock: EffectClock
     let nestedTask: LockedNestedTaskBox
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
             switch action {
             case .run:
-                log.append("interact")
-                defer { log.append("interact defer") }
+                state.order.append("interact")
+                defer { state.order.append("interact defer") }
                 effects.perform {
-                    log.append("effect preamble")
-                    await gate.wait()
-                    log.append("effect resumed")
+                    try effects.modify { $0.order.append("effect preamble") }
+                    await answer.wait()
+                    try effects.modify { $0.order.append("effect resumed") }
                 }
-                log.append("interact after perform")
+                state.order.append("interact after perform")
 
             case .outer:
-                log.append("outer interact")
+                state.order.append("outer interact")
                 effects.perform {
-                    log.append("outer effect 1 preamble")
+                    try effects.modify { $0.order.append("outer effect 1 preamble") }
                     nestedTask.task = try effects.send(.inner)
-                    log.append("outer effect 1 after send")
-                    await gate.wait()
-                    log.append("outer effect 1 resumed")
+                    try effects.modify { $0.order.append("outer effect 1 after send") }
+                    await answer.wait()
+                    try effects.modify { $0.order.append("outer effect 1 resumed") }
                 }
                 effects.perform {
-                    log.append("outer effect 2 preamble")
+                    try effects.modify { $0.order.append("outer effect 2 preamble") }
                 }
 
             case .inner:
-                log.append("inner interact")
+                state.order.append("inner interact")
                 effects.perform {
-                    log.append("inner effect preamble")
-                    await gate.wait()
-                    log.append("inner effect resumed")
+                    try effects.modify { $0.order.append("inner effect preamble") }
+                    await answer.wait()
+                    try effects.modify { $0.order.append("inner effect resumed") }
                 }
 
             case .outerSendingLongInner:
                 effects.perform {
                     nestedTask.task = try effects.send(.longInner)
                     await Task.yield()
-                    log.append("outer effect finished")
+                    try effects.modify { $0.order.append("outer effect finished") }
                 }
 
             case .longInner:
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "inner effect cancelled")
+                    try await clock.sleep(for: .seconds(1_000))
+                    try effects.modify { $0.order.append("inner effect finished") }
                 }
 
             case .modifyInPreamble:
                 state.count += 1
                 effects.perform { try effects.modify { $0.count += 10 } }
 
-            case .modifyAfterGate:
+            case .modifyAfterAnswer:
                 effects.perform {
-                    await gate.wait()
+                    await answer.wait()
                     try effects.modify { $0.count = 5 }
                 }
             }
@@ -112,6 +103,8 @@ struct ActorModelOrderInteractor {
 @FeatureState
 struct ActorModelCounterState: Equatable, Sendable {
     var count = 0
+    /// The effects that were cancelled by the time they resumed.
+    var cancelledEffects = 0
 }
 
 enum ActorModelCounterAction: Equatable, Sendable {
@@ -123,8 +116,8 @@ enum ActorModelCounterAction: Equatable, Sendable {
 
 @Interactor<ActorModelCounterState, ActorModelCounterAction>
 struct ActorModelCounterInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    /// Never advanced: a sleep on it ends only when it is cancelled.
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -134,7 +127,9 @@ struct ActorModelCounterInteractor {
                 // `Task.yield()` ignores cancellation: an auto-cancelled effect still gets here.
                 effects.perform {
                     await Task.yield()
-                    log.append(Task.isCancelled ? "cancelled effect sends" : "effect sends")
+                    if Task.isCancelled {
+                        try effects.modify { $0.cancelledEffects += 1 }
+                    }
                     try effects.send(.decrement)
                 }
 
@@ -142,7 +137,9 @@ struct ActorModelCounterInteractor {
                 state.count += 1
                 effects.perform {
                     await Task.yield()
-                    log.append(Task.isCancelled ? "cancelled effect modifies" : "effect modifies")
+                    if Task.isCancelled {
+                        try effects.modify { $0.cancelledEffects += 1 }
+                    }
                     try effects.modify { $0.count -= 1 }
                 }
 
@@ -150,7 +147,7 @@ struct ActorModelCounterInteractor {
                 state.count += 1
                 // A sleep is cancellation-aware: an auto-cancelled effect throws here.
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "sleep cancelled")
+                    try await clock.sleep(for: .seconds(1_000))
                     try effects.modify { $0.count -= 1 }
                 }
 
@@ -173,12 +170,14 @@ enum ActorModelTeardownAction: Equatable, Sendable {
     case ping
 }
 
+/// The effect sleeps on a clock nothing advances, so only teardown ends the sleep, which it signals
+/// on `cancelled`. What its calls throw after that, when it may no longer write state, goes to the
+/// log.
 @Interactor<ActorModelTeardownState, ActorModelTeardownAction>
 struct ActorModelTeardownInteractor {
     let log: EffectLog
-    let clock: TestClock<Duration>
-    /// Opened by the effect's cancellation handler, for the test to wait on.
-    let effectCancelled: SendableEffectGate
+    let clock: EffectClock
+    let cancelled: AsyncStream<Void>.Continuation
 
     var body: some InteractorOf<Self> {
         Interact { _, action, effects in
@@ -187,9 +186,8 @@ struct ActorModelTeardownInteractor {
                 effects.perform {
                     try? await withTaskCancellationHandler {
                         try await clock.sleep(for: .seconds(1_000))
-                    } onCancel: { [log, effectCancelled] in
-                        log.append("sleep cancelled")
-                        effectCancelled.open()
+                    } onCancel: {
+                        cancelled.yield()
                     }
                     do { try effects.send(.ping) } catch { log.append("send threw \(type(of: error))") }
                     do { try effects.modify { $0.count = -1 } } catch { log.append("modify threw \(type(of: error))") }
@@ -209,14 +207,14 @@ struct ActorModelTeardownInteractor {
 // would come after such jobs and could not tell an effect that ran inside `send` from one that ran
 // right after it.
 
-/// Sends `action` and reads the count that `send` committed.
+/// Sends `action` and reads the state that `send` committed.
 @available(iOS 26, macOS 26, watchOS 26, *)
-private func sendThenReadCount(
+private func sendThenReadState(
     _ action: ActorModelOrderAction,
     on model: isolated ActorModel<Feature<ActorModelOrderAction, ActorModelOrderState>>
-) -> Int {
-    model.send(action)
-    return model.state.count
+) -> (task: Task<Void, Never>?, state: ActorModelOrderState) {
+    let task = model.send(action)
+    return (task, model.state)
 }
 
 /// Sends `action` `times` times, then reads the count. No effect resumes in between, so every send
@@ -245,60 +243,58 @@ private func sendInOneJob(
 struct ActorModelSchedulingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     private func makeOrderModel(
-        log: EffectLog,
-        gate: SendableEffectGate = SendableEffectGate(),
+        answer: Gate = Gate(),
+        clock: EffectClock = EffectClock(),
         nestedTask: LockedNestedTaskBox = LockedNestedTaskBox()
     ) async -> ActorModel<Feature<ActorModelOrderAction, ActorModelOrderState>> {
         await ActorModel(
             initialState: ActorModelOrderState(),
             feature: Feature(
-                interactor: ActorModelOrderInteractor(log: log, gate: gate, clock: TestClock(), nestedTask: nestedTask)
+                interactor: ActorModelOrderInteractor(answer: answer, clock: clock, nestedTask: nestedTask)
             )
         )
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
     private func makeCounterModel(
-        log: EffectLog = EffectLog()
+        clock: EffectClock = EffectClock()
     ) async -> ActorModel<Feature<ActorModelCounterAction, ActorModelCounterState>> {
         await ActorModel(
             initialState: ActorModelCounterState(),
-            feature: Feature(interactor: ActorModelCounterInteractor(log: log, clock: TestClock()))
+            feature: Feature(interactor: ActorModelCounterInteractor(clock: clock))
         )
     }
 
     // MARK: Start order
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func effectPreambleRunsBeforeSendReturns() async {
-        let log = EffectLog()
-        let gate = SendableEffectGate()
-        let model = await makeOrderModel(log: log, gate: gate)
+        let answer = Gate()
+        let model = await makeOrderModel(answer: answer)
 
-        let task = await model.send(.run)
+        let (task, state) = await sendThenReadState(.run, on: model)
 
         // `perform` only enqueues: the effect started after `interact` (and its `defer`) returned,
         // and ran to its first suspension before `send` returned.
-        #expect(log.entries == ["interact", "interact after perform", "interact defer", "effect preamble"])
+        #expect(state.order == ["interact", "interact after perform", "interact defer", "effect preamble"])
 
-        gate.open()
+        answer.open()
         await task?.value
-        #expect(log.entries.last == "effect resumed")
+        #expect(await model.state.order.last == "effect resumed")
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func sendFromAnEffectPreambleIsProcessedDepthFirst() async throws {
-        let log = EffectLog()
-        let gate = SendableEffectGate()
+        let answer = Gate()
         let nestedTask = LockedNestedTaskBox()
-        let model = await makeOrderModel(log: log, gate: gate, nestedTask: nestedTask)
+        let model = await makeOrderModel(answer: answer, nestedTask: nestedTask)
 
-        let task = await model.send(.outer)
+        let (task, state) = await sendThenReadState(.outer, on: model)
 
         #expect(
-            log.entries == [
+            state.order == [
                 "outer interact",
                 "outer effect 1 preamble",
                 "inner interact",
@@ -309,10 +305,10 @@ struct ActorModelSchedulingTests {
         )
 
         let innerTask = try #require(nestedTask.task)
-        gate.open()
+        answer.open()
         await task?.value
         await innerTask.value
-        #expect(log.entries.dropFirst(6).sorted() == ["inner effect resumed", "outer effect 1 resumed"])
+        #expect(await model.state.order.dropFirst(6).sorted() == ["inner effect resumed", "outer effect 1 resumed"])
     }
 
     /// A task that waited for the inner effect, which sleeps until cancelled, would stall this
@@ -321,9 +317,9 @@ struct ActorModelSchedulingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func sendTaskDoesNotCoverTheEffectsOfSendsItsEffectsMake() async throws {
-        let log = EffectLog()
+        let clock = EffectClock()
         let nestedTask = LockedNestedTaskBox()
-        let model = await makeOrderModel(log: log, nestedTask: nestedTask)
+        let model = await makeOrderModel(clock: clock, nestedTask: nestedTask)
 
         let outerTask = await model.send(.outerSendingLongInner)
         await withTaskCancellationHandler {
@@ -333,65 +329,67 @@ struct ActorModelSchedulingTests {
         }
 
         // The outer effect finished; the inner effect it started through `effects.send` still sleeps.
-        #expect(log.entries == ["outer effect finished"])
+        #expect(await model.state.order == ["outer effect finished"])
+        #expect(clock.sleeperCount == 1)
 
         let innerTask = try #require(nestedTask.task)
         innerTask.cancel()
-        // The send task started immediately, so cancelling it cancelled the effect; checked before
-        // the wait, so a cancel that did not arrive fails instead of hanging.
-        try #require(log.entries == ["outer effect finished", "inner effect cancelled"])
+        // The send task started immediately, so cancelling it cancelled the effect, whose sleep is
+        // gone; checked before the wait, so a cancel that did not arrive fails instead of hanging.
+        try #require(clock.sleeperCount == 0)
         await innerTask.value
-        #expect(log.entries == ["outer effect finished", "inner effect cancelled"])
+        #expect(await model.state.order == ["outer effect finished"])  // the inner effect never finished
     }
 
     // MARK: Cancelled effects
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func reHandledCaseStillDeliversSendsOfEffectsThatIgnoreCancellation() async {
-        let log = EffectLog()
-        let model = await makeCounterModel(log: log)
+        let model = await makeCounterModel()
 
         let (tasks, count) = await sendInOneJob(.incrementThenSendDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
         #expect(count == 100)
 
         for task in tasks { await task.value }
-        // Every send but the last cancelled the previous effect while it was suspended at its yield.
-        #expect(log.entries.sorted() == Array(repeating: "cancelled effect sends", count: 99) + ["effect sends"])
-        #expect(await model.state.count == 0)
+        let state = await model.state
+        // Every send but the last cancelled the previous effect while it was suspended at its yield,
+        // and every effect still sent its decrement.
+        #expect(state.cancelledEffects == 99)
+        #expect(state.count == 0)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func reHandledCaseStillCommitsModificationsOfEffectsThatIgnoreCancellation() async {
-        let log = EffectLog()
-        let model = await makeCounterModel(log: log)
+        let model = await makeCounterModel()
 
         let (tasks, count) = await sendInOneJob(.incrementThenModifyDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
         #expect(count == 100)
 
         for task in tasks { await task.value }
-        // Every send but the last cancelled the previous effect while it was suspended at its yield.
-        #expect(
-            log.entries.sorted() == Array(repeating: "cancelled effect modifies", count: 99) + ["effect modifies"]
-        )
-        #expect(await model.state.count == 0)
+        let state = await model.state
+        // Every send but the last cancelled the previous effect while it was suspended at its yield,
+        // and every effect still committed its decrement.
+        #expect(state.cancelledEffects == 99)
+        #expect(state.count == 0)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func reHandledCaseLosesTheWorkOfEffectsCancelledAtASleep() async throws {
-        let log = EffectLog()
-        let model = await makeCounterModel(log: log)
+        let clock = EffectClock()
+        let model = await makeCounterModel(clock: clock)
 
         let (tasks, count) = await sendInOneJob(.incrementThenSleepThenModifyDecrement, times: 100, on: model)
         #expect(tasks.count == 100)
         #expect(count == 100)
 
-        // Each send auto-cancelled the previous effect; the last one still sleeps.
-        try #require(log.entries == Array(repeating: "sleep cancelled", count: 99))
+        // Each send auto-cancelled the previous effect, whose sleep left the clock inside the send;
+        // the last one still sleeps.
+        try #require(clock.sleeperCount == 1)
         for task in tasks.dropLast() { await task.value }
 
         // The cancelled effects threw at their sleep: none of their decrements arrived.
@@ -399,7 +397,7 @@ struct ActorModelSchedulingTests {
 
         let lastTask = try #require(tasks.last)
         lastTask.cancel()
-        try #require(log.entries.count == 100)
+        try #require(clock.sleeperCount == 0)
         await lastTask.value
         #expect(await model.state.count == 100)
     }
@@ -409,23 +407,23 @@ struct ActorModelSchedulingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func preambleModificationIsVisibleWhenSendReturns() async {
-        let model = await makeOrderModel(log: EffectLog())
+        let model = await makeOrderModel()
 
         // Read in the job of the send: a preamble that ran as a job of its own would come after it.
-        let count = await sendThenReadCount(.modifyInPreamble, on: model)
-        #expect(count == 11)
+        let (_, state) = await sendThenReadState(.modifyInPreamble, on: model)
+        #expect(state.count == 11)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func modificationAfterASuspensionIsVisibleOnceTheSendTaskIsDone() async {
-        let gate = SendableEffectGate()
-        let model = await makeOrderModel(log: EffectLog(), gate: gate)
+        let answer = Gate()
+        let model = await makeOrderModel(answer: answer)
 
-        let task = await model.send(.modifyAfterGate)
-        #expect(await model.state.count == 0)  // the effect waits at the gate
+        let task = await model.send(.modifyAfterAnswer)
+        #expect(await model.state.count == 0)  // the effect waits for the answer
 
-        gate.open()
+        answer.open()
         await task?.value
         #expect(await model.state.count == 5)
     }
@@ -440,7 +438,7 @@ struct ActorModelSchedulingTests {
     @Test(.timeLimit(.minutes(1)))
     func deinitCancelsASleepingEffectWhoseLaterSendAndModifyThrowWithoutAnIssue() async {
         let log = EffectLog()
-        let effectCancelled = SendableEffectGate()
+        let (cancellations, cancelled) = AsyncStream.makeStream(of: Void.self)
 
         let issues = await reportedIssueDetails {
             weak var weakModel: ActorModel<Feature<ActorModelTeardownAction, ActorModelTeardownState>>?
@@ -449,11 +447,7 @@ struct ActorModelSchedulingTests {
                 let model = await ActorModel(
                     initialState: ActorModelTeardownState(),
                     feature: Feature(
-                        interactor: ActorModelTeardownInteractor(
-                            log: log,
-                            clock: TestClock(),
-                            effectCancelled: effectCancelled
-                        )
+                        interactor: ActorModelTeardownInteractor(log: log, clock: EffectClock(), cancelled: cancelled)
                     )
                 )
                 weakModel = model
@@ -461,16 +455,15 @@ struct ActorModelSchedulingTests {
             }
             #expect(weakModel == nil)
 
-            do {
-                try await effectCancelled.pass()
-            } catch {
-                Issue.record("Releasing the model did not cancel its sleeping effect: \(log.entries)")
+            var cancellation = cancellations.makeAsyncIterator()
+            guard await cancellation.next() != nil else {
+                Issue.record("Releasing the model did not cancel its sleeping effect")
                 return
             }
             await task?.value
         }
 
         #expect(issues == [])
-        #expect(log.entries == ["sleep cancelled", "send threw CancellationError", "modify threw CancellationError"])
+        #expect(log.entries == ["send threw CancellationError", "modify threw CancellationError"])
     }
 }

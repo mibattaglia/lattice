@@ -4,15 +4,14 @@ import Testing
 
 @testable import SearchExample
 
-// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. Time is an `EffectClock`: a debounced search is asleep on it when its
-// `send` returns, and `model.advance` moves it past the quiet period and lets the search run.
+// The suite runs the feature under `TestModel`. Time is an `EffectClock`: a debounced search is
+// asleep on it when its `send` returns, and `model.advance` moves it past the quiet period and lets
+// the search run.
 
 @Suite
 struct SearchTests {
     /// Each edit auto-cancels the search the previous edit started while that search was still
     /// waiting out the debounce, so only the last query reaches the service.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func debouncedSearchUsesLatestQuery() async {
         let clock = EffectClock()
@@ -40,7 +39,6 @@ struct SearchTests {
     }
 
     /// Clearing the field auto-cancels the search that is still waiting out the debounce.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func clearingTheQueryCancelsTheWaitingSearch() async {
         let clock = EffectClock()
@@ -62,7 +60,6 @@ struct SearchTests {
 
     /// An edit while a search waits for the service auto-cancels that search, so its answer, which
     /// arrives afterwards, is dropped: only the last query's results are shown.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func editingDuringASearchDropsItsResults() async {
         let clock = EffectClock()
@@ -100,7 +97,6 @@ struct SearchTests {
 
     /// Tapping a row loads its forecast. Tapping another row auto-cancels that request, so the
     /// answer it gets afterwards is dropped: only the second row shows a forecast.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func tappingAnotherLocationDropsTheEarlierForecast() async {
         let forecasts = Gate()
@@ -141,7 +137,6 @@ struct SearchTests {
 
 /// A test model over the search feature. The stub is handed over to the model (`sending`): it is not
 /// `Sendable`, and the test keeps only the log and gate it shares with it.
-@available(macOS 26, *)
 private func makeModel(
     initialState: SearchState,
     weatherService: sending StubWeatherService,

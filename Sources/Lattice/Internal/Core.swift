@@ -11,13 +11,6 @@ enum EffectLocation: Hashable {
     case identified([AnyHashable], EffectID.Key)
 }
 
-/// The tag of `value`'s enum case: payload-independent and stable per case, but not the
-/// declaration order. A value that is not an enum has no tag and gets `-1`, so a non-enum `Action`
-/// puts every action on one path and re-sending any action cancels all anonymous effects.
-func enumTag<Value>(_ value: Value) -> Int {
-    _enumTag(of: value).map { Int($0.rawValue) } ?? -1
-}
-
 /// The feature runtime: state, interactor, effect queue and effect bookkeeping.
 ///
 /// Nonisolated, non-Sendable and lock-free: it is only ever touched on `isolation`, which the shell

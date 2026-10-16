@@ -6,7 +6,7 @@ import Lattice
 @FeatureState
 struct ArithmeticState: Equatable {
     var value = 0
-    var effectLog: [String] = []
+    var performed: [String] = []
 }
 
 /// Takes an input and doubles it; its effect records "double".
@@ -18,7 +18,7 @@ struct DoubleInteractor: Interactor, Sendable {
 
     func interact(state: inout ArithmeticState, action: Int, effects: Effects<ArithmeticState, Int>) {
         state.value = action * 2
-        effects.perform { try effects.modify { $0.effectLog.append("double") } }
+        effects.perform { try effects.modify { $0.performed.append("double") } }
     }
 }
 
@@ -31,6 +31,26 @@ struct TripleInteractor: Interactor, Sendable {
 
     func interact(state: inout ArithmeticState, action: Int, effects: Effects<ArithmeticState, Int>) {
         state.value = action * 3
-        effects.perform { try effects.modify { $0.effectLog.append("triple") } }
+        effects.perform { try effects.modify { $0.performed.append("triple") } }
     }
+}
+
+/// A test model over an arithmetic interactor, from the initial state. It forwards the caller's
+/// location, so the reports the model makes at its creation point at the test.
+@available(iOS 26, macOS 26, watchOS 26, *)
+func makeArithmeticModel<I: Interactor<ArithmeticState, Int>>(
+    _ interactor: sending I,
+    fileID: StaticString = #fileID,
+    filePath: StaticString = #filePath,
+    line: UInt = #line,
+    column: UInt = #column
+) async -> TestModel<Feature<Int, ArithmeticState>> {
+    await TestModel(
+        initialState: ArithmeticState(),
+        feature: Feature(interactor: interactor),
+        fileID: fileID,
+        filePath: filePath,
+        line: line,
+        column: column
+    )
 }

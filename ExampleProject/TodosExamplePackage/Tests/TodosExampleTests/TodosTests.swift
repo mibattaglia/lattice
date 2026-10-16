@@ -4,13 +4,12 @@ import Testing
 
 @testable import TodosExample
 
-// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. The auto-sort delay runs on an `EffectClock`: the sort is asleep on it
-// when its `send` returns, and `model.advance` moves the clock past the delay and lets the sort run.
+// The suite runs the feature under `TestModel`. The auto-sort delay runs on an `EffectClock`: the
+// sort is asleep on it when its `send` returns, and `model.advance` moves the clock past the delay
+// and lets the sort run.
 
 @Suite
 struct TodosTests {
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func addToggleDeleteReorder() async {
         let clock = EffectClock()
@@ -63,7 +62,6 @@ struct TodosTests {
         await model.finish()
     }
 
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func debouncedAutoSortMovesCompletedToBottom() async {
         let clock = EffectClock()
@@ -95,7 +93,6 @@ struct TodosTests {
 
     /// Toggling again within the delay replaces the waiting sort and starts the delay over:
     /// the list is sorted once, a full delay after the last toggle.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func togglingAgainRestartsTheAutoSortDelay() async {
         let clock = EffectClock()
@@ -132,7 +129,6 @@ struct TodosTests {
     /// nothing, so the sort an earlier toggle scheduled still runs on time. The sort is identified
     /// by a key, which only a new sort replaces; an anonymous effect would be cancelled by every
     /// `.setTodoCompletion`, ignored or not.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ignoredTogglesLeaveThePendingSortAlone() async {
         let clock = EffectClock()
@@ -164,7 +160,6 @@ struct TodosTests {
 
     /// The filter picks the todos views show, `filteredTodos`, and leaves the todos themselves as
     /// they are.
-    @available(macOS 26, *)
     @Test
     func filterShowsExpectedItems() async {
         let todos = [
@@ -185,7 +180,6 @@ struct TodosTests {
     }
 }
 
-@available(macOS 26, *)
 private func makeModel(
     initialState: TodosState = TodosState(),
     clock: EffectClock

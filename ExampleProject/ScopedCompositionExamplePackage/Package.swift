@@ -6,7 +6,7 @@ let package = Package(
     name: "ScopedCompositionExamplePackage",
     platforms: [
         .iOS(.v26),
-        .macOS(.v14),
+        .macOS(.v26),
     ],
     products: [
         .library(name: "ScopedCompositionExample", targets: ["ScopedCompositionExample"])

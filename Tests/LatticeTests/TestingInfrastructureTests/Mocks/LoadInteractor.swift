@@ -1,5 +1,4 @@
 import CasePaths
-import Clocks
 import Foundation
 import Lattice
 
@@ -13,6 +12,8 @@ struct LoadState: Equatable, Sendable {
     var isLoading = false
     var note = ""
     var values: [Int] = []
+    /// The `remaining` of every `.chain` effect, in the order they ran.
+    var chained: [Int] = []
 }
 
 @CasePathable
@@ -38,12 +39,12 @@ enum LoadAction: Equatable, Sendable {
     case interleave
     /// Its effect makes a modification that changes nothing, after a `Task.yield()`.
     case noop
-    /// Its effect sleeps until it is cancelled, logging "hang cancelled".
+    /// Its effect sleeps until it is cancelled.
     case hang
     /// Its effect sleeps until it is cancelled, then sends `.hang`, which starts another one.
     case hangThenHangAgainWhenCancelled
-    /// After a `Task.yield()`, its effect logs and sends `.chain(remaining - 1)` while
-    /// `remaining > 0`.
+    /// After a `Task.yield()`, its effect appends `remaining` to `chained` and sends
+    /// `.chain(remaining - 1)` while `remaining > 0`.
     case chain(Int)
     /// Starts loading; its effect waits on the gate, then counts, and clears `isLoading` in a
     /// `defer`, cancelled or not.
@@ -77,11 +78,10 @@ final class LockedTaskBox: @unchecked Sendable {
 
 @Interactor<LoadState, LoadAction>
 struct LoadInteractor {
-    var log = EffectLog()
-    var gate = SendableEffectGate()
+    var gate = Gate()
     var waiter = LockedTaskBox()
     /// Only for sleeps that end by cancellation: the tests never advance it.
-    var clock = TestClock()
+    var clock = EffectClock()
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -151,13 +151,13 @@ struct LoadInteractor {
 
             case .hang:
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "hang cancelled")
+                    try await clock.sleep(for: .seconds(1_000))
                 }
 
             case .hangThenHangAgainWhenCancelled:
                 effects.perform {
                     do {
-                        try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "first hang cancelled")
+                        try await clock.sleep(for: .seconds(1_000))
                     } catch {
                         try effects.send(.hang)
                     }
@@ -166,7 +166,7 @@ struct LoadInteractor {
             case .chain(let remaining):
                 effects.perform {
                     await Task.yield()
-                    log.append("chain \(remaining)")
+                    try effects.modify { $0.chained.append(remaining) }
                     if remaining > 0 {
                         try effects.send(.chain(remaining - 1))
                     }

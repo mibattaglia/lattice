@@ -42,10 +42,9 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func receiveTimesOutWhileAnEffectIsInFlight() async {
-        let log = EffectLog()
         var receiveLine = 0
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel(LoadInteractor(log: log), timeout: .seconds(10))
+            let model = await makeLoadModel(timeout: .seconds(10))
             await model.send(.hang)
             let start = ContinuousClock.now
             receiveLine = #line + 1
@@ -63,7 +62,6 @@ struct TestModelWaitingTests {
         )
         #expect(issues.first?.message.contains("LoadAction.loaded(41)") == true)
         #expect(issues.first?.message.contains("There are effects in flight.") == true)
-        #expect(log.entries == ["hang cancelled"])
     }
 
     /// With no effect in flight, nothing can send the action: `receive` fails right away, without
@@ -109,16 +107,15 @@ struct TestModelWaitingTests {
     }
 
     /// Effects start effects: each `.chain` sends the next after a yield. `finish` re-reads what is
-    /// in flight on every signal until all of them are done.
+    /// in flight on every signal until all of them are done, then skips what they committed.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func finishWaitsForEffectsThatEffectsStart() async {
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel(LoadInteractor(log: log), exhaustivity: .off(showSkippedAssertions: false))
+            let model = await makeLoadModel(exhaustivity: .off(showSkippedAssertions: false))
             await model.send(.chain(5))
             await model.finish()
-            #expect(log.entries == ["chain 5", "chain 4", "chain 3", "chain 2", "chain 1", "chain 0"])
+            #expect(await model.state.chained == [5, 4, 3, 2, 1, 0])
         }
 
         #expect(issues == [])
@@ -128,10 +125,9 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func finishTimesOutWhileAnEffectStaysInFlight() async {
-        let log = EffectLog()
         var finishLine = 0
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel(LoadInteractor(log: log), timeout: .seconds(10))
+            let model = await makeLoadModel(timeout: .seconds(10))
             await model.send(.hang)
             let start = ContinuousClock.now
             finishLine = #line + 1
@@ -145,7 +141,6 @@ struct TestModelWaitingTests {
         #expect(
             issues.map(\.message) == ["Expected effects to finish, but 1 effect remained in flight after 0.02 seconds."]
         )
-        #expect(log.entries == ["hang cancelled"])
     }
 
     /// Port of the old `finishReportsBufferedReceivesProducedWhileWaiting`: what effects sent while
@@ -187,7 +182,7 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func overlappingWaitsReportTheOverlapAndDoNothingElse() async {
-        let gate = SendableEffectGate()
+        let gate = Gate()
         var lines: [Int] = []
         let issues = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(gate: gate), timeout: .seconds(10))
@@ -218,10 +213,9 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func aCancelledWaitDoesNotBreakLaterWaits() async {
-        let log = EffectLog()
         var lines: [Int] = []
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel(LoadInteractor(log: log))
+            let model = await makeLoadModel()
             await model.send(.hang)
             lines.append(#line + 2)
             let waiting = Task.immediate {
@@ -246,9 +240,8 @@ struct TestModelWaitingTests {
             ]
         )
         #expect(issues.map(\.line) == lines)
-        #expect(log.entries == ["hang cancelled"])
 
-        let gate = SendableEffectGate()
+        let gate = Gate()
         let waiter = LockedTaskBox()
         let coinciding = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(gate: gate, waiter: waiter))
@@ -280,7 +273,7 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func waitsCutShortByCancellationAreReportedAsCancelled() async {
-        let gate = SendableEffectGate()
+        let gate = Gate()
         var lines: [Int] = []
         let issues = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(gate: gate), timeout: .seconds(10))

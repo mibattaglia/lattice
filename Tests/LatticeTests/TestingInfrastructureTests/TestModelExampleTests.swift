@@ -3,9 +3,9 @@ import Testing
 
 @testable import Lattice
 
-// The examples of the plan's §5.5 (`search`, `timer`) and §7 (`hydrates`), in the shapes the tests
-// can drive without advancing a clock after a send: a gate stands in for the debounce sleep, a tick
-// stream for the timer, and a stub or gated client for the network.
+// The examples of the plan's §5.5 (`search`, `timer`) and §7 (`hydrates`): the search debounces on
+// an `EffectClock` that the test advances, a tick stream drives the timer, and a stub or a gated
+// client stands in for the network.
 
 // MARK: - §5.5 search
 
@@ -20,9 +20,8 @@ enum SearchExampleAction: Equatable, Sendable {
 }
 
 @Interactor<SearchExampleState, SearchExampleAction>
-struct SearchExampleInteractor {
-    let gate: SendableEffectGate
-    let log: EffectLog
+struct SearchExampleInteractor<C: Clock<Duration>> {
+    let clock: C
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -30,12 +29,7 @@ struct SearchExampleInteractor {
             case .queryChanged(let query):
                 state.query = query
                 effects.perform {
-                    do {
-                        try await gate.pass()  // stands in for the debounce sleep
-                    } catch {
-                        log.append("cancelled \(query)")
-                        throw error
-                    }
+                    try await clock.sleep(for: .milliseconds(300))  // the debounce: the next query cancels it
                     try effects.modify { $0.results = [query] }
                 }
             }
@@ -123,7 +117,7 @@ final class StubCounterExampleClient: CounterExampleClient {
 /// Fetches through a gate the test never opens: a cancellation-aware suspension, so a cancelled
 /// refresh never writes a result.
 final class GatedCounterExampleClient: CounterExampleClient {
-    let gate = SendableEffectGate()
+    let gate = Gate()
 
     nonisolated(nonsending) func fetch() async throws -> CounterExampleAPIModel {
         try await gate.pass()
@@ -160,27 +154,26 @@ struct CounterExampleInteractor {
 
 @Suite
 struct TestModelExampleTests {
-    /// The second query auto-cancels the first one's waiting effect: only "b" writes results.
+    /// The second query auto-cancels the first one's effect while it waits out the debounce: only
+    /// "b" writes results.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func search() async {
-        let gate = SendableEffectGate()
-        let log = EffectLog()
+        let clock = EffectClock()
         let issues = await reportedIssueDetails {
             let model = await TestModel(
                 initialState: SearchExampleState(),
-                feature: Feature(interactor: SearchExampleInteractor(gate: gate, log: log))
+                feature: Feature(interactor: SearchExampleInteractor(clock: clock))
             )
             await model.send(.queryChanged("a")) { $0.query = "a" }
-            let task = await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a"
-            gate.open()
-            await task?.value
+            await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a" while it sleeps
+            #expect(clock.sleeperCount == 1)  // "a"'s sleep left the clock inside that `send`
+            await model.advance(clock, by: .milliseconds(300))
             await model.expect { $0.results = ["b"] }  // the effect wrote the results directly
             await model.finish()
         }
 
         #expect(issues == [])
-        #expect(log.entries == ["cancelled a"])
     }
 
     /// Three ticks are three modifications and one `expect`; `.stop` cancels the timer.

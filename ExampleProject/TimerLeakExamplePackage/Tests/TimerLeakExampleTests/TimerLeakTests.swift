@@ -3,9 +3,9 @@ import Testing
 
 @testable import TimerLeakExample
 
-// The suite runs the ticker under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. Time is an `EffectClock`: the ticker is asleep on it when `.start`'s
-// `send` returns, and `model.advance` lets it tick once per interval the clock moves.
+// The suite runs the ticker under `TestModel`. Time is an `EffectClock`: the ticker is asleep on it
+// when `.start`'s `send` returns, and `model.advance` lets it tick once per interval the clock
+// moves.
 
 @Suite
 struct TimerLeakTests {
@@ -13,7 +13,6 @@ struct TimerLeakTests {
     /// the child wholesale, but a content-equal rebuild leaves no trace in state (the current child,
     /// its `_$id` and its registrars are kept), so only profiling, the resident-memory overlay,
     /// shows those rebuilds.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func everyTickCountsAndEveryHundredthShowsANewValue() async {
         let clock = EffectClock()
@@ -37,7 +36,6 @@ struct TimerLeakTests {
     /// Sending `.start` again, as a view that appears again does, auto-cancels the running ticker
     /// and starts a new one, so there is never more than one: the next tick comes a full interval
     /// after the restart, and the count goes on.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func startingAgainReplacesTheRunningTicker() async {
         let clock = EffectClock()
@@ -61,7 +59,6 @@ struct TimerLeakTests {
 
     /// Cancelling the task `.start` returned stops the ticker. The view's `.task` does this when
     /// the view goes away.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func cancellingTheStartTaskStopsTheTicker() async {
         let clock = EffectClock()
@@ -78,7 +75,6 @@ struct TimerLeakTests {
     /// does: the running ticker does not keep the model alive. That the deinit then cancels the
     /// ticker is proven in Lattice's own tests, by
     /// `SchedulingTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func releasingTheModelWhileTheTickerRunsDeallocatesIt() async {
         let clock = EffectClock()
@@ -99,7 +95,6 @@ struct TimerLeakTests {
 /// The interval the tests tick at.
 private let tickInterval: Duration = .milliseconds(20)
 
-@available(macOS 26, *)
 private func makeModel(clock: EffectClock) async -> TestModel<Feature<TimerLeakEvent, TimerLeakState>> {
     await TestModel(
         initialState: TimerLeakState(),

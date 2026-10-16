@@ -1,9 +1,10 @@
 import Foundation
 import Lattice
 
-// The feature the `EffectClock` suites drive: a debounced search, a ticker and a load that waits on
-// something other than the clock, all over a generic clock. Declared at file scope, so the
-// interactor and its effect literals are nonisolated, as `TestModel` requires.
+// The features the `EffectClock` suites drive: a debounced search, a ticker and a load that waits on
+// something other than the clock, all over a generic clock, and a search and a ticker that record
+// the order in which their sleeps woke. Declared at file scope, so the interactors and their effect
+// literals are nonisolated, as `TestModel` requires.
 
 @FeatureState
 struct ClockState: Equatable, Sendable {
@@ -14,16 +15,15 @@ struct ClockState: Equatable, Sendable {
 }
 
 enum ClockAction: Equatable, Sendable {
-    /// Debounce by sleep: its effect sleeps for the debounce, logs "searched <query>", then writes
-    /// `[query.uppercased()]`. The next `.query` auto-cancels it while it sleeps; `.query("")` starts
-    /// none.
+    /// Debounce by sleep: its effect sleeps for the debounce, then writes `[query.uppercased()]`. The
+    /// next `.query` auto-cancels it while it sleeps; `.query("")` starts none.
     case query(String)
     /// `.query` with the sleep spelled another way, which reaches the clock only after a hop off the
     /// model's isolation.
     case bypassQuery(String, SleepSpelling)
-    /// The ticker: `while true { sleep for the interval; log "tick"; tick += 1 }`.
+    /// The ticker: `while true { sleep for the interval; tick += 1 }`.
     case start
-    /// Waits on the load gate, a suspension that is not the clock's, then sets `isLoaded`.
+    /// Waits for the load's answer, a suspension that is not the clock's, then sets `isLoaded`.
     case load
 }
 
@@ -44,8 +44,8 @@ struct ClockInteractor<C: Clock> {
     let clock: C
     let debounce: C.Duration
     let interval: C.Duration
-    var log = EffectLog()
-    var loadGate = SendableEffectGate()
+    /// The load's answer, which the test opens.
+    var loadGate = Gate()
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -55,7 +55,6 @@ struct ClockInteractor<C: Clock> {
                 guard !query.isEmpty else { return }
                 effects.perform {
                     try await clock.sleep(for: debounce)  // the next `.query` auto-cancels this sleep
-                    log.append("searched \(query)")
                     try Task.checkCancellation()  // a newer query superseded this one
                     try effects.modify { $0.results = [query.uppercased()] }
                 }
@@ -73,7 +72,6 @@ struct ClockInteractor<C: Clock> {
                     case .concurrentSleepFor:
                         try await sleepOffTheEffectsIsolation(on: clock, for: debounce)
                     }
-                    log.append("searched \(query)")
                     try effects.modify { $0.results = [query.uppercased()] }
                 }
 
@@ -81,7 +79,6 @@ struct ClockInteractor<C: Clock> {
                 effects.perform {
                     while true {
                         try await clock.sleep(for: interval)
-                        log.append("tick")
                         try effects.modify { $0.tick += 1 }
                     }
                 }
@@ -117,6 +114,46 @@ struct ConcreteSleepUntilInteractor {
             effects.perform {
                 try await clock.sleep(until: clock.now.advanced(by: delay))
                 try effects.modify { $0.results = [query.uppercased()] }
+            }
+        }
+    }
+}
+
+@FeatureState
+struct WakeOrderState: Equatable, Sendable {
+    /// What each woken effect did, in the order the effects ran after their sleeps.
+    var wakes: [String] = []
+}
+
+enum WakeOrderAction: Equatable, Sendable {
+    /// Sleeps for the debounce, then records "search".
+    case search
+    /// The ticker: `while true { sleep for the interval; record "tick" }`.
+    case start
+}
+
+@Interactor<WakeOrderState, WakeOrderAction>
+struct WakeOrderInteractor {
+    let clock: EffectClock
+    let debounce: Duration
+    let interval: Duration
+
+    var body: some InteractorOf<Self> {
+        Interact { _, action, effects in
+            switch action {
+            case .search:
+                effects.perform {
+                    try await clock.sleep(for: debounce)
+                    try effects.modify { $0.wakes.append("search") }
+                }
+
+            case .start:
+                effects.perform {
+                    while true {
+                        try await clock.sleep(for: interval)
+                        try effects.modify { $0.wakes.append("tick") }
+                    }
+                }
             }
         }
     }

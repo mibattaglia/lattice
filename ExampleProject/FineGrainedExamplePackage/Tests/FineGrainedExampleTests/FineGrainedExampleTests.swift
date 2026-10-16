@@ -3,13 +3,11 @@ import Testing
 
 @testable import FineGrainedExample
 
-// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. `send` asserts the whole state, so each test also shows that the
-// action left the other members alone.
+// The suite runs the feature under `TestModel`. `send` asserts the whole state, so each test also
+// shows that the action left the other members alone.
 
 @Suite
 struct FineGrainedExampleTests {
-    @available(macOS 26, *)
     @Test
     func bumpingTheCountChangesOnlyTheCount() async {
         let model = await makeModel()
@@ -18,7 +16,6 @@ struct FineGrainedExampleTests {
         await model.finish()
     }
 
-    @available(macOS 26, *)
     @Test
     func changingTheTitleChangesOnlyTheTitle() async {
         let model = await makeModel()
@@ -28,7 +25,6 @@ struct FineGrainedExampleTests {
     }
 
     /// Toggling the phase flips the hidden `phaseActive`; views read the `phase` derived from it.
-    @available(macOS 26, *)
     @Test
     func togglingThePhaseShowsTheActivePhase() async {
         let model = await makeModel()
@@ -39,7 +35,6 @@ struct FineGrainedExampleTests {
     }
 }
 
-@available(macOS 26, *)
 private func makeModel() async -> TestModel<Feature<FineGrainedEvent, FineGrainedState>> {
     await TestModel(initialState: FineGrainedState(), feature: Feature(interactor: FineGrainedInteractor()))
 }

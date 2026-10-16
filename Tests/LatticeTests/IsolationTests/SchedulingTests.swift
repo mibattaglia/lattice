@@ -1,17 +1,30 @@
-import Clocks
 import Foundation
 import Testing
 
 @testable import Lattice
+
+// The fixtures are declared at file scope, so the interactors and their effect literals are
+// nonisolated, as `TestModel` requires. What ran, and in which order, is recorded in state: `interact`
+// writes its `state` argument, an effect calls `modify`. Effects suspend at a sleep on an
+// `EffectClock`, so the test decides when they resume. What a `ViewModel`'s teardown does to its
+// effects is `ViewModelTeardownTests`'.
+
+private let effectDuration: Duration = .seconds(1)
 
 // MARK: - Start order
 
 @FeatureState
 struct StartOrderState: Equatable {
     var count = 0
+    /// What ran, in order.
+    var order: [String] = []
+    /// Whether the `effects.send` that `interact` made returned a task.
+    var sendDuringInteractReturnedATask: Bool?
+    /// The `effects.state.count` that `interact` read.
+    var effectsStateCountDuringInteract: Int?
 }
 
-enum StartOrderAction {
+enum StartOrderAction: Equatable {
     case run
     case outer
     case inner
@@ -22,70 +35,66 @@ enum StartOrderAction {
     case increment
 }
 
-/// The task an effect got back from its own `effects.send`.
-final class NestedTaskBox {
-    var task: Task<Void, Never>?
-}
-
+/// The inner effect sleeps one interval and the outer effect two, so `advance` wakes them in that
+/// order.
 @Interactor<StartOrderState, StartOrderAction>
 struct StartOrderInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
-    let nestedTask: NestedTaskBox
+    let clock: EffectClock
+    var nestedTask = LockedNestedTaskBox()
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
             switch action {
             case .run:
-                log.append("interact")
-                defer { log.append("interact defer") }
+                state.order.append("interact")
+                defer { state.order.append("interact defer") }
                 effects.perform {
-                    log.append("effect preamble")
-                    await Task.yield()
-                    log.append("effect resumed")
+                    try effects.modify { $0.order.append("effect preamble") }
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.order.append("effect resumed") }
                 }
-                log.append("interact after perform")
+                state.order.append("interact after perform")
 
             case .outer:
-                log.append("outer interact")
+                state.order.append("outer interact")
                 effects.perform {
-                    log.append("outer effect 1 preamble")
+                    try effects.modify { $0.order.append("outer effect 1 preamble") }
                     try effects.send(.inner)
-                    log.append("outer effect 1 after send")
-                    await Task.yield()
-                    log.append("outer effect 1 resumed")
+                    try effects.modify { $0.order.append("outer effect 1 after send") }
+                    try await clock.sleep(for: effectDuration * 2)
+                    try effects.modify { $0.order.append("outer effect 1 resumed") }
                 }
                 effects.perform {
-                    log.append("outer effect 2 preamble")
+                    try effects.modify { $0.order.append("outer effect 2 preamble") }
                 }
 
             case .inner:
-                log.append("inner interact")
+                state.order.append("inner interact")
                 effects.perform {
-                    log.append("inner effect preamble")
-                    await Task.yield()
-                    log.append("inner effect resumed")
+                    try effects.modify { $0.order.append("inner effect preamble") }
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.order.append("inner effect resumed") }
                 }
 
             case .outerSendingLongInner:
                 effects.perform {
                     nestedTask.task = try effects.send(.longInner)
                     await Task.yield()
-                    log.append("outer effect finished")
+                    try effects.modify { $0.order.append("outer effect finished") }
                 }
 
             case .longInner:
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "inner effect cancelled")
+                    try await clock.sleep(for: .seconds(1_000))  // never advanced: only a cancel ends it
+                    try effects.modify { $0.order.append("inner effect finished") }
                 }
 
             case .sendDuringInteract:
-                let task = try? effects.send(.increment)
-                log.append(task == nil ? "send returned nil" : "send returned a task")
+                state.sendDuringInteractReturnedATask = (try? effects.send(.increment)) != nil
 
             case .readStateDuringInteract:
                 state.count += 1
-                log.append("effects.state.count=\(effects.state.count) state.count=\(state.count)")
+                state.effectsStateCountDuringInteract = effects.state.count
 
             case .increment:
                 state.count += 1
@@ -110,8 +119,7 @@ enum CancelledEffectAction {
 
 @Interactor<CancelledEffectState, CancelledEffectAction>
 struct CancelledEffectInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    var clock = EffectClock()
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -135,7 +143,7 @@ struct CancelledEffectInteractor {
                 state.count += 1
                 // A sleep is cancellation-aware: an auto-cancelled effect throws here.
                 effects.perform {
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "sleep cancelled")
+                    try await clock.sleep(for: effectDuration)
                     try effects.modify { $0.count -= 1 }
                 }
 
@@ -153,21 +161,23 @@ struct CancelledEffectInteractor {
 struct DependencyError: Error {}
 
 @FeatureState
-struct ThrownErrorState: Equatable {}
+struct ThrownErrorState: Equatable {
+    /// How the request ended, recorded before the effect throws.
+    var requestOutcome: String?
+}
 
 enum ThrownErrorAction {
     case request
     case cancelRequest
 }
 
-/// `.request`'s effect waits at a cancellation-aware gate and ends in a `DependencyError` either
-/// way: cancelled meanwhile, it throws one in place of the gate's `CancellationError`; otherwise
-/// the request fails with one.
+/// `.request`'s effect waits for the answer, which ends on cancellation too, and ends in a
+/// `DependencyError` either way: cancelled meanwhile, it throws one in place of the answer's
+/// `CancellationError`; otherwise the request fails with one.
 @Interactor<ThrownErrorState, ThrownErrorAction>
 struct ThrownErrorInteractor {
     @EffectID var request
-    let log: EffectLog
-    let gate: EffectGate
+    let answer: Gate
 
     var body: some InteractorOf<Self> {
         Interact { _, action, effects in
@@ -175,12 +185,12 @@ struct ThrownErrorInteractor {
             case .request:
                 effects.perform(id: request) {
                     do {
-                        try await gate.pass()
+                        try await answer.pass()
                     } catch {
-                        log.append("request cancelled")
+                        try effects.modify { $0.requestOutcome = "cancelled" }
                         throw DependencyError()
                     }
-                    log.append("request failed")
+                    try effects.modify { $0.requestOutcome = "failed" }
                     throw DependencyError()
                 }
 
@@ -191,54 +201,13 @@ struct ThrownErrorInteractor {
     }
 }
 
-// MARK: - Teardown
-
-@FeatureState
-struct TeardownState: Equatable {
-    var count = 0
-}
-
-enum TeardownAction {
-    case sleepThenSendAndModify
-    case incrementReadThenSleepThenReadState
-    case ping
-}
-
-@Interactor<TeardownState, TeardownAction>
-struct TeardownInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
-
-    var body: some InteractorOf<Self> {
-        Interact { _, action, effects in
-            switch action {
-            case .sleepThenSendAndModify:
-                effects.perform {
-                    try? await log.sleepUntilCancelled(on: clock, appendingOnCancel: "sleep cancelled")
-                    do { try effects.send(.ping) } catch { log.append("send threw \(type(of: error))") }
-                    do { try effects.modify { $0.count = -1 } } catch { log.append("modify threw \(type(of: error))") }
-                }
-
-            case .incrementReadThenSleepThenReadState:
-                effects.perform {
-                    try effects.modify { $0.count += 1 }
-                    _ = effects.state  // a successful read refreshes the last known value
-                    try? await log.sleepUntilCancelled(on: clock, appendingOnCancel: "sleep cancelled")
-                    log.append("effects.state.count=\(effects.state.count)")
-                }
-
-            case .ping:
-                break
-            }
-        }
-    }
-}
-
 // MARK: - Snapshot semantics
 
 @FeatureState
 struct FanOutState: Equatable {
     var round = 0
+    var started: [String] = []
+    var completed: Set<String> = []
 }
 
 enum FanOutAction {
@@ -249,8 +218,7 @@ enum FanOutAction {
 /// preamble, before effect 2 has started.
 @Interactor<FanOutState, FanOutAction>
 struct FanOutInteractor {
-    let log: EffectLog
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -259,15 +227,17 @@ struct FanOutInteractor {
                 state.round += 1
                 let round = state.round
                 effects.perform {
-                    log.append("round \(round) effect 1 started")
+                    try effects.modify { $0.started.append("round \(round) effect 1") }
                     if round == 1 {
                         try effects.send(.fanOut)
                     }
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "round \(round) effect 1 cancelled")
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.completed.insert("round \(round) effect 1") }
                 }
                 effects.perform {
-                    log.append("round \(round) effect 2 started")
-                    try await log.sleepUntilCancelled(on: clock, appendingOnCancel: "round \(round) effect 2 cancelled")
+                    try effects.modify { $0.started.append("round \(round) effect 2") }
+                    try await clock.sleep(for: effectDuration)
+                    try effects.modify { $0.completed.insert("round \(round) effect 2") }
                 }
             }
         }
@@ -295,7 +265,7 @@ final class InFlightProbe {
 @Interactor<InFlightProbeState, InFlightProbeAction>
 struct InFlightProbeInteractor {
     let probe: InFlightProbe
-    let clock: TestClock<Duration>
+    let clock: EffectClock
 
     var body: some InteractorOf<Self> {
         Interact { _, _, effects in
@@ -309,77 +279,94 @@ struct InFlightProbeInteractor {
 
 // MARK: - Tests
 
-@MainActor
+/// When `send` starts effects and what its task covers, what re-handling a case does to effects that
+/// ignore cancellation, which thrown errors are reported, and the start phase's snapshot.
 @Suite
 struct SchedulingTests {
-    private func makeStartOrderViewModel(
-        log: EffectLog,
-        clock: TestClock<Duration> = TestClock(),
-        nestedTask: NestedTaskBox = NestedTaskBox()
-    ) -> ViewModel<Feature<StartOrderAction, StartOrderState>> {
-        ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    private func makeStartOrderModel(
+        clock: EffectClock,
+        nestedTask: LockedNestedTaskBox = LockedNestedTaskBox(),
+        fileID: StaticString = #fileID,
+        filePath: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) async -> TestModel<Feature<StartOrderAction, StartOrderState>> {
+        await TestModel(
             initialState: StartOrderState(),
-            feature: Feature(interactor: StartOrderInteractor(log: log, clock: clock, nestedTask: nestedTask))
+            feature: Feature(interactor: StartOrderInteractor(clock: clock, nestedTask: nestedTask)),
+            fileID: fileID,
+            filePath: filePath,
+            line: line,
+            column: column
         )
     }
 
     // MARK: Start order
 
-    @Test
-    func effectPreambleRunsBeforeSendViewEventReturns() async {
-        let log = EffectLog()
-        let viewModel = makeStartOrderViewModel(log: log)
+    /// `send` folds the preamble's modification in: it ran before `send` returned. The rest of the
+    /// effect runs only once `advance` wakes it.
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func effectPreambleRunsBeforeSendReturns() async {
+        let clock = EffectClock()
+        let model = await makeStartOrderModel(clock: clock)
 
-        let task = viewModel.sendViewEvent(.run)
-        #expect(log.entries.last == "effect preamble")
-        #expect(!log.entries.contains("effect resumed"))
+        await model.send(.run) {
+            $0.order = ["interact", "interact after perform", "interact defer", "effect preamble"]
+        }
 
-        await task?.value
-        #expect(log.entries.last == "effect resumed")
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.order.append("effect resumed") }
+        await model.finish()
     }
 
-    @Test
-    func deferInInteractRunsBeforeTheEffectStarts() {
-        let log = EffectLog()
-        let viewModel = makeStartOrderViewModel(log: log)
+    /// `perform` only enqueues: the effect starts after `interact` (and its `defer`) returned.
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func deferInInteractRunsBeforeTheEffectStarts() async {
+        let clock = EffectClock()
+        let model = await makeStartOrderModel(clock: clock)
 
-        viewModel.sendViewEvent(.run)
+        await model.send(.run) {
+            $0.order = ["interact", "interact after perform", "interact defer", "effect preamble"]
+        }
 
-        // `perform` only enqueues: the effect starts after `interact` (and its `defer`) returned.
-        #expect(log.entries == ["interact", "interact after perform", "interact defer", "effect preamble"])
+        await model.skipInFlightEffects()
+        await model.finish()
     }
 
-    @Test
+    /// The outer effect's send is handled, with the inner effect's preamble, before the outer effect
+    /// carries on and before the outer send starts its second effect.
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
     func sendFromAnEffectPreambleIsProcessedDepthFirst() async {
-        let log = EffectLog()
-        let viewModel = makeStartOrderViewModel(log: log)
+        let clock = EffectClock()
+        let model = await makeStartOrderModel(clock: clock)
 
-        let task = viewModel.sendViewEvent(.outer)
-        #expect(
-            log.entries == [
-                "outer interact",
-                "outer effect 1 preamble",
-                "inner interact",
-                "inner effect preamble",
-                "outer effect 1 after send",
-                "outer effect 2 preamble",
-            ]
-        )
+        await model.send(.outer) {  // up to the action the outer effect sent
+            $0.order = ["outer interact", "outer effect 1 preamble"]
+        }
+        await model.receive(.inner) {
+            $0.order += ["inner interact", "inner effect preamble", "outer effect 1 after send", "outer effect 2 preamble"]
+        }
 
-        await task?.value
-        #expect(log.entries.contains("outer effect 1 resumed"))
+        await model.advance(clock, by: effectDuration * 2)
+        await model.expect { $0.order += ["inner effect resumed", "outer effect 1 resumed"] }
+        await model.finish()
     }
 
     /// A task that waited for the inner effect, which sleeps until cancelled, would stall this
     /// test: the time limit reports the stall under the test's name, and the wait is
     /// cancellation-aware so the test then ends instead of hanging the run.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func sendTaskDoesNotCoverTheEffectsOfSendsItsEffectsMake() async throws {
-        let log = EffectLog()
-        let nestedTask = NestedTaskBox()
-        let viewModel = makeStartOrderViewModel(log: log, nestedTask: nestedTask)
+        let clock = EffectClock()
+        let nestedTask = LockedNestedTaskBox()
+        let model = await makeStartOrderModel(clock: clock, nestedTask: nestedTask)
 
-        let outerTask = viewModel.sendViewEvent(.outerSendingLongInner)
+        let outerTask = await model.send(.outerSendingLongInner)
         await withTaskCancellationHandler {
             await outerTask?.value
         } onCancel: {
@@ -387,192 +374,160 @@ struct SchedulingTests {
         }
 
         // The outer effect finished; the inner effect it started through `effects.send` still sleeps.
-        #expect(log.entries == ["outer effect finished"])
+        await model.receive(.longInner) { $0.order = ["outer effect finished"] }
+        #expect(clock.sleeperCount == 1)
 
         let innerTask = try #require(nestedTask.task)
         innerTask.cancel()
-        if #available(iOS 26, macOS 26, watchOS 26, *) {
-            // The send task started immediately, so cancelling it cancelled the effect; checked
-            // before the wait, so a cancel that did not arrive fails instead of hanging.
-            try #require(log.entries == ["outer effect finished", "inner effect cancelled"])
-        }
+        // The send task started immediately, so cancelling it cancelled the effect; checked before
+        // the wait, so a cancel that did not arrive fails instead of hanging.
+        try #require(clock.sleeperCount == 0)
         await innerTask.value
-        #expect(log.entries == ["outer effect finished", "inner effect cancelled"])
+        await model.finish()  // the inner effect never finished
     }
 
     // MARK: Reentrancy
 
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func sendDuringInteractIsReportedReturnsNilAndLeavesStateUntouched() async {
-        let log = EffectLog()
-        let viewModel = makeStartOrderViewModel(log: log)
-
-        let issues = await reportedIssues {
-            viewModel.sendViewEvent(.sendDuringInteract)
+        let issues = await reportedIssueDetails {
+            let model = await makeStartOrderModel(clock: EffectClock())
+            await model.send(.sendDuringInteract) { $0.sendDuringInteractReturnedATask = false }  // `count` stays 0
+            await model.finish()
         }
 
         #expect(
-            issues == [
+            issues.map(\.message) == [
                 "Can't send another action before handling this one; use effects.perform { try effects.send(action) }"
             ]
         )
-        #expect(log.entries == ["send returned nil"])
-        #expect(viewModel.count == 0)
     }
 
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func effectsStateDuringInteractIsReportedAndReturnsTheCommittedPreActionValue() async {
-        let log = EffectLog()
-        let viewModel = makeStartOrderViewModel(log: log)
-
-        let issues = await reportedIssues {
-            viewModel.sendViewEvent(.readStateDuringInteract)
+        let issues = await reportedIssueDetails {
+            let model = await makeStartOrderModel(clock: EffectClock())
+            await model.send(.readStateDuringInteract) {
+                $0.count = 1
+                $0.effectsStateCountDuringInteract = 0
+            }
+            await model.finish()
         }
 
-        #expect(issues == ["Read 'effects.state' during interact; use the 'state' argument instead"])
-        #expect(log.entries == ["effects.state.count=0 state.count=1"])
-        #expect(viewModel.count == 1)
+        #expect(issues.map(\.message) == ["Read 'effects.state' during interact; use the 'state' argument instead"])
     }
 
     // MARK: Cancelled effects
 
-    @Test
+    /// `TestViewModel`: the 100 synchronous sends hold the main actor, where the effects run, so
+    /// every send but the first re-handles the case while the previous effect is still suspended.
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
     func reHandledCaseStillDeliversSendsOfEffectsThatIgnoreCancellation() async {
-        let viewModel = ViewModel(
+        let model = TestViewModel(
             initialState: CancelledEffectState(),
-            feature: Feature(interactor: CancelledEffectInteractor(log: EffectLog(), clock: TestClock()))
+            feature: Feature(interactor: CancelledEffectInteractor())
         )
 
-        let tasks = (0..<100).compactMap { _ in viewModel.sendViewEvent(.incrementThenSendDecrement) }
+        var tasks: [Task<Void, Never>] = []
+        for count in 1...100 {
+            if let task = model.send(.incrementThenSendDecrement, assert: { $0.count = count }) {
+                tasks.append(task)
+            }
+        }
         #expect(tasks.count == 100)
-        #expect(viewModel.count == 100)
 
         for task in tasks { await task.value }
-        #expect(viewModel.count == 0)
+        for count in (0..<100).reversed() {
+            await model.receive(.decrement) { $0.count = count }
+        }
+        await model.finish()
     }
 
-    @Test
+    /// `TestViewModel`, as above.
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
     func reHandledCaseStillCommitsModificationsOfEffectsThatIgnoreCancellation() async {
-        let viewModel = ViewModel(
+        let model = TestViewModel(
             initialState: CancelledEffectState(),
-            feature: Feature(interactor: CancelledEffectInteractor(log: EffectLog(), clock: TestClock()))
+            feature: Feature(interactor: CancelledEffectInteractor())
         )
 
-        let tasks = (0..<100).compactMap { _ in viewModel.sendViewEvent(.incrementThenModifyDecrement) }
+        var tasks: [Task<Void, Never>] = []
+        for count in 1...100 {
+            if let task = model.send(.incrementThenModifyDecrement, assert: { $0.count = count }) {
+                tasks.append(task)
+            }
+        }
         #expect(tasks.count == 100)
-        #expect(viewModel.count == 100)
 
         for task in tasks { await task.value }
-        #expect(viewModel.count == 0)
+        model.expect { $0.count = 0 }  // 100 decrements
+        await model.finish()
     }
 
-    @Test
-    func reHandledCaseLosesTheWorkOfEffectsCancelledAtASleep() async throws {
-        let log = EffectLog()
-        let viewModel = ViewModel(
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func reHandledCaseLosesTheWorkOfEffectsCancelledAtASleep() async {
+        let clock = EffectClock()
+        let model = await TestModel(
             initialState: CancelledEffectState(),
-            feature: Feature(interactor: CancelledEffectInteractor(log: log, clock: TestClock()))
+            feature: Feature(interactor: CancelledEffectInteractor(clock: clock))
         )
 
-        let tasks = (0..<100).compactMap { _ in viewModel.sendViewEvent(.incrementThenSleepThenModifyDecrement) }
-        #expect(tasks.count == 100)
+        for count in 1...100 {
+            await model.send(.incrementThenSleepThenModifyDecrement) { $0.count = count }
+        }
+        #expect(clock.sleeperCount == 1)  // each send cancelled the previous effect at its sleep
 
-        // Each send auto-cancelled the previous effect; the last one still sleeps.
-        try #require(log.entries == Array(repeating: "sleep cancelled", count: 99))
-        for task in tasks.dropLast() { await task.value }
-
-        // The cancelled effects threw at their sleep: none of their decrements arrived.
-        #expect(viewModel.count == 100)
+        await model.advance(clock, by: effectDuration)
+        await model.expect { $0.count = 99 }  // only the last effect's decrement arrived
+        await model.finish()
     }
 
     // MARK: Thrown errors
 
     /// Cancellation can surface as an error other than `CancellationError`, so whatever an effect
     /// throws once its task is cancelled is not reported.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func errorThrownByACancelledEffectIsNotReported() async {
-        let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = ViewModel(
-            initialState: ThrownErrorState(),
-            feature: Feature(interactor: ThrownErrorInteractor(log: log, gate: gate))
-        )
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.request)
-            viewModel.sendViewEvent(.cancelRequest)  // cancels the effect while it waits at the gate
-            gate.open()
+        let answer = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await TestModel(
+                initialState: ThrownErrorState(),
+                feature: Feature(interactor: ThrownErrorInteractor(answer: answer))
+            )
+            let task = await model.send(.request)
+            await model.send(.cancelRequest)  // cancels the effect while it waits for the answer
             await task?.value
+            await model.expect { $0.requestOutcome = "cancelled" }  // then it threw a `DependencyError`
+            await model.finish()
         }
 
-        #expect(log.entries == ["request cancelled"])  // it threw a `DependencyError` while cancelled
         #expect(issues == [])
     }
 
     /// The same error from an effect that was not cancelled is a failure, and is reported.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func errorThrownByALiveEffectIsReported() async {
-        let log = EffectLog()
-        let gate = EffectGate()
-        let viewModel = ViewModel(
-            initialState: ThrownErrorState(),
-            feature: Feature(interactor: ThrownErrorInteractor(log: log, gate: gate))
-        )
-
-        let issues = await reportedIssues {
-            let task = viewModel.sendViewEvent(.request)
-            gate.open()
-            await task?.value
-        }
-
-        #expect(log.entries == ["request failed"])
-        #expect(issues == ["Effect threw: DependencyError()"])
-    }
-
-    // MARK: Teardown
-
-    @Test
-    func deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue() async throws {
-        let log = EffectLog()
-        weak var weakViewModel: ViewModel<Feature<TeardownAction, TeardownState>>?
-        var task: Task<Void, Never>?
-        do {
-            let viewModel = ViewModel(
-                initialState: TeardownState(),
-                feature: Feature(interactor: TeardownInteractor(log: log, clock: TestClock()))
+        let answer = Gate()
+        let issues = await reportedIssueDetails {
+            let model = await TestModel(
+                initialState: ThrownErrorState(),
+                feature: Feature(interactor: ThrownErrorInteractor(answer: answer))
             )
-            weakViewModel = viewModel
-            task = viewModel.sendViewEvent(.sleepThenSendAndModify)
-        }
-        #expect(weakViewModel == nil)
-        try #require(log.entries == ["sleep cancelled"])  // by the deinit, synchronously
-
-        await task?.value
-
-        #expect(log.entries == ["sleep cancelled", "send threw CancellationError", "modify threw CancellationError"])
-    }
-
-    /// Effect tasks hold the runtime weakly, so it ends with its view model: a read after that is
-    /// reported and returns the last value the effect read.
-    @Test
-    func effectsStateAfterDeinitIsReportedAndReturnsTheLastKnownValue() async {
-        let log = EffectLog()
-        let issues = await reportedIssues {
-            var task: Task<Void, Never>?
-            do {
-                let viewModel = ViewModel(
-                    initialState: TeardownState(count: 7),
-                    feature: Feature(interactor: TeardownInteractor(log: log, clock: TestClock()))
-                )
-                task = viewModel.sendViewEvent(.incrementReadThenSleepThenReadState)
-            }
-            guard log.entries == ["sleep cancelled"] else { return }  // not cancelled: do not wait forever
+            let task = await model.send(.request)
+            answer.open()
             await task?.value
+            await model.expect { $0.requestOutcome = "failed" }
+            await model.finish()
         }
 
-        #expect(issues == ["Read 'effects.state' after the model was invalidated or the scoped state went away"])
-        // 8, not the initial 7: the value of the effect's last successful read.
-        #expect(log.entries == ["sleep cancelled", "effects.state.count=8"])
+        #expect(issues.map(\.message) == ["Effect threw: DependencyError()"])
     }
 
     // MARK: Current behaviour of the start phase
@@ -580,37 +535,39 @@ struct SchedulingTests {
     /// The start phase iterates a snapshot of the queue, so an effect whose preamble re-sends its
     /// own case cancels the already started effects of that case (itself included) but not the
     /// effects queued after it by the outer send, which start once the nested send returns.
-    @Test
-    func preambleResendOfItsOwnCaseDoesNotCancelTheOuterSendsNotYetStartedEffects() {
-        let log = EffectLog()
-        let viewModel = ViewModel(
-            initialState: FanOutState(),
-            feature: Feature(interactor: FanOutInteractor(log: log, clock: TestClock()))
-        )
+    @available(iOS 26, macOS 26, watchOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func preambleResendOfItsOwnCaseDoesNotCancelTheOuterSendsNotYetStartedEffects() async {
+        let clock = EffectClock()
+        let model = await TestModel(initialState: FanOutState(), feature: Feature(interactor: FanOutInteractor(clock: clock)))
 
-        viewModel.sendViewEvent(.fanOut)
+        await model.send(.fanOut) {  // up to the action effect 1 sent from its preamble
+            $0.round = 1
+            $0.started = ["round 1 effect 1"]
+        }
+        await model.receive(.fanOut) {  // the nested round's effects, then the outer send's effect 2
+            $0.round = 2
+            $0.started += ["round 2 effect 1", "round 2 effect 2", "round 1 effect 2"]
+        }
 
-        #expect(
-            log.entries == [
-                "round 1 effect 1 started",
-                "round 2 effect 1 started",
-                "round 2 effect 2 started",
-                "round 1 effect 1 cancelled",
-                "round 1 effect 2 started",
-            ]
-        )
-        #expect(viewModel.round == 2)
+        await model.advance(clock, by: effectDuration)
+        await model.expect {  // round 1's effect 1 never completed
+            $0.completed = ["round 2 effect 1", "round 2 effect 2", "round 1 effect 2"]
+        }
+        await model.finish()
     }
 
-    /// An effect's task handle exists only once `Task.immediate` returns, so `inFlightTasks` omits
-    /// an effect while it runs its own preamble.
+    /// A bare `Core`: `inFlightTasks` is what the test shells wait on, and no shell shows it to an
+    /// effect. An effect's task handle exists only once `Task.immediate` returns, so `inFlightTasks`
+    /// omits an effect while it runs its own preamble.
+    @MainActor
     @Test
     func inFlightTasksOmitsAnEffectDuringItsOwnPreamble() {
         let probe = InFlightProbe()
         let core = Core(
             isolation: MainActor.shared,
             initialState: InFlightProbeState(),
-            interactor: InFlightProbeInteractor(probe: probe, clock: TestClock()).eraseToAnyInteractor(),
+            interactor: InFlightProbeInteractor(probe: probe, clock: EffectClock()).eraseToAnyInteractor(),
             areStatesEqual: nil
         )
         probe.core = core

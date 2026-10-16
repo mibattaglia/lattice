@@ -1,7 +1,5 @@
 // The free functions are compile time tests, only to make sure type inference works; the suite at
-// the end runs a built interactor through a view model.
-// Inspired by tests in https://github.com/pointfreeco/swift-composable-architecture/blob/main/Tests/ComposableArchitectureTests/ReducerBuilderTests.swift
-import Combine
+// the end runs a built interactor through a test model.
 import Foundation
 import Testing
 
@@ -86,11 +84,11 @@ private struct MarkerInteractor: Interactor {
     }
 }
 
-@MainActor
 @Suite
 struct InteractorBuilderTests {
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(arguments: [true, false])
-    func builtInteractorRunsTheChildrenItsControlFlowSelectsInOrder(includeOptional: Bool) {
+    func builtInteractorRunsTheChildrenItsControlFlowSelectsInOrder(includeOptional: Bool) async {
         let interactor = Interactors.CollectInteractors<BuilderState, BuilderAction, _> {
             MarkerInteractor(name: "first")
             if includeOptional {
@@ -109,13 +107,16 @@ struct InteractorBuilderTests {
             }
             MarkerInteractor(name: "existential") as any InteractorOf<MarkerInteractor>
         }
-        let viewModel = ViewModel(initialState: BuilderState(), feature: Feature(interactor: interactor))
-
-        viewModel.sendViewEvent(.run)
+        let model = await TestModel(initialState: BuilderState(), feature: Feature(interactor: interactor))
 
         let selected = includeOptional ? ["optional", "else"] : ["if"]
-        #expect(viewModel.handled == ["first"] + selected + ["loop 0", "loop 1", "existential"])
-        // Every child's effect started, in the same order, before `sendViewEvent` returned.
-        #expect(viewModel.performed == viewModel.handled)
+        let children = ["first"] + selected + ["loop 0", "loop 1", "existential"]
+        // Every child's effect started, in the same order, before `send` returned: their
+        // modifications are folded into it.
+        await model.send(.run) {
+            $0.handled = children
+            $0.performed = children
+        }
+        await model.finish()
     }
 }

@@ -14,8 +14,7 @@ private let interval: Duration = .seconds(1)
 @available(iOS 26, macOS 26, watchOS 26, *)
 private func makeModel<C: Clock<Duration>>(
     clock: C,
-    log: EffectLog = EffectLog(),
-    loadGate: SendableEffectGate = SendableEffectGate(),
+    loadGate: Gate = Gate(),
     fileID: StaticString = #fileID,
     filePath: StaticString = #filePath,
     line: UInt = #line,
@@ -28,7 +27,6 @@ private func makeModel<C: Clock<Duration>>(
                 clock: clock,
                 debounce: debounce,
                 interval: interval,
-                log: log,
                 loadGate: loadGate
             )
         ),
@@ -77,17 +75,14 @@ struct EffectClockTests {
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func advanceDeliversTheDebouncedResult(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeModel(clock: clock, log: log)
+            let model = await makeModel(clock: clock)
 
             await model.send(.query("new")) { $0.query = "new" }
             await model.advance(clock, by: debounce - .milliseconds(1))
-            #expect(clock.sleeperCount == 1)
-            #expect(log.entries == [])
+            #expect(clock.sleeperCount == 1)  // still asleep: nothing ran
 
             await model.advance(clock, by: .milliseconds(1))
-            #expect(log.entries == ["searched new"])
             await model.expect { $0.results = ["NEW"] }
             #expect(clock.sleeperCount == 0)
             #expect(clock.now == EffectClock.Instant(offset: debounce))
@@ -125,14 +120,14 @@ struct EffectClockTests {
         #expect(issues == [])
     }
 
-    /// The load is parked on its gate, not on the clock: `advance` does not wait for it. It ticks the
-    /// ticker three times and returns while the load has committed nothing; opening the gate then
+    /// The load waits for its answer, not on the clock: `advance` does not wait for it. It ticks the
+    /// ticker three times and returns while the load has committed nothing; opening the answer then
     /// finishes the load.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func advanceDoesNotWaitForAnEffectParkedElsewhere(iteration: Int) async {
         let clock = EffectClock()
-        let loadGate = SendableEffectGate()
+        let loadGate = Gate()
         let issues = await reportedIssueDetails {
             let model = await makeModel(clock: clock, loadGate: loadGate)
 
@@ -152,14 +147,13 @@ struct EffectClockTests {
     }
 
     /// A second query within the debounce auto-cancels the first one's sleep inside its `send`, so
-    /// only the second sleep is left, and `advance` makes exactly one search.
+    /// only the second sleep is left, and `advance` wakes only it: one search, one result.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func aSecondQueryWithinTheDebounceReplacesTheFirst(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeModel(clock: clock, log: log)
+            let model = await makeModel(clock: clock)
 
             await model.send(.query("a")) { $0.query = "a" }
             await model.advance(clock, by: .milliseconds(100))
@@ -167,7 +161,6 @@ struct EffectClockTests {
             #expect(clock.pendingDeadlines == [EffectClock.Instant(offset: .milliseconds(100) + debounce)])
 
             await model.advance(clock, by: debounce)
-            #expect(log.entries == ["searched ab"])
             await model.expect { $0.results = ["AB"] }
             await model.finish()
         }
@@ -181,9 +174,8 @@ struct EffectClockTests {
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func clearingTheQueryRemovesTheSleepInsideSend(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeModel(clock: clock, log: log)
+            let model = await makeModel(clock: clock)
 
             await model.send(.query("new")) { $0.query = "new" }
             #expect(clock.sleeperCount == 1)
@@ -191,8 +183,7 @@ struct EffectClockTests {
             #expect(clock.sleeperCount == 0)
 
             await model.advance(clock, by: debounce)
-            #expect(log.entries == [])
-            await model.finish()
+            await model.finish()  // nothing woke, so nothing was written
         }
 
         #expect(issues == [])
@@ -204,12 +195,14 @@ struct EffectClockTests {
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func oneAdvanceWakesInterleavedSleepsInDeadlineOrder(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeModel(clock: clock, log: log)
+            let model = await TestModel(
+                initialState: WakeOrderState(),
+                feature: Feature(interactor: WakeOrderInteractor(clock: clock, debounce: debounce, interval: interval))
+            )
 
             let ticker = await model.send(.start)
-            await model.send(.query("new")) { $0.query = "new" }
+            await model.send(.search)
             #expect(
                 clock.pendingDeadlines == [
                     EffectClock.Instant(offset: debounce), EffectClock.Instant(offset: interval),
@@ -217,11 +210,7 @@ struct EffectClockTests {
             )
 
             await model.advance(clock, by: interval * 2)
-            #expect(log.entries == ["searched new", "tick", "tick"])
-            await model.expect {
-                $0.results = ["NEW"]
-                $0.tick = 2
-            }
+            await model.expect { $0.wakes = ["search", "tick", "tick"] }
             #expect(clock.pendingDeadlines == [EffectClock.Instant(offset: interval * 3)])
             #expect(clock.now == EffectClock.Instant(offset: interval * 2))
 
@@ -240,9 +229,8 @@ struct EffectClockTests {
     @Test(.timeLimit(.minutes(1)), arguments: SleepSpelling.allCases)
     func eachBypassSpellingReportsTheLateSleepOnce(spelling: SleepSpelling) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = await makeModel(clock: clock, log: log)
+            let model = await makeModel(clock: clock)
 
             let search = await model.send(.bypassQuery("x", spelling)) { $0.query = "x" }
             await waitUntilASleepIsRegistered(on: clock)
@@ -253,7 +241,6 @@ struct EffectClockTests {
         }
 
         #expect(issues.map(\.message) == [EffectClock.lateSleepMessage])
-        #expect(log.entries == ["searched x"])
     }
 
     /// `clock.sleep(for:)` from the effect reports nothing, for a one-shot sleep and for a ticker.
@@ -306,17 +293,11 @@ struct EffectClockTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func aProductionClockSleepsForItsDuration() async {
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
             let model = await TestModel(
                 initialState: ClockState(),
                 feature: Feature(
-                    interactor: ClockInteractor(
-                        clock: ContinuousClock(),
-                        debounce: .milliseconds(20),
-                        interval: interval,
-                        log: log
-                    )
+                    interactor: ClockInteractor(clock: ContinuousClock(), debounce: .milliseconds(20), interval: interval)
                 )
             )
 
@@ -328,6 +309,5 @@ struct EffectClockTests {
         }
 
         #expect(issues == [])
-        #expect(log.entries == ["searched x"])
     }
 }

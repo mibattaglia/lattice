@@ -8,10 +8,10 @@ Key source files:
 - [EffectID.swift](../Sources/Lattice/Domain/EffectID.swift)
 - [Core.swift](../Sources/Lattice/Internal/Core.swift): `send`, `modify`, auto-cancel, effect start, `invalidate`
 - [Task+Immediate.swift](../Sources/Lattice/Internal/Concurrency/Task+Immediate.swift), [StartOnMainActor.swift](../Sources/Lattice/Internal/Concurrency/StartOnMainActor.swift), [DefaultIsolation.swift](../Sources/Lattice/Internal/Concurrency/DefaultIsolation.swift)
-- [EnumMetadata.swift](../Sources/Lattice/Internal/Runtime/EnumMetadata.swift): the enum tags auto-cancel keys on
+- [EnumTag.swift](../Sources/Lattice/Internal/Runtime/EnumTag.swift): the enum tags auto-cancel keys on
 - [ViewModel.swift](../Sources/Lattice/Presentation/ViewModel/ViewModel.swift), [ActorModel.swift](../Sources/Lattice/Presentation/ActorModel/ActorModel.swift), [TestHost.swift](../Sources/Lattice/Testing/TestHost.swift)
 - [IsolationTests](../Tests/LatticeTests/IsolationTests): `SchedulingTests`, `ModificationTests`, `CoreExitTests`, `ViewModelIsolationTests`, `TestModelIsolationTests`, `ParallelismTests`
-- [EffectsTests](../Tests/LatticeTests/DomainTests/EffectsTests): `AutoCancelTests`, `EffectIDTests`; [ActorModelTests](../Tests/LatticeTests/PresentationTests/ActorModelTests)
+- [EffectsTests](../Tests/LatticeTests/DomainTests/EffectsTests): `AutoCancelTests`, `EffectIDTests`; [ActorModelTests](../Tests/LatticeTests/PresentationTests/ActorModelTests); [PresentationTests](../Tests/LatticeTests/PresentationTests): `ModificationObservationTests`, `ViewModelTeardownTests`
 - [Tests/NegativeCompileChecks/Effects.swift](../Tests/NegativeCompileChecks/Effects.swift) and [negative-compile-checks.sh](../scripts/negative-compile-checks.sh)
 
 ## Core And Shells
@@ -273,7 +273,7 @@ Without the handler, `await viewModel.sendViewEvent(.startTicking)?.value` would
 
 Every shell's `isolated deinit` invalidates the core, which cancels every effect and drops the queue. Each deinit carries an `#if swift(<6.4) @_optimize(none)` guard.
 
-- `ViewModel`: released on the main actor, the deinit runs inline, so every effect has been cancelled when the release returns (`SchedulingTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`). Released elsewhere, it runs as a main-actor job.
+- `ViewModel`: released on the main actor, the deinit runs inline, so every effect has been cancelled when the release returns (`ViewModelTeardownTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`). Released elsewhere, it runs as a main-actor job.
 - `ActorModel` and `TestModel`: released off the model's executor, as a test or another isolation releases it, the deinit runs later, as a job on that executor, so teardown is asynchronous. A test that observes it waits under a `.timeLimit` for a signal from the effect, as `ActorModelSchedulingTests.deinitCancelsASleepingEffectWhoseLaterSendAndModifyThrowWithoutAnIssue` does.
 - `TestModel` and `TestViewModel` first report what no assertion described, as a warning; see [Testing Infrastructure](./testing-infrastructure.md#deinit).
 - After invalidation, an effect's `effects.send` and `effects.modify` throw `CancellationError`. They report nothing, because the effect's task is cancelled; through a handle used from anywhere else they also report `Effect sent <action> after the model was invalidated` or `Effect modified state after the model was invalidated`. `effects.state` is reported and returns the last known value, since the core is gone.
@@ -330,11 +330,15 @@ The effect start loop in `Core.startQueued` is the one place that vouches for is
 
 ### Behaviour suites
 
-- `SchedulingTests`: preamble before return, `defer` before effect start, depth-first nested sends, the non-transitive send task, 100 re-sent effects that ignore cancellation still delivering their sends and modifications, the sleep variant losing the cancelled work, the start-phase snapshot, thrown-error reporting, and teardown.
-- `ModificationTests`: the `modify` guards, `perform` and `send` inside a body, one commit per `modify`, member-only notification, content-equal replacements, `When` write-back by key path and case path, and inactive case-scoped children.
+Apart from the `ActorModel` suites, they drive `TestModel` and assert what the effects record in state, exhaustively; a cancelled effect is one that never completes under an `EffectClock` and `advance`. `TestViewModel` runs the tests that must hold the executor between two statements, a bare `Core` the internals no shell exposes, and `ViewModel` only the tests it is the subject of.
+
+- `SchedulingTests`: preamble before return, `defer` before effect start, depth-first nested sends, the non-transitive send task, 100 re-sent effects that ignore cancellation still delivering their sends and modifications (under `TestViewModel`), the sleep variant losing the cancelled work, the start-phase snapshot, thrown-error reporting, and `inFlightTasks` during a preamble (a bare `Core`).
+- `ModificationTests`: the `modify` guards, `perform` and `send` inside a body, `perform` through an escaped handle (under `TestViewModel`), one commit per `modify` and modifications after invalidation (a bare `Core`), and inactive case-scoped children.
+- `ModificationObservationTests`: member-only notification, content-equal replacements, and `When` write-back by key path and case path, under `ViewModel`.
+- `ViewModelTeardownTests`: what the `ViewModel` deinit does to its effects, and a handle that outlived its view model.
 - `AutoCancelTests` and `EffectIDTests`: paths per case and per `When` hop, `Merge`, tag stability, declaration-site keys across rebuilt and generic instances, replacement, queued and immediate cancels, `isRunning`, scope paths and `scoped(_:)`.
 - `ActorModelTests`: scheduling, auto-cancel, isolation and teardown under `ActorModel`.
-- `ParallelismTests`: 500 cases per shell with a 1 ms blocking effect. The `TestModel` and `ActorModel` cases overlap and finish well before the serial main-actor `ViewModel` variant (about 0.15 s against 0.8 s on an 11-core machine).
+- `ParallelismTests`: two models per actor shell, whose effects each signal and then wait up to five seconds for the other's; they meet only if the models run on executors of their own, in parallel. Skipped on a single core.
 
 ## Limitations
 

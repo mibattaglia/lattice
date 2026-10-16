@@ -710,7 +710,7 @@ struct CounterTests {
 }
 ```
 
-- Put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
+- When the test target deploys below iOS 26, macOS 26 or watchOS 26, put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
 - Keep the suite nonisolated, without `@MainActor`. Form the interactor, its dependencies and the closures you pass (`assert`, a `receive` predicate) in nonisolated code, such as file scope in the test target. A main-actor interactor, or a closure formed in a `@MainActor` test, is a compile error; such features use `TestViewModel`.
 - Test doubles are plain classes, and nothing a test hands the model needs `Sendable`. Reading `await model.state` is the exception: it crosses the actor, so it needs `State: Sendable`. Internal value types are inferred `Sendable`; the `assert` closures work with any state.
 - The stub suspends before it answers, so the effect's modifications commit after `send` returns and `expect` describes them. An effect that never suspends finishes inside `send`, and `send`'s `assert` describes its modifications too, up to the first action it sends.
@@ -865,6 +865,8 @@ swift test --filter ScopedViewModelTests
 swift test --filter EnumCaseScopingTests
 swift test --filter FineGrainedObservationTests
 swift test --filter ViewModelObservationTests
+swift test --filter ModificationObservationTests
+swift test --filter ViewModelTeardownTests
 
 # the core: scheduling, modifications, isolation exits, parallelism
 swift test --filter '\.SchedulingTests'
@@ -886,7 +888,7 @@ swift test --filter TestViewModelTests
 
 - `IsolationTests` selects the three isolation regression suites, `ViewModelIsolationTests`, `TestModelIsolationTests` and `ActorModelIsolationTests`, not the whole `IsolationTests` folder.
 - `ActorModel` selects the three `ActorModel*` suites, `TestModel` every `TestModel*` suite, and `EffectClock` `EffectClockTests` and `EffectClockTestViewModelTests`.
-- `ParallelismTests` compares the `TestModel` and `ActorModel` cases with the serial `ViewModel` ones; filtering it down to one variant skips the comparison.
+- `ParallelismTests` holds two rendezvous tests, one per actor shell: two models whose effects each wait for the other's. It is skipped on a single-core machine.
 
 Run the negative compile checks after a build (CI runs them):
 
@@ -928,7 +930,7 @@ scripts/sync-skills.sh
 
 - `Sources/Lattice`: the runtime library.
   - `Domain/`: `Interactor`, `InteractorBuilder` and the `Interactors` (`Interact`, `Merge`, `MergeMany`, `When`, …); `Effects.swift`, the `Effects` handle; `EffectID.swift`; `Clock+Sleep.swift`, the `clock.sleep(for:)` overload effects call.
-  - `Internal/Core.swift`: the nonisolated runtime every shell hosts. `Internal/Concurrency/` holds `Task+Immediate`, `StartOnMainActor` and `DefaultIsolation`; `Internal/Runtime/` holds `EnumMetadata` and `RuntimeMetadata`, which give the enum tags that automatic cancellation keys on.
+  - `Internal/Core.swift`: the nonisolated runtime every shell hosts. `Internal/Concurrency/` holds `Task+Immediate`, `StartOnMainActor` and `DefaultIsolation`; `Internal/Runtime/EnumTag.swift` gives the enum tags that automatic cancellation keys on.
   - `Observation/`: `FeatureState`, the `ViewState` projection and its collection, and the observation registrar.
   - `Presentation/`: `Feature/`, `ViewModel/` (`ViewModel`, `ScopedViewModel` and the bindings) and `ActorModel/`.
   - `Testing/`: `TestHost.swift`, the engine both test shells share, `TestModel.swift`, `TestViewModel.swift`, `EffectClock.swift` (the test clock and the shells' `advance(_:by:)`), `Received.swift`, `Exhaustivity.swift` and failure reporting. The CocoaPods pod excludes it.

@@ -9,8 +9,8 @@
 /// as production does. Suites need not be `@MainActor` and run in parallel. The interactor and the
 /// test must not be main-actor-isolated: a main-actor interactor cannot be sent to the model, and a
 /// `@MainActor` test cannot pass the model its closures. Such features use ``TestViewModel``.
-/// `TestModel` requires iOS 26, macOS 26 or watchOS 26; put the `@available` attribute on each
-/// `@Test`, not on the `@Suite`.
+/// `TestModel` requires iOS 26, macOS 26 or watchOS 26. When the test target deploys below them, put
+/// the `@available` attribute on each `@Test`, not on the `@Suite`.
 ///
 /// ```swift
 /// @available(iOS 26, macOS 26, watchOS 26, *)

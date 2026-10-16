@@ -62,7 +62,7 @@ struct TimerLeakView: View {
     }
 }
 
-/// One observing subview per nested row, modeled on `LiveWorkoutMetricValueText`.
+/// One observing subview per nested row.
 /// Reading `row.value` registers an observation on the row's registrar; the
 /// `date` input changes every frame, so this body re-runs (and re-observes the
 /// current registrar) on every TimelineView tick.

@@ -10,12 +10,12 @@ import IssueReporting
 /// `skipInFlightEffects`, and the one detached deadline task per wait that yields it on timeout.
 /// Nothing waits by yielding, sleeping or polling.
 ///
-/// Folding follows TCA 2's test core. During a test `send`, the first commit with an action is the
-/// root transition and becomes the baseline; every later commit (a modification an effect made, an
-/// action an effect sent) is pending until an assertion consumes it. An assertion folds the run of
-/// pending entries it describes into one comparison against `assertedState` plus its `update`.
-/// Entries that no assertion describes are consumed once handled: reported (exhaustive) or skipped
-/// (`.off`), and the baseline advances past them.
+/// During a test `send`, the first commit with an action is the root transition and becomes the
+/// baseline; every later commit (a modification an effect made, an action an effect sent) is pending
+/// until an assertion consumes it. An assertion folds the run of pending entries it describes into
+/// one comparison against `assertedState` plus its `update`. Entries that no assertion describes are
+/// consumed once handled: reported (exhaustive) or skipped (`.off`), and the baseline advances past
+/// them.
 final class TestHost<State: FeatureState, Action> {
     let core: Core<State, Action>
     var exhaustivity: Exhaustivity
@@ -301,8 +301,8 @@ final class TestHost<State: FeatureState, Action> {
         }
     }
 
-    /// A failed `receive` (TCA 2): reports the first pending action as the unexpected one when
-    /// exhaustive, or that none arrived and why the wait ended, then consumes everything pending.
+    /// A failed `receive`: reports the first pending action as the unexpected one when exhaustive, or
+    /// that none arrived and why the wait ended, then consumes everything pending.
     /// `unmetWait` is `nil` when the wait ended because no effect was left in flight.
     private func failReceive(
         _ expectation: ReceiveExpectation<Action>,

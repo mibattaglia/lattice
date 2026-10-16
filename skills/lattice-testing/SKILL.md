@@ -99,7 +99,7 @@ struct ProfileTests {
 
 Rules:
 
-- Put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
+- When the test target deploys below iOS 26, macOS 26 or watchOS 26, put `@available(iOS 26, macOS 26, watchOS 26, *)` on each `@Test`, and on each helper that names `TestModel`, not on the `@Suite`.
 - Keep the suite nonisolated, without `@MainActor`. The interactor, its effect closures and the closures the test passes (`assert`, a `receive` predicate) must be formed in nonisolated code, such as file scope in the test target. A main-actor interactor, or a closure formed in a `@MainActor` test, is a compile error; such features use `TestViewModel`.
 - Test doubles are plain classes or structs; they need no `Sendable` and no actors. Their async methods are `nonisolated(nonsending)`, because test targets usually do not enable `NonisolatedNonsendingByDefault`.
 - `await model.state` crosses the actor, so it needs `State: Sendable`; internal value types are inferred `Sendable`. It is the state the test last asserted, `@Domain` members included, without the commits still pending.

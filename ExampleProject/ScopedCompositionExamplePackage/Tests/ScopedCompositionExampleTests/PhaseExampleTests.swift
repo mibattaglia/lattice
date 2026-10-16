@@ -4,16 +4,15 @@ import Testing
 
 @testable import ScopedCompositionExample
 
-// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. The load and the ticker sleep on an `EffectClock`: they are asleep on it
-// when their `send` returns, and `model.advance` moves the clock past them and lets them run.
+// The suite runs the feature under `TestModel`. The load and the ticker sleep on an `EffectClock`:
+// they are asleep on it when their `send` returns, and `model.advance` moves the clock past them and
+// lets them run.
 
 @Suite
 struct PhaseExampleTests {
     /// The load writes the success case once its delay is over. Tapping Load again auto-cancels
     /// the waiting load and starts the delay over, so the success case comes once, a full delay
     /// after the last tap.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func loadShowsTheSuccessCaseAFullDelayAfterTheLastTap() async {
         let clock = EffectClock()
@@ -33,7 +32,6 @@ struct PhaseExampleTests {
 
     /// The root view starts the ticker as it appears, while `.loading` is showing: a tick then
     /// changes nothing, since only the `.active` payload counts ticks.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ticksWhileLoadingChangeNothing() async {
         let clock = EffectClock()
@@ -51,7 +49,6 @@ struct PhaseExampleTests {
     /// keeps the count, and Stop drops both, so the next Start begins from the defaults.
     /// Cancelling the task `.startTicking` returned stops the ticker, which is what the root view's
     /// `.task` does when the view goes away.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ticksCountOnlyWhileActiveUntilTheTickerIsCancelled() async {
         let clock = EffectClock()
@@ -88,7 +85,6 @@ struct PhaseExampleTests {
     /// Sending `.startTicking` again, as a root view that appears again does, auto-cancels the
     /// running ticker, so there is never a second one: the next tick comes a full interval after
     /// the restart.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func startingTheTickerAgainReplacesTheRunningOne() async {
         let clock = EffectClock()
@@ -116,7 +112,6 @@ struct PhaseExampleTests {
     /// Reset and Stop drop their payload, so the next Load or Start begins from the defaults. A
     /// Load while loaded leaves the payload alone, and a send for a case that is no longer showing
     /// changes nothing.
-    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped() async {
         let clock = EffectClock()
@@ -156,7 +151,6 @@ struct PhaseExampleTests {
 private let loadDuration: Duration = .seconds(1)
 private let tickInterval: Duration = .seconds(1)
 
-@available(macOS 26, *)
 private func makeModel(
     initialState: PhaseState = .loading,
     clock: EffectClock

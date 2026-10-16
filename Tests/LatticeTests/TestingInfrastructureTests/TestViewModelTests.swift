@@ -121,10 +121,9 @@ struct TestViewModelTests {
 
     @Test
     func finishTimesOutAfterTheSettableTimeoutAndSkipInFlightEffectsCancels() async {
-        let log = EffectLog()
         var lines: [Int] = []
         let issues = await reportedIssueDetails {
-            let model = makeModel(LoadInteractor(log: log))
+            let model = makeModel()
             model.timeout = .milliseconds(20)
             model.send(.hang)
             lines.append(#line + 1)
@@ -143,7 +142,6 @@ struct TestViewModelTests {
                 "There were no in-flight effects to skip.",
             ]
         )
-        #expect(log.entries == ["hang cancelled"])
     }
 
     @Test

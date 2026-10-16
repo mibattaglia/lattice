@@ -73,6 +73,7 @@ private struct PhaseHostInteractor: Sendable {
     }
 }
 
+/// `ViewModel` is the subject: these tests assert observation.
 @MainActor
 @Suite struct EnumCaseScopingTests {
     private func makeViewModel(

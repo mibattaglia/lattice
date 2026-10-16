@@ -4,59 +4,60 @@ import Testing
 @testable import Lattice
 
 @Suite
-@MainActor
 struct MergeManyTests {
+    /// Three instances of one interactor type: each alone writes 8; merged, all three run and start
+    /// their effects in order before `send` returns.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
-    func mergeManyInOrder_SameType() throws {
-        var results: [Int] = []
-
-        // Test each interactor individually
+    func mergeManyRunsInstancesOfOneTypeInOrder() async {
         for _ in 0..<3 {
-            let single = makeViewModel(DoubleInteractor())
-            single.sendViewEvent(4)
-            results.append(single.value)
+            let single = await makeArithmeticModel(DoubleInteractor())
+            await single.send(4) {
+                $0.value = 8
+                $0.performed = ["double"]
+            }
+            await single.finish()
         }
 
-        #expect(results == [8, 8, 8])
-
-        // Also verify MergeMany calls all three
-        let many = makeViewModel(
-            Interactors.MergeMany(
-                interactors: [
-                    DoubleInteractor(),
-                    DoubleInteractor(),
-                    DoubleInteractor(),
-                ]
-            )
+        let many = await makeArithmeticModel(
+            Interactors.MergeMany(interactors: [DoubleInteractor(), DoubleInteractor(), DoubleInteractor()])
         )
+        let task = await many.send(4) {
+            $0.value = 8
+            $0.performed = ["double", "double", "double"]
+        }
 
-        let task = many.sendViewEvent(4)
-        #expect(many.value == 8)
         #expect(task != nil)
-        #expect(many.effectLog == ["double", "double", "double"])
+        await many.finish()
     }
 
+    /// Type-erased interactors of different types: each alone writes its own value; merged, they run
+    /// in order, so the last one's value wins, and their effects start in the same order.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
-    func mergeManyInOrder_TypeErased() throws {
-        var results: [Int] = []
+    func mergeManyRunsTypeErasedInteractorsInOrder() async {
+        let first = await makeArithmeticModel(DoubleInteractor())
+        await first.send(4) {
+            $0.value = 8
+            $0.performed = ["double"]
+        }
+        await first.finish()
 
-        // Test each interactor individually in order
-        let first = makeViewModel(DoubleInteractor())
-        first.sendViewEvent(4)
-        results.append(first.value)
+        let second = await makeArithmeticModel(TripleInteractor())
+        await second.send(4) {
+            $0.value = 12
+            $0.performed = ["triple"]
+        }
+        await second.finish()
 
-        let second = makeViewModel(TripleInteractor())
-        second.sendViewEvent(4)
-        results.append(second.value)
+        let third = await makeArithmeticModel(DoubleInteractor())
+        await third.send(4) {
+            $0.value = 8
+            $0.performed = ["double"]
+        }
+        await third.finish()
 
-        let third = makeViewModel(DoubleInteractor())
-        third.sendViewEvent(4)
-        results.append(third.value)
-
-        #expect(results == [8, 12, 8])
-
-        // Also verify MergeMany calls all three
-        let many = makeViewModel(
+        let many = await makeArithmeticModel(
             Interactors.MergeMany(
                 interactors: [
                     DoubleInteractor().eraseToAnyInteractor(),
@@ -65,16 +66,12 @@ struct MergeManyTests {
                 ]
             )
         )
+        let task = await many.send(4) {
+            $0.value = 8
+            $0.performed = ["double", "triple", "double"]
+        }
 
-        let task = many.sendViewEvent(4)
-        #expect(many.value == 8)
         #expect(task != nil)
-        #expect(many.effectLog == ["double", "triple", "double"])
-    }
-
-    private func makeViewModel<I: Interactor<ArithmeticState, Int>>(
-        _ interactor: I
-    ) -> ViewModel<Feature<Int, ArithmeticState>> {
-        ViewModel(initialState: ArithmeticState(), feature: Feature(interactor: interactor))
+        await many.finish()
     }
 }

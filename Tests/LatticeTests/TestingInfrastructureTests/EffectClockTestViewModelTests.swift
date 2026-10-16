@@ -13,7 +13,6 @@ private let interval: Duration = .seconds(1)
 @MainActor
 private func makeViewModel(
     clock: EffectClock,
-    log: EffectLog = EffectLog(),
     fileID: StaticString = #fileID,
     filePath: StaticString = #filePath,
     line: UInt = #line,
@@ -21,7 +20,7 @@ private func makeViewModel(
 ) -> TestViewModel<Feature<ClockAction, ClockState>> {
     TestViewModel(
         initialState: ClockState(),
-        feature: Feature(interactor: ClockInteractor(clock: clock, debounce: debounce, interval: interval, log: log)),
+        feature: Feature(interactor: ClockInteractor(clock: clock, debounce: debounce, interval: interval)),
         fileID: fileID,
         filePath: filePath,
         line: line,
@@ -37,17 +36,15 @@ struct EffectClockTestViewModelTests {
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func advanceDeliversTheDebouncedResult(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = makeViewModel(clock: clock, log: log)
+            let model = makeViewModel(clock: clock)
 
             model.send(.query("new")) { $0.query = "new" }
             #expect(clock.sleeperCount == 1)
             await model.advance(clock, by: debounce - .milliseconds(1))
-            #expect(log.entries == [])
+            #expect(clock.sleeperCount == 1)  // still asleep: nothing ran
 
             await model.advance(clock, by: .milliseconds(1))
-            #expect(log.entries == ["searched new"])
             model.expect { $0.results = ["NEW"] }
             #expect(clock.sleeperCount == 0)
             await model.finish()
@@ -83,13 +80,12 @@ struct EffectClockTestViewModelTests {
     }
 
     /// A second query within the debounce replaces the first one inside its `send`: one `advance`
-    /// makes exactly one search.
+    /// wakes only the second sleep, for one search and one result.
     @Test(.timeLimit(.minutes(1)), arguments: 1...25)
     func aSecondQueryWithinTheDebounceReplacesTheFirst(iteration: Int) async {
         let clock = EffectClock()
-        let log = EffectLog()
         let issues = await reportedIssueDetails {
-            let model = makeViewModel(clock: clock, log: log)
+            let model = makeViewModel(clock: clock)
 
             model.send(.query("a")) { $0.query = "a" }
             await model.advance(clock, by: .milliseconds(100))
@@ -97,7 +93,6 @@ struct EffectClockTestViewModelTests {
             #expect(clock.pendingDeadlines == [EffectClock.Instant(offset: .milliseconds(100) + debounce)])
 
             await model.advance(clock, by: debounce)
-            #expect(log.entries == ["searched ab"])
             model.expect { $0.results = ["AB"] }
             await model.finish()
         }
