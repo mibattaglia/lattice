@@ -5,7 +5,8 @@
 echo "Running swift-format..."
 
 # Run swift-format on Sources and Tests directories
-swift-format format --in-place --recursive Sources Tests 2>/dev/null
+SWIFT_FORMAT="$(xcrun --find swift-format 2>/dev/null || command -v swift-format)"
+"$SWIFT_FORMAT" format --in-place --recursive Sources Tests 2>/dev/null
 
 # Check if any files were modified
 if [ -n "$(git status --porcelain Sources Tests 2>/dev/null)" ]; then

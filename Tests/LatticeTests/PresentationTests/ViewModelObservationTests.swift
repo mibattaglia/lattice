@@ -35,7 +35,6 @@ private struct ObservedInteractor: Sendable {
             switch action {
             case .mutate(let mutation): mutation(&state)
             }
-            return .none
         }
     }
 }

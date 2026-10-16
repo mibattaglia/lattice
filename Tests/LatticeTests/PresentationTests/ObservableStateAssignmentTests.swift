@@ -4,8 +4,14 @@ import Testing
 @testable import Lattice
 
 @FeatureState private struct Leaf: Equatable { var n: Int }
-@FeatureState private struct Child: Equatable { var value: String; var leaf: Leaf }
-@FeatureState private struct Parent: Equatable { var title: String; var child: Child }
+@FeatureState private struct Child: Equatable {
+    var value: String
+    var leaf: Leaf
+}
+@FeatureState private struct Parent: Equatable {
+    var title: String
+    var child: Child
+}
 
 /// A content-equal rebuild of a child state keeps the identities of the child and its nested
 /// states. These tests run on the state value itself; `ViewModelObservationTests` covers the same
@@ -44,7 +50,11 @@ import Testing
     @Test func contentEqualRebuildDoesNotNotify() {
         var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
         nonisolated(unsafe) var fired = false
-        withObservationTracking { _ = a.child.leaf.n } onChange: { fired = true }
+        withObservationTracking {
+            _ = a.child.leaf.n
+        } onChange: {
+            fired = true
+        }
         a.child = Child(value: "x", leaf: Leaf(n: 1))
         #expect(!fired)
     }
@@ -52,7 +62,11 @@ import Testing
     @Test func contentChangeNotifies() {
         var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
         nonisolated(unsafe) var fired = false
-        withObservationTracking { _ = a.child.leaf.n } onChange: { fired = true }
+        withObservationTracking {
+            _ = a.child.leaf.n
+        } onChange: {
+            fired = true
+        }
         a.child = Child(value: "x", leaf: Leaf(n: 2))
         #expect(fired)
     }
@@ -63,7 +77,11 @@ import Testing
         var a = Parent(title: "t", child: Child(value: "x", leaf: Leaf(n: 1)))
         let viewState = Parent.ViewState(a)
         nonisolated(unsafe) var fired = false
-        withObservationTracking { _ = viewState.child.leaf.n } onChange: { fired = true }
+        withObservationTracking {
+            _ = viewState.child.leaf.n
+        } onChange: {
+            fired = true
+        }
 
         a.child = Child(value: "x", leaf: Leaf(n: 1))  // content-equal rebuild
         #expect(!fired)

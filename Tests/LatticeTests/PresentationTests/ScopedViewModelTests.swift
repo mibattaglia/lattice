@@ -7,8 +7,13 @@ import Testing
 
 @testable import Lattice
 
+@FeatureState private struct BadgeLabelState: Equatable, Sendable {
+    var text = "new"
+}
+
 @FeatureState private struct BadgeState: Equatable, Sendable {
     var count: Int
+    var label = BadgeLabelState()
 }
 
 @FeatureState private struct HeaderState: Equatable, Sendable {
@@ -44,8 +49,13 @@ import Testing
     var list = ListState()
 }
 
+@CasePathable private enum BadgeLabelAction: Sendable {
+    case textChanged(String)
+}
+
 @CasePathable private enum BadgeAction: Sendable {
     case incremented
+    case label(BadgeLabelAction)
 }
 
 @CasePathable private enum HeaderAction: Sendable {
@@ -81,18 +91,22 @@ import Testing
 @Interactor<HeaderState, HeaderAction>
 private struct HeaderInteractor: Sendable {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, effects in
             switch action {
             case .titleChanged(let title): state.title = title
             case .badge(.incremented): state.badge.count += 1
+            case .badge(.label(.textChanged(let text))): state.badge.label.text = text
             case .refreshTapped:
                 state.refreshCount += 1
-                // Async effect: exercises EventTask propagation through the scope.
-                return .perform { .badge(.incremented) }
+                // Async effect: exercises the effect task's propagation through the scope. It
+                // suspends first, so only the returned task covers its follow-up action.
+                effects.perform {
+                    await Task.yield()
+                    try effects.send(.badge(.incremented))
+                }
             case .rebuilt(let title):
                 state = HeaderState(title: title, badge: BadgeState(count: state.badge.count))
             }
-            return .none
         }
     }
 }
@@ -118,7 +132,6 @@ private struct ListInteractor: Sendable {
                 state.rows.removeAll { $0.id == id }
                 state.idRows.remove(id: id)
             }
-            return .none
         }
     }
 }
@@ -140,7 +153,6 @@ private struct AppInteractor: Sendable {
             case .hideDetail: state.detail = nil
             case .header, .detail, .list: break
             }
-            return .none
         }
     }
 }
@@ -175,12 +187,12 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
         #expect(vm.viewState.header.title == "new")
     }
 
-    @Test func scopedSendReturnsParentEventTaskForEffects() async {
+    @Test func scopedSendReturnsParentTaskForEffects() async {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header, action: \.header)
-        // .refreshTapped spawns a .perform effect in the parent's loop; the returned EventTask
-        // is the parent's root-scope handle, so finish() awaits the emitted follow-up action.
-        await header.sendViewEvent(.refreshTapped).finish()
+        // .refreshTapped performs an effect in the parent's runtime; the returned task is the
+        // parent's task for that effect, so awaiting it awaits the effect's follow-up action.
+        await header.sendViewEvent(.refreshTapped)?.value
         #expect(vm.viewState.header.badge.count == 1)
     }
 
@@ -201,6 +213,16 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
 
         vm.sendViewEvent(.setFooter("f2"))  // footer change
         #expect(!title.didFire)  // header scope not invalidated
+    }
+
+    @Test func scopedReadIsFineGrained_nestedChildChangeDoesNotInvalidate() {
+        let vm = makeViewModel()
+        let header = vm.scope(state: \.header, action: \.header)
+        let title = ObservationProbe { _ = header.title }
+
+        header.sendViewEvent(.badge(.incremented))  // in place, inside the header's own subtree
+        #expect(!title.didFire)  // the child's sibling member is not invalidated
+        #expect(header.badge.count == 1)
     }
 
     @Test func scopedReadInvalidatesOnSliceChange() {
@@ -242,10 +264,37 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
         #expect(vm.viewState.header.badge.count == 1)
     }
 
+    @Test func threeLevelScopeChainSendsAndBindsThroughEveryHop() {
+        let vm = makeViewModel()
+        // App > header > badge > label: each hop embeds its action into the one above.
+        let label = vm.scope(state: \.header, action: \.header)
+            .scope(state: \.badge, action: \.badge)
+            .scope(state: \.label, action: \.label)
+        let binding = label.binding(\.text, sending: \.textChanged)
+        #expect(binding.wrappedValue == "new")
+
+        binding.wrappedValue = "typed"
+        #expect(vm.viewState.header.badge.label.text == "typed")
+        #expect(binding.wrappedValue == "typed")
+
+        label.sendViewEvent(.textChanged("sent"))
+        #expect(vm.viewState.header.badge.label.text == "sent")
+    }
+
     @Test func readOnlyScopeHasNoActionSurface() {
         let vm = makeViewModel()
         let header = vm.scope(state: \.header)  // ScopedViewModel<HeaderState, Never>
         #expect(header.badge.count == 0)
+    }
+
+    @Test func readOnlyScopeReadInvalidatesOnSliceChange() {
+        let vm = makeViewModel()
+        let header = vm.scope(state: \.header)  // sends nothing, still observed
+        let title = ObservationProbe { _ = header.title }
+
+        vm.sendViewEvent(.header(.titleChanged("new")))
+        #expect(title.didFire)
+        #expect(header.title == "new")  // a live read, not the value at creation
     }
 
     @Test func bindingGetterIsFineGrainedAndSetterSends() {

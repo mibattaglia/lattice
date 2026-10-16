@@ -29,7 +29,6 @@ private struct CollectionInteractor: Sendable {
             switch action {
             case .mutate(let mutation): mutation(&state)
             }
-            return .none
         }
     }
 }

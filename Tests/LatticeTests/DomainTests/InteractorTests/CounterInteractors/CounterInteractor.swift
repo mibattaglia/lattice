@@ -21,13 +21,10 @@ struct CounterInteractor {
             switch action {
             case .increment:
                 state.count += 1
-                return .none
             case .decrement:
                 state.count -= 1
-                return .none
             case .reset:
                 state.count = 0
-                return .none
             }
         }
     }

@@ -1,62 +1,39 @@
 import Lattice
 
+/// Handles the search field. A query edit updates the field at once and starts a search that first
+/// waits out the quiet period on `clock`; the next edit auto-cancels it. Only the last query of a
+/// burst reaches the service.
 @Interactor<SearchState.ResultState, SearchQueryEvent>
-struct SearchQueryInteractor<C: Clock>: Sendable where C.Duration: Sendable {
-    private let weatherService: WeatherService
-    private let debouncer: Debouncer<C, SearchQueryEvent?>
-
-    init(
-        weatherService: WeatherService,
-        clock: C,
-        debounceDuration: C.Duration
-    ) {
-        self.weatherService = weatherService
-        self.debouncer = Debouncer(for: debounceDuration, clock: clock)
-    }
+struct SearchQueryInteractor<C: Clock> {
+    let weatherService: WeatherService
+    let clock: C
+    let debounceDuration: C.Duration
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .query(let query):
                 guard !query.isEmpty else {
                     state = .none
-                    return .none
+                    return
                 }
                 state.query = query
-                return .perform { [weatherService] in
+                effects.perform {
+                    try await clock.sleep(for: debounceDuration)  // the next edit auto-cancels this sleep
+                    let results: [SearchState.ResultState.ResultItem]
                     do {
-                        let weatherModels = try await weatherService.searchWeather(query: query)
-                        let weatherResults = weatherModels.results.map { weatherModel in
-                            SearchState.ResultState.ResultItem(
-                                weatherModel: weatherModel,
-                                forecast: nil
-                            )
+                        results = try await weatherService.searchWeather(query: query).results.map {
+                            SearchState.ResultState.ResultItem(weatherModel: $0, forecast: nil)
                         }
-                        return .searchCompleted(query: query, results: weatherResults)
                     } catch {
-                        return .searchFailed
+                        results = []
                     }
+                    // A newer edit cancelled this search while it ran: its results are stale. A
+                    // cancelled effect's modification is still committed, so check first.
+                    try Task.checkCancellation()
+                    try effects.modify { $0.results = results }
                 }
-                .debounce(using: debouncer)
-
-            case .searchCompleted(let query, let results):
-                state.results = results
-                return .none
-
-            case .searchFailed:
-                state.results = []
-                return .none
             }
         }
-    }
-}
-
-extension SearchQueryInteractor where C == ContinuousClock {
-    init(weatherService: WeatherService) {
-        self.init(
-            weatherService: weatherService,
-            clock: ContinuousClock(),
-            debounceDuration: .milliseconds(300)
-        )
     }
 }

@@ -16,24 +16,16 @@ struct HotCounterInteractor: Interactor {
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, effects in
             switch action {
             case .increment:
                 state.count += 1
-                return .none
             case .addValue(let value):
                 state.count += value
-                return .none
             case .observe(let publisher):
-                return .observe {
-                    AsyncStream { continuation in
-                        let task = Task {
-                            for await value in publisher.values {
-                                continuation.yield(.addValue(value))
-                            }
-                            continuation.finish()
-                        }
-                        continuation.onTermination = { @Sendable _ in task.cancel() }
+                effects.perform {
+                    for await value in publisher.values {
+                        try effects.send(.addValue(value))
                     }
                 }
             }

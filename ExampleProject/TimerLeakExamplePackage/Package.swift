@@ -6,7 +6,7 @@ let package = Package(
     name: "TimerLeakExamplePackage",
     platforms: [
         .iOS(.v26),
-        .macOS(.v14),
+        .macOS(.v26),
     ],
     products: [
         .library(name: "TimerLeakExample", targets: ["TimerLeakExample"])

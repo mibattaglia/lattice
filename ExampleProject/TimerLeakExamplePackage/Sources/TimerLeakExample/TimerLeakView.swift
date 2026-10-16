@@ -48,13 +48,21 @@ struct TimerLeakView: View {
             .padding(.vertical)
             .navigationTitle("Timer Leak")
             .task {
-                viewModel.sendViewEvent(.start)
+                // `.task` cancels this closure when the view goes away, but awaiting the ticker's
+                // task does not cancel the ticker: forward the cancellation, so the ticker stops
+                // with the view.
+                let ticker = viewModel.sendViewEvent(.start)
+                await withTaskCancellationHandler {
+                    await ticker?.value
+                } onCancel: {
+                    ticker?.cancel()
+                }
             }
         }
     }
 }
 
-/// One observing subview per nested row, modeled on `LiveWorkoutMetricValueText`.
+/// One observing subview per nested row.
 /// Reading `row.value` registers an observation on the row's registrar; the
 /// `date` input changes every frame, so this body re-runs (and re-observes the
 /// current registrar) on every TimelineView tick.

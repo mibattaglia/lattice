@@ -5,46 +5,44 @@ import Foundation
 /// `ActiveAction` ⊂ `SubphaseAction` ⊂ `TelemetryAction` ⊂ `SessionAction` ⊂ `SuccessAction`
 /// ⊂ `PhaseEvent`, with `SummaryAction` as a sibling branch under `SuccessAction`.
 @CasePathable
-enum ActiveAction: Equatable, Sendable {
+enum ActiveAction: Equatable {
     case noteChanged(String)
 }
 
 @CasePathable
-enum SubphaseAction: Equatable, Sendable {
+enum SubphaseAction: Equatable {
     case active(ActiveAction)
 }
 
 @CasePathable
-enum TelemetryAction: Equatable, Sendable {
+enum TelemetryAction: Equatable {
     case startTapped
     case stopTapped
     case subphase(SubphaseAction)
 }
 
 @CasePathable
-enum SessionAction: Equatable, Sendable {
+enum SessionAction: Equatable {
     case telemetry(TelemetryAction)
 }
 
 @CasePathable
-enum SummaryAction: Equatable, Sendable {
+enum SummaryAction: Equatable {
     case incremented
 }
 
 /// Actions for the success case's payload, embedded into ``PhaseEvent`` via `.success`.
 @CasePathable
-enum SuccessAction: Equatable, Sendable {
+enum SuccessAction: Equatable {
     case titleChanged(String)
     case summary(SummaryAction)
     case session(SessionAction)
 }
 
 @CasePathable
-enum PhaseEvent: Equatable, Sendable {
+enum PhaseEvent: Equatable {
     case loadTapped
-    case loaded
     case resetTapped
     case startTicking
-    case tick
     case success(SuccessAction)
 }

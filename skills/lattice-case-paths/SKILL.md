@@ -29,10 +29,10 @@ Use CasePaths to make Lattice enums (Actions, `@FeatureState` enum states and th
 import CasePaths
 
 @CasePathable
-enum CounterAction: Sendable {
+enum CounterAction {
     case increment
     case setCount(Int)
-    case loadResponse(Result<Int, Error>)
+    case saved(id: Int)
 }
 ```
 
@@ -69,7 +69,7 @@ action.modify(\.setCount) { $0 += 1 }
 ```swift
 @CasePathable
 @dynamicMemberLookup
-enum LoadState: Sendable {
+enum LoadState {
     case idle
     case loading(progress: Double)
     case loaded(Int)
@@ -86,7 +86,7 @@ When a feature's state is a `@CasePathable` `@FeatureState` enum, `@FeatureState
 ```swift
 @CasePathable
 @FeatureState
-enum ScreenState: Sendable, Equatable {
+enum ScreenState: Equatable {
     case list(ListState)
     case detail(DetailState)
 }
@@ -120,15 +120,17 @@ case .detail:
 - The trapping `scope` is for use inside a matched `switch` case; it `fatalError`s if the case is inactive.
 - `scopeIfActive(state:action:)` returns `nil` instead, for conditional contexts.
 - Only `@FeatureState` payloads can be scoped; a plain payload (`String`, a DTO) is read or bound through the mirror as is.
-- In interactors, mutate the active payload in place, with `modify` on the raw state (`state.modify(\.detail) { ... }`) or `Interactors.When(state: \.detail, action: \.detail)`, so case scopes observe the change fine-grained; assigning a new case value is a wholesale replacement.
+- In interactors, mutate the active payload in place, with CasePaths' `modify` on the state inside `interact` (`state.modify(\.detail) { ... }`) or `Interactors.When(state: \.detail, action: \.detail)`, so case scopes observe the change fine-grained; assigning a new case value is a wholesale replacement.
 
-## Testing buffered receives
+## Receiving sent actions in tests
 
-When action enums are `CasePathable`, `TestViewModel.receive` can match by case path instead of full-value equality.
+An effect delivers its result with `effects.modify`, which a test asserts with `expect`. An action an effect sends, to start effects or to run interactor logic, is asserted with `receive`. When the action enum is `@CasePathable`, `TestModel.receive` and `TestViewModel.receive` can match by case key path instead of full-value equality:
 
 ```swift
-await model.receive(\.loadResponse) {
-    $0.count = 42
+await model.send(.saveTapped) { $0.isSaving = true }
+await model.receive(\.saved) {  // any `.saved(id:)`: the payload is not compared
+    $0.savedID = 7
+    $0.isSaving = false
 }
 ```
 

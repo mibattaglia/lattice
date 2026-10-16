@@ -36,7 +36,6 @@ private struct SectionInteractor: Sendable {
             switch action {
             case .setSubtitle(let subtitle): state.subtitle = subtitle
             }
-            return .none
         }
     }
 }
@@ -55,7 +54,6 @@ private struct DashInteractor: Sendable {
             case .touch(let time): state.updatedAt = time
             case .header: break
             }
-            return .none
         }
     }
 }
@@ -83,7 +81,6 @@ private struct UncomparableDashInteractor: Sendable {
             case .setTitle(let title): state.title = title
             case .replaceBlob: state.blob = Blob()
             }
-            return .none
         }
     }
 }
@@ -209,7 +206,6 @@ private struct RootPhaseInteractor: Sendable {
                 let current = state
                 state = current
             }
-            return .none
         }
     }
 }

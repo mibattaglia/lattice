@@ -30,7 +30,6 @@ private struct SuccessInteractor: Sendable {
             case .titleChanged(let title): state.title = title
             case .incremented: state.count += 1
             }
-            return .none
         }
     }
 }
@@ -52,7 +51,6 @@ private struct PhaseInteractor: Sendable {
                 if case .loading = state { state = .loading }
             case .success: break
             }
-            return .none
         }
     }
 }
@@ -75,6 +73,7 @@ private struct PhaseHostInteractor: Sendable {
     }
 }
 
+/// `ViewModel` is the subject: these tests assert observation.
 @MainActor
 @Suite struct EnumCaseScopingTests {
     private func makeViewModel(
@@ -220,5 +219,19 @@ private struct PhaseHostInteractor: Sendable {
         #expect(!coarse.didFire)
         #expect(phase.scopeIfActive(state: \.success, action: \.success)?.title == "nested")
         #expect(vm.phase[case: \.success]?.title == "nested")
+    }
+
+    // A case switch one level down fires the coarse read of the enum child, which a `switch` over
+    // it registers, and not the root's.
+    @Test func enumChildCaseSwitchFiresItsCoarseReadButNotTheRoot() {
+        let vm = ViewModel(initialState: PhaseHostState(), feature: Feature(interactor: PhaseHostInteractor()))
+        let phase = vm.scope(state: \.phase, action: \.phase)
+        let coarse = ObservationProbe { _ = phase.viewState }
+        let root = ObservationProbe { _ = vm.viewState }
+
+        phase.sendViewEvent(.load)  // .loading -> .success inside the root
+        #expect(coarse.didFire)
+        #expect(!root.didFire)
+        #expect(phase.viewState[case: \.success]?.title == "t")
     }
 }

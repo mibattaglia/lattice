@@ -88,10 +88,7 @@ extension InteractorMacro: MemberMacro {
         providingMembersOf declaration: D,
         in context: C
     ) throws -> [DeclSyntax] {
-        let attributes = declaration.attributes
-        guard let declAttr = attributes.first?.as(AttributeSyntax.self),
-            let attrName = declAttr.attributeName.as(IdentifierTypeSyntax.self)
-        else {
+        guard let attrName = node.attributeName.as(IdentifierTypeSyntax.self) else {
             return []
         }
 

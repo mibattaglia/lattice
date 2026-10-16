@@ -96,7 +96,6 @@ private struct CounterPhaseInteractor: Sendable {
                 state.title = title
                 state.count += 1
             }
-            return .none
         }
     }
 }

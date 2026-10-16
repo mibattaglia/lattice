@@ -14,7 +14,7 @@ struct ViewModelTests {
     init() {
         let capturedNow = Self.now
         self.interactor = MyInteractor(dateFactory: { capturedNow })
-        let feature = Feature(interactor: interactor.eraseToAnyInteractorUnchecked())
+        let feature = Feature(interactor: interactor.eraseToAnyInteractor())
         self.viewModel = ViewModel(
             initialState: .loading,
             feature: feature
@@ -45,7 +45,7 @@ struct ViewModelTests {
         #expect(viewModel.viewState == viewStateFactory(count: 0, isLoading: true))
 
         // Await the effect to complete
-        await eventTask.finish()
+        await eventTask?.value
 
         // Async effect has completed (count = 42, isLoading = false)
         #expect(viewModel.viewState == viewStateFactory(count: 42, isLoading: false))

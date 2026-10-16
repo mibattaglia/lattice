@@ -165,5 +165,67 @@
                 """
             }
         }
+
+        func testAvailableBeforeInteractor() {
+            assertMacro {
+                """
+                @available(macOS 26, *)
+                @Interactor<Int, String>
+                struct MyInteractor {
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } expansion: {
+                """
+                @available(macOS 26, *)
+                struct MyInteractor {
+                    @Lattice.InteractorBuilder<Int, String>
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+
+                    typealias State = Int
+
+                    typealias Action = String
+                }
+
+                @available(macOS 26, *) extension MyInteractor: Lattice.Interactor {
+                }
+                """
+            }
+        }
+
+        func testMainActorBeforeInteractor() {
+            assertMacro {
+                """
+                @MainActor
+                @Interactor<Int, String>
+                struct MyInteractor {
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+                }
+                """
+            } expansion: {
+                """
+                @MainActor
+                struct MyInteractor {
+                    @Lattice.InteractorBuilder<Int, String>
+                    var body: some InteractorOf<Self> {
+                        EmptyInteractor()
+                    }
+
+                    typealias State = Int
+
+                    typealias Action = String
+                }
+
+                extension MyInteractor: Lattice.Interactor {
+                }
+                """
+            }
+        }
     }
 #endif
