@@ -273,8 +273,8 @@ Without the handler, `await viewModel.sendViewEvent(.startTicking)?.value` would
 
 Every shell's `isolated deinit` invalidates the core, which cancels every effect and drops the queue. Each deinit carries an `#if swift(<6.4) @_optimize(none)` guard.
 
-- `ViewModel`: released on the main actor, the deinit runs inline, so every effect has been cancelled when the release returns (`TimerLeakTests.releasingTheViewModelStopsTheTicker`). Released elsewhere, it runs as a main-actor job.
-- `ActorModel` and `TestModel`: released off the model's executor, as a test or another isolation releases it, the deinit runs later, as a job on that executor, so teardown is asynchronous. A test that observes it waits for a signal from the effect under a `.timeLimit`.
+- `ViewModel`: released on the main actor, the deinit runs inline, so every effect has been cancelled when the release returns (`SchedulingTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`). Released elsewhere, it runs as a main-actor job.
+- `ActorModel` and `TestModel`: released off the model's executor, as a test or another isolation releases it, the deinit runs later, as a job on that executor, so teardown is asynchronous. A test that observes it waits under a `.timeLimit`: for a signal from the effect, or, as `TimerLeakTests.releasingTheModelStopsTheTicker` does, until the clock has no live sleep.
 - `TestModel` and `TestViewModel` first report what no assertion described, as a warning; see [Testing Infrastructure](./testing-infrastructure.md#deinit).
 - After invalidation, an effect's `effects.send` and `effects.modify` throw `CancellationError`. They report nothing, because the effect's task is cancelled; through a handle used from anywhere else they also report `Effect sent <action> after the model was invalidated` or `Effect modified state after the model was invalidated`. `effects.state` is reported and returns the last known value, since the core is gone.
 - A loop that sleeps with `try?` still ends at teardown, because its next `modify` throws, but it spins after a plain cancel: write `try await clock.sleep(for:)`.

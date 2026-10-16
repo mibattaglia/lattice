@@ -1,13 +1,12 @@
 import Foundation
 import Lattice
-import Observation
 import Testing
 
 @testable import SearchExample
 
-// The feature runs under `TestModel`, so the suite is not `@MainActor` and every test that creates
-// one is `@available(macOS 26, *)` (the package supports macOS 14). Time is a `GateClock`: a test
-// waits until the debounced search is sleeping, then moves the clock past the quiet period.
+// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
+// package supports macOS 14. Time is a `GateClock`: a test waits until the debounced search is
+// sleeping, then moves the clock past the quiet period.
 
 @Suite
 struct SearchTests {
@@ -144,37 +143,6 @@ struct SearchTests {
         }
         await model.finish()
     }
-
-    // `.results` carries a `@FeatureState` payload, so typing a query invalidates only the
-    // query readers: the `switch viewModel.viewState` and the list it shows stay put.
-    @MainActor
-    @Test
-    func queryEditInvalidatesOnlyTheQueryReaders() {
-        let viewModel = ViewModel(
-            initialState: .results(.none),
-            feature: Feature(
-                interactor: SearchInteractor(
-                    weatherService: StubWeatherService(),
-                    clock: GateClock(),
-                    debounceDuration: .milliseconds(300)
-                )
-            )
-        )
-        let query = ChangeProbe()
-        let caseSwitch = ChangeProbe()
-        let listItems = ChangeProbe()
-        withObservationTracking { _ = viewModel.viewState[case: \.results]?.query } onChange: { query.didChange = true }
-        withObservationTracking { _ = viewModel.viewState } onChange: { caseSwitch.didChange = true }
-        withObservationTracking { _ = viewModel.viewState[case: \.results]?.listItems } onChange: {
-            listItems.didChange = true
-        }
-
-        viewModel.sendViewEvent(.search(.query("new")))
-        #expect(query.didChange)
-        #expect(!caseSwitch.didChange)
-        #expect(!listItems.didChange)
-        #expect(viewModel.viewState[case: \.results]?.query == "new")
-    }
 }
 
 /// A test model over the search feature. The stub is handed over to the model (`sending`): it is not
@@ -195,10 +163,6 @@ private func makeModel(
             )
         )
     )
-}
-
-private final class ChangeProbe: @unchecked Sendable {
-    var didChange = false
 }
 
 private func makeResult(id: Int, name: String) -> WeatherSearchDomainModel.Result {

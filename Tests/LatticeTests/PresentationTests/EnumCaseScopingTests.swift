@@ -219,4 +219,18 @@ private struct PhaseHostInteractor: Sendable {
         #expect(phase.scopeIfActive(state: \.success, action: \.success)?.title == "nested")
         #expect(vm.phase[case: \.success]?.title == "nested")
     }
+
+    // A case switch one level down fires the coarse read of the enum child, which a `switch` over
+    // it registers, and not the root's.
+    @Test func enumChildCaseSwitchFiresItsCoarseReadButNotTheRoot() {
+        let vm = ViewModel(initialState: PhaseHostState(), feature: Feature(interactor: PhaseHostInteractor()))
+        let phase = vm.scope(state: \.phase, action: \.phase)
+        let coarse = ObservationProbe { _ = phase.viewState }
+        let root = ObservationProbe { _ = vm.viewState }
+
+        phase.sendViewEvent(.load)  // .loading -> .success inside the root
+        #expect(coarse.didFire)
+        #expect(!root.didFire)
+        #expect(phase.viewState[case: \.success]?.title == "t")
+    }
 }

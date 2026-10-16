@@ -4,9 +4,9 @@ import Testing
 
 @testable import TodosExample
 
-// The feature runs under `TestModel`, so the suite is not `@MainActor` and every test that creates
-// one is `@available(macOS 26, *)` (the package supports macOS 14). The auto-sort delay is a
-// `GateClock`: a test waits until the sort is sleeping, then moves the clock past the delay.
+// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
+// package supports macOS 14. The auto-sort delay is a `GateClock`: a test waits until the sort is
+// sleeping, then moves the clock past the delay.
 
 @Suite
 struct TodosTests {
@@ -171,32 +171,26 @@ struct TodosTests {
         await model.finish()
     }
 
-    @MainActor
+    /// The filter picks the todos views show, `filteredTodos`, and leaves the todos themselves as
+    /// they are.
+    @available(macOS 26, *)
     @Test
-    func filterShowsExpectedItems() {
+    func filterShowsExpectedItems() async {
         let todos = [
             makeTodo(title: "Active", isComplete: false, order: 0),
             makeTodo(title: "Done", isComplete: true, order: 1),
         ]
-        let viewModel = ViewModel(
-            initialState: TodosState(
-                todos: todos,
-                filter: .all,
-                newTodoText: "",
-                nextOrder: 2
-            ),
-            feature: makeTodosFeature(clock: GateClock())
+        let model = await makeModel(
+            initialState: TodosState(todos: todos, filter: .all, newTodoText: "", nextOrder: 2),
+            clock: GateClock()
         )
 
-        viewModel.sendViewEvent(.setFilter(.active))
-        let activeTodos = viewModel.filteredTodos
-        #expect(activeTodos.count == 1)
-        #expect(activeTodos.first?.title == "Active")
+        await model.send(.setFilter(.active)) { $0.filter = .active }
+        #expect(await model.state.filteredTodos.map(\.title) == ["Active"])
 
-        viewModel.sendViewEvent(.setFilter(.completed))
-        let completedTodos = viewModel.filteredTodos
-        #expect(completedTodos.count == 1)
-        #expect(completedTodos.first?.title == "Done")
+        await model.send(.setFilter(.completed)) { $0.filter = .completed }
+        #expect(await model.state.filteredTodos.map(\.title) == ["Done"])
+        await model.finish()
     }
 }
 

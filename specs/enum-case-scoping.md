@@ -259,7 +259,8 @@ comparison — same shape, one level down.
 (`trappingScopeReadsLivePayload`, `scopeIfActiveReturnsNilForInactiveCase`,
 `caseFlipServesCreationSnapshotWithoutCrashing`, `lateSendAfterCaseFlipIsDroppedByWhen`,
 `bindingThroughCaseScope`) and an enum child of a scope
-(`scopedEnumChildScopesIntoItsActiveCase`). Excerpt:
+(`scopedEnumChildScopesIntoItsActiveCase`, `enumChildCaseSwitchFiresItsCoarseReadButNotTheRoot`).
+Excerpt:
 
 ```swift
 @FeatureState struct SuccessState: Equatable, Sendable {
@@ -471,15 +472,17 @@ Each counter lives in its view value (`private final class Renders`), so it star
 SwiftUI re-creates that view (for example `ActiveView` after Start); compare which counters
 advance rather than absolute counts.
 
-`PhaseExampleTests` checks the same boundaries with observation probes on a `ViewModel`, driving
-the load and the ticker on a test clock: `tickWhileLoadingDoesNotInvalidateTheRootSwitch` (with
-`areStatesEqual: nil`, so only the `_$inert` identity prevents a fire),
-`tickWhileIdleInvalidatesNeitherSwitch`, `payloadEditsWhileActiveInvalidateOnlyTheirLeaf` and
-`caseTransitionsInvalidateExactlyTheirSwitch`. Its `TestModel` tests cover the behaviour:
-`resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a walk-through),
-`loadShowsTheSuccessCaseAFullDelayAfterTheLastTap`,
+`PhaseExampleTests` runs the feature under `TestModel`, driving the load and the ticker on a
+`GateClock`: `resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a walk-through),
+`loadShowsTheSuccessCaseAFullDelayAfterTheLastTap`, `ticksWhileLoadingChangeNothing`,
 `ticksCountOnlyWhileActiveUntilTheTickerIsCancelled` and
-`startingTheTickerAgainReplacesTheRunningOne`.
+`startingTheTickerAgainReplacesTheRunningOne`. The boundaries the counters show are proven in the
+library's suites, among them `EnumCaseScopingTests.payloadlessCaseReassignmentDoesNotFireCoarse`
+(ticks while `.loading`), `payloadEditThroughWhenCasePathIsLeafOnlyAndKeepsRootID` and
+`ViewModelObservationTests.casePathMutationDoesNotInvalidateWholePhaseObservation` (leaf edits),
+`EnumCaseScopingTests.enumChildCaseSwitchFiresItsCoarseReadButNotTheRoot` (Start's inner case
+change), and `enumCaseSwitchFiresRoot` and
+`switchOverViewStateTracksTheCaseAndThePayloadMembersItRead` (Load/Reset).
 
 ## Validation
 

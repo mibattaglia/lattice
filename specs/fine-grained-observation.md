@@ -331,7 +331,10 @@ Expected, demonstrable behavior:
 
 Each counter lives in its view value, so it starts over whenever SwiftUI re-creates that view;
 compare which counter advances on a tap rather than absolute counts. `FineGrainedExampleTests`
-checks the same boundaries with observation probes.
+runs the feature under `TestModel` and asserts the state each action changes; the boundaries the
+counters show are proven in `FineGrainedObservationTests` (`unrelatedLeafChangeDoesNotInvalidate`,
+`inPlaceNestedLeafMutationFiresOnlyThatLeaf` and
+`visibleComputedMemberInvalidatesWhenItsDomainDependencyChanges`).
 
 ## Validation
 

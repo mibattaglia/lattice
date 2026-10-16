@@ -177,10 +177,12 @@ read-light container views.
   `scopedSendReturnsParentTaskForEffects`,
   `scopedComputedMemberReadsDomainMember`,
   `scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate`,
+  `scopedReadIsFineGrained_nestedChildChangeDoesNotInvalidate`,
   `scopedReadInvalidatesOnSliceChange`,
   `wholeSliceReadIsCoarse_inPlaceLeafMutationDoesNotInvalidate`,
   `wholeSliceReadInvalidatesOnWholesaleReplacement`, `nestedScopeComposes`,
-  `readOnlyScopeHasNoActionSurface`, `bindingGetterIsFineGrainedAndSetterSends`,
+  `threeLevelScopeChainSendsAndBindsThroughEveryHop`, `readOnlyScopeHasNoActionSurface`,
+  `readOnlyScopeReadInvalidatesOnSliceChange`, `bindingGetterIsFineGrainedAndSetterSends`,
   `closureActionOverloadEmbedsWithoutCasePaths`, `sendViewEventActsAsTypedCallbackHandoff`,
   `anyVoidChildBridgesAtCallSite`.
 - Optional child: `optionalChildScopeIsNilWhileAbsentAndLiveWhilePresent`,
@@ -365,7 +367,13 @@ read-only `scope(state:)` projection is observation-live even though it can send
 read nothing observable. This is the read-light-container shape "Re-render cost when the
 parent re-renders" recommends, validated rather than masked.
 
-`ScopedCompositionExampleTests` checks the same boundaries with observation probes. Spec C
+`ScopedCompositionExampleTests` runs the feature under `TestModel` and sends the root action each
+child view's scope chain embeds, such as `.dashboard(.header(.badge(.incremented)))`; the
+boundaries the counters show are proven in `ScopedViewModelTests`
+(`scopedReadIsFineGrained_nestedChildChangeDoesNotInvalidate`,
+`scopedReadIsFineGrained_unrelatedSliceDoesNotInvalidate` and
+`readOnlyScopeReadInvalidatesOnSliceChange`), and the chain itself by
+`threeLevelScopeChainSendsAndBindsThroughEveryHop`. Spec C
 extends this package with a phase-enum screen — see the Demo project section of
 [`enum-case-scoping.md`](./enum-case-scoping.md).
 

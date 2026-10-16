@@ -1,53 +1,45 @@
-import Observation
+import Lattice
 import Testing
 
 @testable import FineGrainedExample
-import Lattice
 
-private final class ChangeProbe: @unchecked Sendable {
-    var didChange = false
-}
+// The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
+// package supports macOS 14. `send` asserts the whole state, so each test also shows that the
+// action left the other members alone.
 
-@MainActor
 @Suite
 struct FineGrainedExampleTests {
-    private func makeViewModel() -> FineGrainedViewModel {
-        ViewModel(
-            initialState: FineGrainedState(),
-            feature: Feature(interactor: FineGrainedInteractor())
-        )
-    }
-
+    @available(macOS 26, *)
     @Test
-    func bumpingCountDoesNotInvalidateHeader() {
-        let viewModel = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.title } onChange: { probe.didChange = true }
+    func bumpingTheCountChangesOnlyTheCount() async {
+        let model = await makeModel()
 
-        viewModel.sendViewEvent(.bumpCount)
-        #expect(!probe.didChange)
-        #expect(viewModel.viewState.count == 1)
+        await model.send(.bumpCount) { $0.count = 1 }
+        await model.finish()
     }
 
+    @available(macOS 26, *)
     @Test
-    func changingTitleDoesNotInvalidateFooter() {
-        let viewModel = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.count } onChange: { probe.didChange = true }
+    func changingTheTitleChangesOnlyTheTitle() async {
+        let model = await makeModel()
 
-        viewModel.sendViewEvent(.setTitle("Updated"))
-        #expect(!probe.didChange)
-        #expect(viewModel.viewState.title == "Updated")
+        await model.send(.setTitle("Updated")) { $0.title = "Updated" }
+        await model.finish()
     }
 
+    /// Toggling the phase flips the hidden `phaseActive`; views read the `phase` derived from it.
+    @available(macOS 26, *)
     @Test
-    func togglingPhaseInvalidatesPhaseObserver() {
-        let viewModel = makeViewModel()
-        let probe = ChangeProbe()
-        withObservationTracking { _ = viewModel.phase } onChange: { probe.didChange = true }
+    func togglingThePhaseShowsTheActivePhase() async {
+        let model = await makeModel()
 
-        viewModel.sendViewEvent(.togglePhase)
-        #expect(probe.didChange)
-        #expect(viewModel.viewState.phase == .active("Active!"))
+        await model.send(.togglePhase) { $0.phaseActive = true }
+        #expect(await model.state.phase == .active("Active!"))
+        await model.finish()
     }
+}
+
+@available(macOS 26, *)
+private func makeModel() async -> TestModel<Feature<FineGrainedEvent, FineGrainedState>> {
+    await TestModel(initialState: FineGrainedState(), feature: Feature(interactor: FineGrainedInteractor()))
 }

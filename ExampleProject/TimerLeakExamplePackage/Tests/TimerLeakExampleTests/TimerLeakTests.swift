@@ -3,10 +3,9 @@ import Testing
 
 @testable import TimerLeakExample
 
-// The tests run the ticker under `TestModel`, so the suite is not `@MainActor` and every test that
-// creates one is `@available(macOS 26, *)` (the package supports macOS 14); the teardown test uses
-// the app's `ViewModel` on the main actor. Time is a `GateClock`: a test waits until the ticker is
-// sleeping, then moves the clock one interval, once per tick.
+// The suite runs the ticker under `TestModel`, so each test is `@available(macOS 26, *)`: the
+// package supports macOS 14. Time is a `GateClock`: a test waits until the ticker is sleeping,
+// then moves the clock one interval, once per tick.
 
 @Suite
 struct TimerLeakTests {
@@ -75,25 +74,26 @@ struct TimerLeakTests {
         await model.finish()  // the ticker ended without a tick
     }
 
-    /// Releasing the view model cancels the ticker. Released on the main actor, its `isolated
-    /// deinit` runs as the last reference goes, and the ticker's sleep ends inside it.
-    @MainActor
+    /// Releasing the model stops the ticker, as releasing the app's view model does: the model's
+    /// `isolated deinit` cancels its effects, which ends the ticker's sleep.
+    @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
-    func releasingTheViewModelStopsTheTicker() async {
+    func releasingTheModelStopsTheTicker() async {
         let clock = GateClock()
-        weak var weakViewModel: ViewModel<Feature<TimerLeakEvent, TimerLeakState>>?
+        weak var weakModel: TestModel<Feature<TimerLeakEvent, TimerLeakState>>?
         do {
-            let viewModel = ViewModel(
-                initialState: TimerLeakState(),
-                feature: Feature(interactor: TimerLeakInteractor(clock: clock, tickInterval: tickInterval))
-            )
-            weakViewModel = viewModel
-            viewModel.sendViewEvent(.start)
+            // Exhaustive, with no `finish()`: it would wait for the ticker, which only the release
+            // stops. The deinit reports only commits no assertion described, and the ticker makes
+            // none while the clock stands still, so the release leaves no warning.
+            let model = await makeModel(clock: clock)
+            weakModel = model
+            await model.send(.start)
             await clock.waitForSleepers(1)
         }
 
-        #expect(weakViewModel == nil)
-        #expect(clock.pendingSleeps == [])  // cancelled by the deinit, synchronously
+        #expect(weakModel == nil)
+        await waitUntilNothingSleeps(on: clock)
+        #expect(clock.pendingSleeps == [])  // the deinit cancelled the ticker, which ended its sleep
     }
 }
 
@@ -117,4 +117,13 @@ private func letTheTickerTick(_ count: Int, on clock: GateClock) async {
         clock.moveForward(by: tickInterval)
     }
     await clock.waitForSleepers(1)
+}
+
+/// Waits until no sleep is live on `clock`. A released model's `isolated deinit` runs on the model's
+/// own actor after the release returns, so the cancel it makes is not synchronous with the test
+/// task. The test's time limit cancels a wait for a sleep that never ends.
+private func waitUntilNothingSleeps(on clock: GateClock) async {
+    while !clock.pendingSleeps.isEmpty, !Task.isCancelled {
+        await Task.yield()
+    }
 }
