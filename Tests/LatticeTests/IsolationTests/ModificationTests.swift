@@ -506,7 +506,9 @@ struct ModificationTests {
         }
 
         #expect(
-            issues.map(\.message) == ["Read 'effects.state' after the model was invalidated or the scoped state went away"]
+            issues.map(\.message) == [
+                "Read 'effects.state' after the model was invalidated or the scoped state went away"
+            ]
         )
         #expect(log.entries == ["read value=5"])
     }
@@ -528,7 +530,9 @@ struct ModificationTests {
         }
 
         #expect(
-            issues.map(\.message) == ["Read 'effects.state' after the model was invalidated or the scoped state went away"]
+            issues.map(\.message) == [
+                "Read 'effects.state' after the model was invalidated or the scoped state went away"
+            ]
         )
         #expect(log.entries == ["read value=7"])
     }

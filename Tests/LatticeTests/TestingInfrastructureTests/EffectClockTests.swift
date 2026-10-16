@@ -297,7 +297,8 @@ struct EffectClockTests {
             let model = await TestModel(
                 initialState: ClockState(),
                 feature: Feature(
-                    interactor: ClockInteractor(clock: ContinuousClock(), debounce: .milliseconds(20), interval: interval)
+                    interactor: ClockInteractor(
+                        clock: ContinuousClock(), debounce: .milliseconds(20), interval: interval)
                 )
             )
 

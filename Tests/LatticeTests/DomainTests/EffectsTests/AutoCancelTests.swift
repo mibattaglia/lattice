@@ -407,7 +407,8 @@ struct AutoCancelTests {
     @Test(.timeLimit(.minutes(1)))
     func reHandlingAnIndirectCaseCancelsItsEffectsWhateverThePayload() async {
         let clock = EffectClock()
-        let model = await TestModel(initialState: TreeState(), feature: Feature(interactor: TreeInteractor(clock: clock)))
+        let model = await TestModel(
+            initialState: TreeState(), feature: Feature(interactor: TreeInteractor(clock: clock)))
 
         await model.send(.node(.leaf("x"), .leaf("y"))) { $0.nodes = 1 }
         await model.send(.leaf("z"))  // another case

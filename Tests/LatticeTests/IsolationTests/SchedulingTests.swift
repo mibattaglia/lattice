@@ -348,7 +348,9 @@ struct SchedulingTests {
             $0.order = ["outer interact", "outer effect 1 preamble"]
         }
         await model.receive(.inner) {
-            $0.order += ["inner interact", "inner effect preamble", "outer effect 1 after send", "outer effect 2 preamble"]
+            $0.order += [
+                "inner interact", "inner effect preamble", "outer effect 1 after send", "outer effect 2 preamble",
+            ]
         }
 
         await model.advance(clock, by: effectDuration * 2)
@@ -539,7 +541,8 @@ struct SchedulingTests {
     @Test(.timeLimit(.minutes(1)))
     func preambleResendOfItsOwnCaseDoesNotCancelTheOuterSendsNotYetStartedEffects() async {
         let clock = EffectClock()
-        let model = await TestModel(initialState: FanOutState(), feature: Feature(interactor: FanOutInteractor(clock: clock)))
+        let model = await TestModel(
+            initialState: FanOutState(), feature: Feature(interactor: FanOutInteractor(clock: clock)))
 
         await model.send(.fanOut) {  // up to the action effect 1 sent from its preamble
             $0.round = 1
