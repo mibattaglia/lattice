@@ -5,8 +5,8 @@ import Testing
 @testable import SearchExample
 
 // The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. Time is a `GateClock`: a test waits until the debounced search is
-// sleeping, then moves the clock past the quiet period.
+// package supports macOS 14. Time is an `EffectClock`: a debounced search is asleep on it when its
+// `send` returns, and `model.advance` moves it past the quiet period and lets the search run.
 
 @Suite
 struct SearchTests {
@@ -15,7 +15,7 @@ struct SearchTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func debouncedSearchUsesLatestQuery() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let searches = CallLog()
         let model = await makeModel(
             initialState: .results(.none),
@@ -28,13 +28,11 @@ struct SearchTests {
 
         await model.send(.search(.query("n"))) { $0 = makeSearchState(query: "n") }
         await model.send(.search(.query("ne"))) { $0 = makeSearchState(query: "ne") }
-        let search = await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
+        await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
 
-        await clock.waitForSleepers(1)  // only the "new" search is still waiting
-        clock.moveForward(by: .milliseconds(300))
-        await search?.value
+        await model.advance(clock, by: .milliseconds(300))
 
-        #expect(searches.entries == ["new"])
+        #expect(searches.entries == ["new"])  // only the "new" search was still waiting
         await model.expect {  // the search wrote its results directly
             $0 = makeSearchState(query: "new", results: [makeResultItem(id: 1, name: "New York")])
         }
@@ -45,7 +43,7 @@ struct SearchTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func clearingTheQueryCancelsTheWaitingSearch() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let searches = CallLog()
         let model = await makeModel(
             initialState: .results(.none),
@@ -54,10 +52,10 @@ struct SearchTests {
         )
 
         await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
-        await clock.waitForSleepers(1)
         await model.send(.search(.query(""))) { $0 = makeSearchState(query: "") }
 
-        #expect(clock.pendingSleeps == [])
+        await model.advance(clock, by: .milliseconds(300))  // when the "new" search was due
+        await model.expect { _ in }  // it did not wake: the clearing `send` cancelled it
         await model.finish()
         #expect(searches.entries == [])
     }
@@ -67,7 +65,7 @@ struct SearchTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func editingDuringASearchDropsItsResults() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let answers = Gate()
         let searches = CallLog()
         let model = await makeModel(
@@ -84,18 +82,14 @@ struct SearchTests {
         )
 
         let staleSearch = await model.send(.search(.query("ne"))) { $0 = makeSearchState(query: "ne") }
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(300))  // the "ne" search wakes and calls the service
-        await answers.waitForWaiters(1)  // it is waiting for its answer
+        await model.advance(clock, by: .milliseconds(300))  // the "ne" search wakes and waits for its answer
         #expect(searches.entries == ["ne"])
-        let search = await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
+        await model.send(.search(.query("new"))) { $0 = makeSearchState(query: "new") }
         answers.open()  // the "ne" answer arrives after the edit cancelled its search
         await staleSearch?.value
         await model.expect { _ in }  // nothing was written
 
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(300))
-        await search?.value
+        await model.advance(clock, by: .milliseconds(300))
 
         #expect(searches.entries == ["ne", "new"])
         await model.expect {
@@ -151,7 +145,7 @@ struct SearchTests {
 private func makeModel(
     initialState: SearchState,
     weatherService: sending StubWeatherService,
-    clock: GateClock = GateClock()
+    clock: EffectClock = EffectClock()
 ) async -> TestModel<Feature<SearchEvent, SearchState>> {
     await TestModel(
         initialState: initialState,

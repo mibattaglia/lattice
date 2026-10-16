@@ -222,24 +222,4 @@ extension Effects {
             lastKnown: LastKnown(initialState)
         )
     }
-
-    /// The handle with every enqueued operation wrapped by `transform` (`Debounce`).
-    func transformingOperations(
-        _ transform: @escaping (@escaping EffectOperation) -> EffectOperation
-    ) -> Effects {
-        let enqueue = self.enqueue
-        return Effects(
-            readState: readState,
-            isRoutingAction: isRoutingAction,
-            path: path,
-            scopePath: scopePath,
-            enqueue: { path, scopePath, id, operation in enqueue(path, scopePath, id, transform(operation)) },
-            enqueueCancel: enqueueCancel,
-            isRunningKey: isRunningKey,
-            visit: visit,
-            sendAction: sendAction,
-            modifyState: modifyState,
-            lastKnown: lastKnown
-        )
-    }
 }

@@ -472,8 +472,8 @@ Each counter lives in its view value (`private final class Renders`), so it star
 SwiftUI re-creates that view (for example `ActiveView` after Start); compare which counters
 advance rather than absolute counts.
 
-`PhaseExampleTests` runs the feature under `TestModel`, driving the load and the ticker on a
-`GateClock`: `resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a walk-through),
+`PhaseExampleTests` runs the feature under `TestModel`, driving the load and the ticker on an
+`EffectClock`: `resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped` (a walk-through),
 `loadShowsTheSuccessCaseAFullDelayAfterTheLastTap`, `ticksWhileLoadingChangeNothing`,
 `ticksCountOnlyWhileActiveUntilTheTickerIsCancelled` and
 `startingTheTickerAgainReplacesTheRunningOne`. The boundaries the counters show are proven in the

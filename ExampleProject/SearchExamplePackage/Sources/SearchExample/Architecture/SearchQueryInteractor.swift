@@ -1,11 +1,13 @@
 import Lattice
 
-/// Handles the search field. A query edit updates the field at once and starts a search; the
-/// parent wraps this interactor in `Interactors.Debounce`, so the search first waits out the quiet
-/// period, and the next edit auto-cancels it. Only the last query of a burst reaches the service.
+/// Handles the search field. A query edit updates the field at once and starts a search that first
+/// waits out the quiet period on `clock`; the next edit auto-cancels it. Only the last query of a
+/// burst reaches the service.
 @Interactor<SearchState.ResultState, SearchQueryEvent>
-struct SearchQueryInteractor {
+struct SearchQueryInteractor<C: Clock> {
     let weatherService: WeatherService
+    let clock: C
+    let debounceDuration: C.Duration
 
     var body: some InteractorOf<Self> {
         Interact { state, event, effects in
@@ -17,6 +19,7 @@ struct SearchQueryInteractor {
                 }
                 state.query = query
                 effects.perform {
+                    try await clock.sleep(for: debounceDuration)  // the next edit auto-cancels this sleep
                     let results: [SearchState.ResultState.ResultItem]
                     do {
                         results = try await weatherService.searchWeather(query: query).results.map {

@@ -16,55 +16,53 @@
 
 ## Time control
 
-`TestClock.advance` right after a `send` races the effect's sleep:
+Inject an `EffectClock` and move time with the test shell's `advance(_:by:)`:
 
-```text
-model executor                               global executor (Clock.sleep is @concurrent)
-send(.queryChanged("b"))
-  preamble → clock.sleep(for: 300 ms) ─hop─▶   [job queued]
-send returns
-await clock.advance(by: 300 ms)              ─▶ mega-yields, scans: no sleeper yet → returns
-                                               [job runs] the sleep registers, after the advance
-await task?.value                            → never ends; an `expect` would fail
-```
-
-A test-local gate clock lets the test wait for the sleep to register before it moves time. Copy an example package's `GateClock.swift` from the Lattice repository, such as `ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift`, into your test target; the reference copy in `Tests/LatticeTests/Support/GateClock.swift` has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own:
-
-- `waitForSleepers(_:)` suspends until that many live sleeps exist, without polling. It ends when the waiting task is cancelled, so a `.timeLimit` stops a test that waits for a sleep that never comes.
-- `moveForward(by:)` advances time and wakes every due sleep before it returns, soonest first.
-- `pendingSleeps` lists the time left on each live sleep; `#expect(clock.pendingSleeps == [])` proves that a cancelled effect's sleep ended.
-- Sleeps are cancellation-aware: a cancel removes a registered sleep inside the `cancel()` call, and a sleep whose task was already cancelled never registers.
+- The effect's `try await clock.sleep(for:)` binds to Lattice's `nonisolated(nonsending)` overload, which registers the sleep on the `EffectClock` on the shell's isolation, before the effect first suspends: the sleep is registered when `send` returns.
+- `await model.advance(clock, by: duration)` wakes every sleep due by the new time, in deadline order, moving time to each deadline as it wakes it. After each wake it waits until the woken effect has run to its next suspension: committed and slept again, finished, or parked on something else, which does not hold it up. The wait is a handshake with the woken effect, not a `Task.yield()`.
+- Sleeps are cancellation-aware: a cancel removes its effect's sleep inside the `cancel()` call, so an `advance` to when it was due wakes nothing, and a sleep whose task is already cancelled throws without registering.
+- Use one clock per model: `advance` waits for woken effects on its own shell.
 
 For a debounced or delayed effect:
 
 - assert the immediate state change in `send`'s `assert`
-- `await clock.waitForSleepers(1)`: the effect is asleep on the clock
-- `clock.moveForward(by: delay)`: wakes it before returning
-- `await task?.value` for that send's effect, then `await model.expect { … }` its modification
+- `await model.advance(clock, by: delay)`: the effect wakes and runs to its next suspension
+- `await model.expect { … }` its modification; when the woken effect then waits on a dependency that suspends, wait for that first, for example with `await task?.value`
 - `await model.finish()`
 
-A loop needs one wait and one move per tick, because one move wakes only the sleeps registered at that moment. Waiting for the next sleep after the last move is how the test knows that the loop has committed its tick:
+One `advance` moves a loop through every tick in its duration, because each woken tick commits and sleeps again, one interval after the deadline it woke at, before the next wake:
 
 ```swift
 let ticker = await model.send(.startTicking)
-for _ in 1...3 {
-    await clock.waitForSleepers(1)  // one wait …
-    clock.moveForward(by: .seconds(1))  // … and one move per tick
-}
-await clock.waitForSleepers(1)  // asleep again: the third tick is committed
+await model.advance(clock, by: .seconds(3))  // three wakes, each run to the loop's next sleep
 await model.expect { $0.ticks = 3 }  // three modifications, one assertion
 ticker?.cancel()  // cancel the loop; never await its task
 await model.finish()
 ```
 
+## Sleeps that register late
+
+The standard library's `sleep(for:tolerance:)` and `sleep(until:tolerance:)` are `@concurrent`. An effect that sleeps through them hops to the global executor first, so the sleep reaches the clock after `send` returned, and an `advance` right after the `send` can miss it:
+
+```text
+model executor                               global executor (sleep(until:tolerance:) is @concurrent)
+send(.queryChanged("b"))
+  preamble → sleep(for:tolerance:) ─hop─▶      [job queued]
+send returns
+await model.advance(clock, by: 300 ms)       no sleep registered yet → wakes nothing
+                                               [job runs] the sleep registers, late
+```
+
+`EffectClock` reports every sleep that reaches it with no caller isolation, `EffectClock registered this sleep late: …`: `sleep(for:tolerance:)`, `Task.sleep(for:clock:)`, `sleep(until:tolerance:)` on a generic clock, and `clock.sleep(for:)` inside a `@concurrent` function. `sleep(until:)` called on a concrete `EffectClock` runs on the caller's isolation and is not reported. Spell the sleep `try await clock.sleep(for:)` on the effect's isolation, in a file that imports Lattice.
+
 ## Debounced effects
 
-- `Interactors.Debounce` sleeps at the top of every effect the child performs. Re-handling the action case cancels the sleeping effect, so after a burst of sends only the last effect is asleep: `waitForSleepers(1)` then sees exactly that one.
-- An effect performed with an `@EffectID` is delayed too, and the next `perform` of its key replaces it.
-- Interactors take the clock as a generic parameter (`struct SearchInteractor<C: Clock>`) with a `ContinuousClock` initializer for the app; tests pass the gate clock.
+- A debounce is `try await clock.sleep(for:)` at the top of the effect. Re-handling the action case cancels the sleeping effect inside that `send`, so after a burst of sends only the last effect is asleep, and one `advance` past the delay runs exactly that one.
+- An effect performed with an `@EffectID` is replaced by the next `perform` of its key instead, and an action the interactor ignores leaves it alone.
+- Interactors take the clock as a generic parameter (`struct SearchInteractor<C: Clock>`) with a `ContinuousClock` initializer for the app; tests pass an `EffectClock`.
 
 ## Cancelled effects
 
 - An effect cancelled by automatic cancellation, `cancel(_:)`, replacement by key, `skipInFlightEffects`, teardown or cancelling the returned task reports none of the errors it throws.
 - A cancelled effect keeps running until its next cancellation-aware suspension, and its modifications are still committed and recorded.
-- To assert that a cancelled effect wrote nothing, first prove that it ended, for example with `#expect(clock.pendingSleeps == [])` after the cancel and then by awaiting its task, and only then `expect`. Before that, `expect { _ in }` passes vacuously.
+- To assert that a cancelled effect wrote nothing, first prove that it ended, and only then `expect`; before that, `expect { _ in }` passes vacuously. For a one-shot effect, `advance` to when its sleep was due, which wakes a sleep that outlived the cancel, then await its task. For a loop, whose task is never awaited, `advance` one interval and `expect { _ in }`, then end with `finish()`, which waits for the loop to end and reports anything it wrote.

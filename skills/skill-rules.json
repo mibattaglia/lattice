@@ -62,14 +62,14 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Testing Lattice features with TestModel, TestViewModel, exhaustivity, and a gate clock",
+      "description": "Testing Lattice features with TestModel, TestViewModel, exhaustivity, and EffectClock",
       "promptTriggers": {
-        "keywords": ["test", "testmodel", "testviewmodel", "testclock", "gateclock", "gate clock", "exhaustivity"],
+        "keywords": ["test", "testmodel", "testviewmodel", "testclock", "effectclock", "effect clock", "exhaustivity"],
         "intentPatterns": ["(test|assert|verify).*?(feature|view model|interactor|effect)"]
       },
       "fileTriggers": {
         "pathPatterns": ["Tests/**"],
-        "contentPatterns": ["TestModel", "TestViewModel", "TestClock", "GateClock", "skipReceived", "skipInFlightEffects", "receive\\(", "expect\\s*\\{"]
+        "contentPatterns": ["TestModel", "TestViewModel", "TestClock", "EffectClock", "skipReceived", "skipInFlightEffects", "receive\\(", "expect\\s*\\{"]
       }
     }
   }

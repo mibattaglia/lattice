@@ -19,10 +19,11 @@ struct SearchInteractor {
         debounceDuration: C.Duration
     ) {
         self.weatherService = weatherService
-        // Every search the query interactor starts first sleeps for `debounceDuration` on `clock`.
-        self.queryInteractor = Interactors.Debounce(for: debounceDuration, clock: clock) {
-            SearchQueryInteractor(weatherService: weatherService)
-        }
+        self.queryInteractor = SearchQueryInteractor(
+            weatherService: weatherService,
+            clock: clock,
+            debounceDuration: debounceDuration
+        )
         .eraseToAnyInteractor()
     }
 

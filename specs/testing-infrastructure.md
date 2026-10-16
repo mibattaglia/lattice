@@ -10,8 +10,9 @@ Key source files:
 - [TestHost.swift](../Sources/Lattice/Testing/TestHost.swift): recording, folding, waiting
 - [TestModel.swift](../Sources/Lattice/Testing/TestModel.swift), [TestViewModel.swift](../Sources/Lattice/Testing/TestViewModel.swift)
 - [Received.swift](../Sources/Lattice/Testing/Received.swift), [Exhaustivity.swift](../Sources/Lattice/Testing/Exhaustivity.swift), [TestFailure.swift](../Sources/Lattice/Testing/TestFailure.swift), [TestIssueReporting.swift](../Sources/Lattice/Testing/TestIssueReporting.swift)
-- [TestingInfrastructureTests](../Tests/LatticeTests/TestingInfrastructureTests): `TestModelSendTests`, `TestModelFoldingTests`, `TestModelExhaustivityTests`, `TestModelWaitingTests`, `TestModelCancellationTests`, `TestModelExampleTests`, `TestModelDeterminismTests`, `TestModelStateEqualityTests`, `TestModelNonSendableTests`, `TestModelEffectSequenceTests`, and the `TestViewModel` mirror `TestViewModelTests`
-- Test support: [GateClock.swift](../Tests/LatticeTests/Support/GateClock.swift), [ReportedIssues.swift](../Tests/LatticeTests/Support/ReportedIssues.swift)
+- [EffectClock.swift](../Sources/Lattice/Testing/EffectClock.swift): the test clock and the shells' `advance(_:by:)`; [Clock+Sleep.swift](../Sources/Lattice/Domain/Clock+Sleep.swift): the `clock.sleep(for:)` overload effects call
+- [TestingInfrastructureTests](../Tests/LatticeTests/TestingInfrastructureTests): `TestModelSendTests`, `TestModelFoldingTests`, `TestModelExhaustivityTests`, `TestModelWaitingTests`, `TestModelCancellationTests`, `TestModelExampleTests`, `TestModelDeterminismTests`, `TestModelStateEqualityTests`, `TestModelNonSendableTests`, `TestModelEffectSequenceTests`, `EffectClockTests`, and the `TestViewModel` mirrors `TestViewModelTests` and `EffectClockTestViewModelTests`
+- Test support: [ReportedIssues.swift](../Tests/LatticeTests/Support/ReportedIssues.swift)
 
 `Sources/Lattice/Testing` is excluded from the CocoaPods pod.
 
@@ -137,10 +138,10 @@ await model.receive(\.saved, timeout: .seconds(2)) {  // Action: @CasePathable
 
 `expect` asserts the modifications effects made: the results they wrote into state directly.
 
-- It is synchronous and does not wait. Await the effect first (`await model.send(…)?.value`), receive an action it sends, or wait for a signal it gives.
+- It is synchronous and does not wait. Await the effect first (`await model.send(…)?.value`), `advance` the `EffectClock` it sleeps on, receive an action it sends, or wait for a signal it gives.
 - It first handles the actions pending ahead of the modifications: exhaustive, it reports `Must handle <n> received action(s) before 'expect'.` (they need `receive`); `.off`, it skips them.
 - It then folds every modification up to the next action into one assertion. With nothing left pending, `update` is asserted against the live state.
-- `expect` can pass vacuously. Before an effect has run, `expect { _ in }` compares an unchanged state and passes. To assert that a cancelled effect wrote nothing, first prove that it ended (for example, check that its sleep was cancelled, then await its task), then `expect`.
+- `expect` can pass vacuously. Before an effect has run, `expect { _ in }` compares an unchanged state and passes. To assert that a cancelled effect wrote nothing, first prove that it ended (for example, `advance` to when its sleep was due, which wakes a sleep that outlived the cancel, then await its task), then `expect`.
 - A content-equal modification leaves no trace that an equality-based assertion can see.
 
 ## `finish(timeout:)`
@@ -188,65 +189,66 @@ Each shell's `isolated deinit` hands what is still pending to the same handling,
 
 ## Time
 
-### The `TestClock` race
+### The `clock.sleep(for:)` overload
 
-`TestClock.advance` right after a `send` races the effect's sleep:
+The standard library's `Clock.sleep(for:tolerance:)` and the `sleep(until:tolerance:)` requirement are `@concurrent`, and so is swift-clocks' `TestClock.sleep`. An effect that sleeps through them hops to the global executor before the clock's own code runs, so a test clock learns of the sleep only after `send` has returned, and moving time right after the `send` can miss it:
 
 ```text
-model executor                               global executor (Clock.sleep is @concurrent)
+model executor                               global executor (sleep(until:tolerance:) is @concurrent)
 send(.queryChanged("b"))
-  preamble → clock.sleep(for: 300 ms) ─hop─▶   [job queued]
+  preamble → sleep(for:tolerance:) ─hop─▶      [job queued]
 send returns
-await clock.advance(by: 300 ms)              ─▶ mega-yields, scans: no sleeper yet → returns
-                                               [job runs] the sleep registers, after the advance
-await task?.value                            → never ends; an `expect` would fail
+move time by 300 ms                          no sleep registered yet → wakes nothing
+                                               [job runs] the sleep registers, after the move
 ```
 
-The standard library's `Clock.sleep(for:)` and swift-clocks' `TestClock.sleep` are `@concurrent`, so an effect registers its sleep only after it has hopped off the model's executor, while `advance` only mega-yields before it scans for sleepers. After a wake-up the effect also has to hop back to the model before an `expect` can see its modification. This is a documented limitation. Lattice ships no clock of its own for it.
+[Clock+Sleep.swift](../Sources/Lattice/Domain/Clock+Sleep.swift) shadows the one-argument spelling. `Clock.sleep(for:)` takes no defaulted argument, so overload resolution prefers it to the standard library's `sleep(for:tolerance:)` at generic, existential and concrete call sites, and it is `nonisolated(nonsending)`, so it runs on the effect's isolation. On an `EffectClock` it registers the sleep there, before the effect first suspends: the sleep is registered when `send` returns. Every other clock sleeps through `sleep(until:tolerance:)`, hopping as before. The overload ships in the pod; `EffectClock` does not.
 
-### The gate clock idiom
+- It is an extension member: a file that sleeps imports Lattice. Under `MemberImportVisibility`, a file without the import binds to the standard library's overload.
+- `sleep(for:tolerance:)`, `Task.sleep(for:clock:)` and `sleep(until:tolerance:)` on a generic clock skip it.
 
-Tests use a test-local clock that lets the test wait for a sleep to register before it moves time. `GateClock` in [Tests/LatticeTests/Support](../Tests/LatticeTests/Support/GateClock.swift) is the reference, and each example package's test target has its own copy without the root's log hook: copy one into your own test target.
+### `EffectClock` and `advance`
 
-- `sleep(until:tolerance:)` registers the sleep under a lock. Sleeps are cancellation-aware: a cancel removes a registered sleep inside the `cancel()` call, and a sleep whose task was already cancelled never registers.
-- `waitForSleepers(_:)` suspends until that many live sleeps exist, without polling. It ends when the waiting task is cancelled, so a `.timeLimit` stops a test that waits for a sleep that never comes.
-- `moveForward(by:)` advances time and wakes every due sleep before it returns, soonest first.
-- `pendingSleeps` lists the time left on each live sleep.
+`EffectClock` is the test clock. Time moves only through the shell's `advance(_:by:)`:
 
 ```swift
 @available(iOS 26, macOS 26, watchOS 26, *)
 @Test(.timeLimit(.minutes(1)))
 func debouncedSearchUsesTheLatestQuery() async {
-    let clock = GateClock()
+    let clock = EffectClock()
     let model = await TestModel(
         initialState: SearchState(),
         feature: Feature(interactor: SearchInteractor(clock: clock, debounceDuration: .milliseconds(300)))
     )
     await model.send(.queryChanged("a")) { $0.query = "a" }
-    let search = await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a"
-    await clock.waitForSleepers(1)  // "b" is asleep on the clock
-    clock.moveForward(by: .milliseconds(300))  // wakes it before returning
-    await search?.value
+    await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a" while it sleeps
+    await model.advance(clock, by: .milliseconds(300))  // "b" wakes, searches and writes its results
     await model.expect { $0.results = ["b"] }
     await model.finish()
 }
 ```
 
-A loop needs one wait and one move per tick, because one move wakes only the sleeps registered at that moment. Waiting for the next sleep after the last move is how the test knows the loop has committed its tick, and its observers have fired:
+- `TestModel.advance(_:by:)` and `TestViewModel.advance(_:by:)` wake every sleep due by the new time, in deadline order, moving time to each deadline as they wake it. After each wake they wait until the woken effect has run to its next suspension: it committed and slept again, finished, or parked on something other than the clock, which does not hold `advance` up. So `expect` right after `advance` sees what the woken effects committed before they suspended again.
+- A loop that sleeps again is due one interval after the deadline it woke at, and is woken again while that is within the duration: one `advance` moves a ticker through every tick in it.
+- The wait is a handshake, not `Task.yield()`. A resumed continuation does not land on the shell's executor: it resumes on the global executor, then hops back, so "resume, then yield" is two jobs racing. The woken sleep signals from inside its own job, once it is back on the shell's executor, and `advance`, on that same serial executor, resumes only after the job reached its next suspension.
+- Sleeps are cancellation-aware: cancelling a sleeping effect removes its sleep inside the `cancel()` call, and a sleep whose task is already cancelled throws without registering. Tests observe sleeps only through `advance`: an `advance` to when a cancelled sleep was due wakes nothing, so `expect { _ in }` right after it passes, where a sleep that outlived the cancel would have woken and committed.
+- `advance` waits for the woken effects on its own shell's executor: use one clock per model.
+
+A loop needs one `advance` for any number of ticks:
 
 ```swift
 let ticker = await model.send(.startTicking)
-for _ in 1...3 {
-    await clock.waitForSleepers(1)  // one wait …
-    clock.moveForward(by: .seconds(1))  // … and one move per tick
-}
-await clock.waitForSleepers(1)  // asleep again: the third tick is committed
+await model.advance(clock, by: .seconds(3))  // three wakes, each run to the loop's next sleep
 await model.expect { $0.ticks = 3 }  // three modifications, one assertion
 ticker?.cancel()  // cancel the loop; never await its task
 await model.finish()
 ```
 
-Interactors take the clock as a generic parameter; see [Clock injection](./interactors.md#clock-injection).
+### Late sleeps are reported
+
+A sleep that reaches an `EffectClock` with no caller isolation came after a hop off the effect's isolation: it registers after `send` returned, and `advance` can miss it. `EffectClock` reports it, `EffectClock registered this sleep late: …`, then sleeps. That catches `sleep(for:tolerance:)`, `Task.sleep(for:clock:)` and `sleep(until:tolerance:)` on a generic clock, which reach the `sleep(until:tolerance:)` witness after the standard library's hop, and a `clock.sleep(for:)` inside a `@concurrent` function, which reaches the overload's registering path with no isolation. `sleep(until:)` called on a concrete `EffectClock` runs on the caller's isolation and is not reported. A wrapper such as swift-clocks' `AnyClock` reaches the clock through `sleep(until:tolerance:)` after a hop, so it is reported too.
+
+Interactors take the clock as a generic parameter; see [Clock injection](./interactors.md#clock-injection). The library's isolation and cancellation suites (`TestModelIsolationTests`, `AutoCancelTests` and others) keep swift-clocks' `TestClock` for sleeps that end only by cancellation; the isolation suites rely on its `@concurrent` hop, which the overload's `sleep(until:tolerance:)` branch keeps. None of them moves that clock after a send.
 
 ## Asserting Reported Issues
 

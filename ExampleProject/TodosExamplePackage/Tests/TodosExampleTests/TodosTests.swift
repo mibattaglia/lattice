@@ -5,15 +5,15 @@ import Testing
 @testable import TodosExample
 
 // The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. The auto-sort delay is a `GateClock`: a test waits until the sort is
-// sleeping, then moves the clock past the delay.
+// package supports macOS 14. The auto-sort delay runs on an `EffectClock`: the sort is asleep on it
+// when its `send` returns, and `model.advance` moves the clock past the delay and lets the sort run.
 
 @Suite
 struct TodosTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func addToggleDeleteReorder() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         await model.send(.newTodoTextChanged("First")) { $0.newTodoText = "First" }
@@ -26,7 +26,7 @@ struct TodosTests {
         let firstId = todos[0].id
         let secondId = todos[1].id
 
-        let autoSort = await model.send(.setTodoCompletion(id: firstId, isComplete: true)) {
+        await model.send(.setTodoCompletion(id: firstId, isComplete: true)) {
             $0.todos[0].isComplete = true
         }
 
@@ -54,9 +54,7 @@ struct TodosTests {
         }
         #expect(await model.state.todos.map(\.title) == ["Fourth", "First", "Third"])
 
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(300))
-        await autoSort?.value
+        await model.advance(clock, by: .milliseconds(300))
         await model.expect { applyAutoSort(&$0) }  // the sort wrote the new order directly
 
         let sorted = await model.state.todos
@@ -68,7 +66,7 @@ struct TodosTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func debouncedAutoSortMovesCompletedToBottom() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         await model.send(.newTodoTextChanged("First")) { $0.newTodoText = "First" }
@@ -85,12 +83,10 @@ struct TodosTests {
         }
         #expect(autoSort != nil)  // the toggle started the delayed sort
 
-        await clock.waitForSleepers(1)
-        #expect(clock.pendingSleeps == [.milliseconds(300)])
-        await model.expect { _ in }  // still waiting: the list is not sorted yet
+        await model.advance(clock, by: .milliseconds(299))
+        await model.expect { _ in }  // 1 ms short of the delay: the list is not sorted yet
 
-        clock.moveForward(by: .milliseconds(300))
-        await autoSort?.value
+        await model.advance(clock, by: .milliseconds(1))
         await model.expect { applyAutoSort(&$0) }
 
         #expect(await model.state.todos.map(\.id) == [secondId, firstId])
@@ -102,7 +98,7 @@ struct TodosTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func togglingAgainRestartsTheAutoSortDelay() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let todos = [
             makeTodo(title: "First", isComplete: false, order: 0),
             makeTodo(title: "Second", isComplete: false, order: 1),
@@ -114,20 +110,18 @@ struct TodosTests {
         )
 
         await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)) { $0.todos[0].isComplete = true }
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(200))
+        await model.advance(clock, by: .milliseconds(200))
 
-        let autoSort = await model.send(.setTodoCompletion(id: todos[1].id, isComplete: true)) {
+        await model.send(.setTodoCompletion(id: todos[1].id, isComplete: true)) {
             $0.todos[1].isComplete = true
         }
-        await clock.waitForSleepers(1)
-        #expect(clock.pendingSleeps == [.milliseconds(300)])  // a new, full delay
 
-        clock.moveForward(by: .milliseconds(100))
+        await model.advance(clock, by: .milliseconds(100))
         await model.expect { _ in }  // the first toggle's delay is over, but its sort was cancelled
 
-        clock.moveForward(by: .milliseconds(200))
-        await autoSort?.value
+        await model.advance(clock, by: .milliseconds(199))
+        await model.expect { _ in }  // a new, full delay: 1 ms short of it, still not sorted
+        await model.advance(clock, by: .milliseconds(1))
         await model.expect { applyAutoSort(&$0) }
 
         #expect(await model.state.todos.map(\.title) == ["Third", "First", "Second"])
@@ -141,7 +135,7 @@ struct TodosTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ignoredTogglesLeaveThePendingSortAlone() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let todos = [
             makeTodo(title: "First", isComplete: false, order: 0),
             makeTodo(title: "Second", isComplete: false, order: 1),
@@ -151,21 +145,18 @@ struct TodosTests {
             clock: clock
         )
 
-        let autoSort = await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)) {
+        await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)) {
             $0.todos[0].isComplete = true
         }
-        await clock.waitForSleepers(1)
 
         let ignored = [
             await model.send(.setTodoCompletion(id: todos[0].id, isComplete: true)),
             await model.send(.setTodoCompletion(id: UUID(), isComplete: true)),
         ]
         #expect(ignored.allSatisfy { $0 == nil })
-        #expect(clock.pendingSleeps == [.milliseconds(300)])  // still the first toggle's sort
 
-        clock.moveForward(by: .milliseconds(300))
-        await autoSort?.value
-        await model.expect { applyAutoSort(&$0) }
+        await model.advance(clock, by: .milliseconds(300))
+        await model.expect { applyAutoSort(&$0) }  // the first toggle's sort ran on time
 
         #expect(await model.state.todos.map(\.title) == ["Second", "First"])
         await model.finish()
@@ -182,7 +173,7 @@ struct TodosTests {
         ]
         let model = await makeModel(
             initialState: TodosState(todos: todos, filter: .all, newTodoText: "", nextOrder: 2),
-            clock: GateClock()
+            clock: EffectClock()
         )
 
         await model.send(.setFilter(.active)) { $0.filter = .active }
@@ -197,13 +188,13 @@ struct TodosTests {
 @available(macOS 26, *)
 private func makeModel(
     initialState: TodosState = TodosState(),
-    clock: GateClock
+    clock: EffectClock
 ) async -> TestModel<Feature<TodosEvent, TodosState>> {
     await TestModel(initialState: initialState, feature: makeTodosFeature(clock: clock))
 }
 
 /// The feature with state equality that ignores todo IDs, which the interactor generates.
-private func makeTodosFeature(clock: GateClock) -> Feature<TodosEvent, TodosState> {
+private func makeTodosFeature(clock: EffectClock) -> Feature<TodosEvent, TodosState> {
     Feature(
         interactor: TodosInteractor(clock: clock, debounceDuration: .milliseconds(300)),
         areStatesEqual: todosStatesAreEqualIgnoringIDs

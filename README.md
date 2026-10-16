@@ -11,7 +11,7 @@ It uses native Swift concurrency and supports iOS 17+, macOS 14+, and watchOS 10
 - Effects: `interact(state:action:effects:)` mutates the state synchronously and queues asynchronous work with `effects.perform`. An effect delivers its result with `effects.modify`, so there is no response action to send and handle.
 - Automatic cancellation: handling an action case again cancels the anonymous effects that case started before; `@EffectID` names an effect that is never auto-cancelled, for replacement by key, `effects.cancel(_:)` and `effects.isRunning(_:)`.
 - A nonisolated core in isolated shells: `ViewModel` (main actor), `ActorModel` (an actor of its own), `TestModel` and `TestViewModel` run the same core, so nothing in the feature layer has to be `Sendable`.
-- Debouncing: `Interactors.Debounce(for:clock:)` delays every effect a child performs, while state changes stay immediate.
+- Debouncing and timers: an effect sleeps with `try await clock.sleep(for:)` on an injected clock, and handling its action case again cancels it while it sleeps. Tests move time with `EffectClock` and the test shell's `advance(_:by:)`.
 - Interactor composition: `Interactors.When`, `when(state:action:child:)`, `Merge`, and `MergeMany`.
 - View composition: `scope(state:action:)` and `ScopedViewModel` project fine-grained child states, optional children, collections, and enum-case payloads (`scopeIfActive`).
 - SwiftUI integration: `@Bindable`, dynamic member lookup over the `ViewState` projection, and `sendViewEvent(_:)`, which returns the `Task<Void, Never>?` of the effects it started.
@@ -457,7 +457,7 @@ Every shell's `isolated deinit` cancels its effects. A `ViewModel` released on t
 
 ## Debouncing
 
-`Interactors.Debounce` delays every effect its child performs. Actions still go through the child at once, so the state changes immediately:
+A debounce is a sleep at the top of the effect. The action still changes the state at once, and handling the action case again cancels the previous effect while it sleeps, so a burst of edits ends in one search, a full 300 ms after the last edit:
 
 ```swift
 @Interactor<SearchState, SearchAction>
@@ -466,8 +466,17 @@ struct SearchInteractor<C: Clock<Duration>> {
     let clock: C
 
     var body: some InteractorOf<Self> {
-        Interactors.Debounce(for: .milliseconds(300), clock: clock) {
-            SearchQueryInteractor(searchClient: searchClient)
+        Interact { state, action, effects in
+            switch action {
+            case .queryChanged(let query):
+                state.query = query
+                effects.perform {
+                    try await clock.sleep(for: .milliseconds(300))  // the next edit cancels this sleep
+                    let results = (try? await searchClient.search(query)) ?? []
+                    try Task.checkCancellation()  // a newer query cancelled this search: its results are stale
+                    try effects.modify { $0.results = results }
+                }
+            }
         }
     }
 }
@@ -479,13 +488,9 @@ extension SearchInteractor where C == ContinuousClock {
 }
 ```
 
-`SearchQueryInteractor` handles `.queryChanged` with the effect shown under [Cancellation is cooperative](#cancellation-is-cooperative).
-
-- Coalescing is automatic cancellation: each `.queryChanged` cancels the previous search while it sleeps, so a burst of edits ends in one search, a full 300 ms after the last edit.
-- `Debounce` holds no per-instance state, so it debounces the same whether it is stored in a property or built inside `body`, as here.
-- Effects performed with an `@EffectID` are delayed too. They are replaced per key instead of cancelled automatically.
-- `Interactors.Debounce(for:clock:child:)` takes any `Clock`; `Interactors.Debounce(for:child:)` uses `ContinuousClock`. `child:` is a plain closure, not a builder, so it returns one interactor.
-- The other shape is a `try await clock.sleep(for:)` at the top of the effect itself.
+- Coalescing is automatic cancellation, per action case: another case leaves the sleeping search alone, and a `.queryChanged` the interactor ignores still cancels it.
+- A debounced effect that must survive an action the interactor ignores is identified: `perform(id:)` replaces it only with the next effect of its key.
+- Write `try await clock.sleep(for:)` in a file that imports Lattice. That overload is Lattice's: it starts on the shell's isolation, which is what lets a test's `EffectClock` see the sleep as soon as `send` returns. See [Time](#time).
 
 ### Timers and clocks
 
@@ -531,7 +536,7 @@ extension TickerInteractor where C == ContinuousClock {
 
 - Write `try await clock.sleep(for:)`, never `try?`. Both `ContinuousClock` and test clocks throw at once after a cancel, so a `try?` loop spins, committing ticks, until the model is deallocated.
 - The view starts the ticker from `.task` and forwards its cancellation, so the ticker stops with the view.
-- Tests pass a clock they control; see [Time](#time).
+- Tests pass an `EffectClock`; see [Time](#time).
 
 ## Composition
 
@@ -714,7 +719,7 @@ struct CounterTests {
 
 - `send(_:assert:)` first handles what is pending: reported when exhaustive, skipped when `.off`. It then sends the action and asserts the action's change plus the modifications its effects committed before they first suspended, up to the first action they sent. It returns the `Task<Void, Never>?` for the effects the action started.
 - `receive` waits for an action an effect sent. It has three forms: `receive(.saved(id: 7))` for an `Equatable` action, `receive({ … })` with a predicate, and `receive(\.saved)` with a case key path into a `@CasePathable` action. Its `assert` describes the action and the modifications around it. It waits until a matching action is pending, failing at once when no effect is left in flight, or for its `timeout:`, by default the model's (1 second unless `init` sets another).
-- `expect { … }` asserts the modifications effects made, folding every pending modification up to the next action into one assertion. It is synchronous and does not wait: await the effect first (`await model.send(…)?.value`), receive an action it sends, or wait for a signal it gives. It can pass vacuously: before an effect has run, `expect { _ in }` compares an unchanged state.
+- `expect { … }` asserts the modifications effects made, folding every pending modification up to the next action into one assertion. It is synchronous and does not wait: await the effect first (`await model.send(…)?.value`), `advance` the `EffectClock` it sleeps on, receive an action it sends, or wait for a signal it gives. It can pass vacuously: before an effect has run, `expect { _ in }` compares an unchanged state.
 - `finish()` waits until no effect is in flight, then reports, or skips when `.off`, whatever is still pending. End every exhaustive test with it.
 - `skipReceived(strict:)` advances the model past every pending action and modification without asserting them. `skipInFlightEffects(strict:)` cancels every in-flight effect and waits for them; what they commit while they unwind stays pending.
 - `model.state` is the state the test last asserted, `@Domain` members included. Pending commits are not in it.
@@ -773,45 +778,39 @@ Assertions compare states with the feature's `areStatesEqual`:
 
 ### Time
 
-Never call `TestClock.advance` right after a `send`. `Clock.sleep` is `@concurrent`, so an effect registers its sleep only after it has hopped off the model's executor, and `advance` can look for sleepers before that. The advance then wakes nothing, awaiting the effect's task never ends, and an `expect` fails.
-
-Use a test-local gate clock instead, which lets the test wait for a sleep to register before it moves time. No gate clock ships with Lattice: copy the one in an example package's test target, such as [`SearchExampleTests/GateClock.swift`](ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift), into your test target. The reference copy in [`Tests/LatticeTests/Support/GateClock.swift`](Tests/LatticeTests/Support/GateClock.swift) has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own. This test drives the [debounced search](#debouncing), with a `StubSearchClient` that answers `[query]`:
+Inject an `EffectClock` and move time with the test shell's `advance(_:by:)`. The effect's `clock.sleep(for:)` registers on the clock before `send` returns. `advance` wakes every sleep that comes due, in deadline order, and lets each woken effect run to its next suspension before it goes on, so `expect` right after it sees what the woken effects committed. This test drives the [debounced search](#debouncing), with a `StubSearchClient` that answers `[query]`:
 
 ```swift
 @available(iOS 26, macOS 26, watchOS 26, *)
 @Test(.timeLimit(.minutes(1)))
 func debouncedSearchUsesTheLatestQuery() async {
-    let clock = GateClock()
+    let clock = EffectClock()
     let model = await TestModel(
         initialState: SearchState(),
         feature: Feature(interactor: SearchInteractor(searchClient: StubSearchClient(), clock: clock))
     )
     await model.send(.queryChanged("a")) { $0.query = "a" }
-    let search = await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a"
-    await clock.waitForSleepers(1)  // "b" is asleep on the clock
-    clock.moveForward(by: .milliseconds(300))  // wakes it before returning
-    await search?.value
+    await model.send(.queryChanged("b")) { $0.query = "b" }  // cancels "a" while it sleeps
+    await model.advance(clock, by: .milliseconds(300))  // "b" wakes, searches and writes its results
     await model.expect { $0.results = ["b"] }
     await model.finish()
 }
 ```
 
-A loop needs one wait and one move per tick, because one move wakes only the sleeps registered at that moment. Waiting for the next sleep after the last move is how the test knows that the loop has committed its tick. For the [ticker](#timers-and-clocks), built with `TickerInteractor(clock: clock, interval: .seconds(1))`:
+One `advance` moves a loop through every tick in its duration: each woken tick commits and sleeps again before the next one wakes. For the [ticker](#timers-and-clocks), built with `TickerInteractor(clock: clock, interval: .seconds(1))`:
 
 ```swift
 let ticker = await model.send(.startTicking)
-for _ in 1...3 {
-    await clock.waitForSleepers(1)  // one wait …
-    clock.moveForward(by: .seconds(1))  // … and one move per tick
-}
-await clock.waitForSleepers(1)  // asleep again: the third tick is committed
+await model.advance(clock, by: .seconds(3))
 await model.expect { $0.ticks = 3 }  // three modifications, one assertion
 ticker?.cancel()  // cancel the loop; never await its task
 await model.finish()
 ```
 
+- Sleep with `try await clock.sleep(for:)`. `sleep(for:tolerance:)`, `Task.sleep(for:clock:)`, `sleep(until:tolerance:)` on a generic clock and any sleep inside a `@concurrent` function reach the clock only after hopping off the shell, so they register after `send` returned and `advance` can miss them: `EffectClock` reports each such sleep (`EffectClock registered this sleep late: …`).
+- A woken effect runs only to its next suspension. When it then waits on a dependency that suspends, wait for that too, for example with `await task?.value`, before `expect`.
 - Never await the task of a looping effect, even a cancelled one: `await task?.value` is not cancellation-aware, and a `.timeLimit` cannot end it. Cancel the task, then end with `finish()`, which is bounded by its timeout.
-- To assert that a cancelled effect wrote nothing, first prove that it ended, then `expect`.
+- To assert that a cancelled effect wrote nothing, first prove that it ended, then `expect`. A cancel ends its effect's sleep inside the `cancel()` call, so `advance` to when that sleep was due, which wakes a sleep that outlived the cancel, then await the effect's task. For a loop, whose task is never awaited, `expect { _ in }` after that `advance`, then end with `finish()`, which waits for the loop to end and reports anything it wrote.
 
 ### Production `ViewModel` tests
 
@@ -874,11 +873,11 @@ swift test --filter CoreExitTests
 swift test --filter ParallelismTests
 swift test --filter IsolationTests
 
-# effects, ActorModel, debouncing
+# effects, ActorModel, the effect clock
 swift test --filter '\.AutoCancelTests'
 swift test --filter EffectIDTests
 swift test --filter ActorModel
-swift test --filter DebounceInteractorTests
+swift test --filter EffectClock
 
 # test shells
 swift test --filter TestModel
@@ -886,7 +885,7 @@ swift test --filter TestViewModelTests
 ```
 
 - `IsolationTests` selects the three isolation regression suites, `ViewModelIsolationTests`, `TestModelIsolationTests` and `ActorModelIsolationTests`, not the whole `IsolationTests` folder.
-- `ActorModel` selects the three `ActorModel*` suites, and `TestModel` every `TestModel*` suite.
+- `ActorModel` selects the three `ActorModel*` suites, `TestModel` every `TestModel*` suite, and `EffectClock` `EffectClockTests` and `EffectClockTestViewModelTests`.
 - `ParallelismTests` compares the `TestModel` and `ActorModel` cases with the serial `ViewModel` ones; filtering it down to one variant skips the comparison.
 
 Run the negative compile checks after a build (CI runs them):
@@ -928,11 +927,11 @@ scripts/sync-skills.sh
 ## Project Layout
 
 - `Sources/Lattice`: the runtime library.
-  - `Domain/`: `Interactor`, `InteractorBuilder` and the `Interactors` (`Interact`, `Merge`, `MergeMany`, `When`, `Debounce`, …); `Effects.swift`, the `Effects` handle; `EffectID.swift`.
+  - `Domain/`: `Interactor`, `InteractorBuilder` and the `Interactors` (`Interact`, `Merge`, `MergeMany`, `When`, …); `Effects.swift`, the `Effects` handle; `EffectID.swift`; `Clock+Sleep.swift`, the `clock.sleep(for:)` overload effects call.
   - `Internal/Core.swift`: the nonisolated runtime every shell hosts. `Internal/Concurrency/` holds `Task+Immediate`, `StartOnMainActor` and `DefaultIsolation`; `Internal/Runtime/` holds `EnumMetadata` and `RuntimeMetadata`, which give the enum tags that automatic cancellation keys on.
   - `Observation/`: `FeatureState`, the `ViewState` projection and its collection, and the observation registrar.
   - `Presentation/`: `Feature/`, `ViewModel/` (`ViewModel`, `ScopedViewModel` and the bindings) and `ActorModel/`.
-  - `Testing/`: `TestHost.swift`, the engine both test shells share, `TestModel.swift`, `TestViewModel.swift`, `Received.swift`, `Exhaustivity.swift` and failure reporting. The CocoaPods pod excludes it.
+  - `Testing/`: `TestHost.swift`, the engine both test shells share, `TestModel.swift`, `TestViewModel.swift`, `EffectClock.swift` (the test clock and the shells' `advance(_:by:)`), `Received.swift`, `Exhaustivity.swift` and failure reporting. The CocoaPods pod excludes it.
   - `Macros.swift`: the macro declarations.
 - `Sources/LatticeMacros`: macro implementations.
 - `Macros/`: where `scripts/rebuild-macro.sh` puts the release `LatticeMacros` tool for tooling and CocoaPods; the binary is not checked in.

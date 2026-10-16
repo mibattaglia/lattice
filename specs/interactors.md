@@ -9,9 +9,8 @@ Key source files:
 - [Interact.swift](../Sources/Lattice/Domain/Interactor/Interactors/Interact.swift)
 - [Merge.swift](../Sources/Lattice/Domain/Interactor/Interactors/Merge.swift), [MergeMany.swift](../Sources/Lattice/Domain/Interactor/Interactors/MergeMany.swift), [ConditionalInteractor.swift](../Sources/Lattice/Domain/Interactor/Interactors/ConditionalInteractor.swift), [CollectInteractors.swift](../Sources/Lattice/Domain/Interactor/Interactors/CollectInteractors.swift), [EmptyInteractor.swift](../Sources/Lattice/Domain/Interactor/Interactors/EmptyInteractor.swift)
 - [When.swift](../Sources/Lattice/Domain/Interactor/Interactors/When.swift)
-- [Debounce.swift](../Sources/Lattice/Domain/Interactor/Interactors/Debounce.swift)
-- [Effects.swift](../Sources/Lattice/Domain/Effects.swift), [EffectID.swift](../Sources/Lattice/Domain/EffectID.swift)
-- Tests: [InteractorTests](../Tests/LatticeTests/DomainTests/InteractorTests) (`InteractorBuilderTests`, `Interactors+MergeTests`, `Interactors+MergeManyTests`, `Interactors+WhenTests`, `Interactors+DebounceTests`) and [EffectsTests](../Tests/LatticeTests/DomainTests/EffectsTests)
+- [Effects.swift](../Sources/Lattice/Domain/Effects.swift), [EffectID.swift](../Sources/Lattice/Domain/EffectID.swift), [Clock+Sleep.swift](../Sources/Lattice/Domain/Clock+Sleep.swift) (the `clock.sleep(for:)` overload effects call)
+- Tests: [InteractorTests](../Tests/LatticeTests/DomainTests/InteractorTests) (`InteractorBuilderTests`, `Interactors+MergeTests`, `Interactors+MergeManyTests`, `Interactors+WhenTests`) and [EffectsTests](../Tests/LatticeTests/DomainTests/EffectsTests)
 
 ## Core Contract
 
@@ -151,36 +150,6 @@ struct ScreenInteractor {
 - A case-scoped child whose case went away changes nothing: its effects' sends and modifications are reported and dropped, and `effects.state` is reported and returns the last known value. If the case becomes active again, those effects read and write the new payload.
 - `.when(state:action:child:)` is the modifier form. It returns `Interactors.Merge(When(…), self)`, so the child runs before the interactor it modifies.
 
-## Debounce
-
-`Interactors.Debounce` delays every effect the child performs:
-
-```swift
-@Interactor<ResultsState, QueryAction>
-struct DebouncedSearchInteractor {
-    private let queryInteractor: AnyInteractor<ResultsState, QueryAction>
-
-    init<C: Clock>(weatherService: WeatherService, clock: C, debounceDuration: C.Duration) {
-        queryInteractor = Interactors.Debounce(for: debounceDuration, clock: clock) {
-            SearchQueryInteractor(weatherService: weatherService)
-        }
-        .eraseToAnyInteractor()
-    }
-
-    var body: some InteractorOf<Self> {
-        queryInteractor
-    }
-}
-```
-
-- It is an operation transform. Actions go through the child at once, so state changes immediately, and each effect the child performs first sleeps for `duration` on `clock`, then runs.
-- Coalescing is auto-cancel: re-handling the action case cancels the previous effect while it sleeps, so a burst ends in one effect, a full `duration` after the last action.
-- It holds no per-instance state, so it debounces the same whether it is stored, as above, or built inside `body` on every action.
-- Effects performed with an `@EffectID` are delayed too. They are replaced per key instead of auto-cancelled.
-- `init(for:clock:child:)` takes any `Clock`; `init(for:child:)` uses `ContinuousClock`. `DebounceInteractor<C, Child>` is a typealias.
-- A cancel that lands after the sleep has returned, while the effect hops back to the shell, does not stop the effect (see [Cancellation is cooperative](./effects-and-isolation.md#cancellation-is-cooperative)). A debounced effect that delivers a result a newer action supersedes checks for cancellation before its `modify`.
-- The other debounce shape is a `try await clock.sleep(for:)` at the top of the effect itself (the Todos auto-sort).
-
 ## Writing Effects
 
 These patterns come from the example packages under `ExampleProject/` and from the root tests, trimmed to the point each block shows. The mechanics behind each are in [Effects And Isolation](./effects-and-isolation.md).
@@ -267,6 +236,26 @@ case .query(let query):
 - It is not needed when the only suspension is a sleep that throws on cancel and every run writes the same guarded value, like the `.loadTapped` load above: a late commit writes what the next load would, and the guard turns it into a no-op once the case changed.
 - A `catch` that writes an error state checks for cancellation the same way, never with `error is CancellationError`.
 
+### Debouncing
+
+A debounce is a sleep at the top of the effect. The action changes the state at once, and re-handling its case auto-cancels the previous effect while it sleeps, so a burst of edits ends in one search, a full delay after the last edit (adapted from the Search example's `SearchQueryInteractor`):
+
+```swift
+case .query(let query):
+    state.query = query  // the field changes at once
+    guard !query.isEmpty else { return }  // starts no search, and still cancels the waiting one
+    effects.perform {
+        try await clock.sleep(for: debounceDuration)  // the next `.query` auto-cancels this sleep
+        let results = (try? await weatherService.searchWeather(query: query)) ?? []
+        try Task.checkCancellation()  // a newer edit cancelled this search while it ran
+        try effects.modify { $0.results = results }
+    }
+```
+
+- Coalescing is auto-cancel, per action case: another case leaves the sleeping effect alone, and a `.query` the guard ignores still cancels it (see [Auto-Cancel](./effects-and-isolation.md#auto-cancel)).
+- A debounced effect that must survive an ignored action is identified: `perform(id:)` is replaced only by the next effect of its key (the Todos auto-sort, under [Effect identity](#effect-identity)).
+- A cancel that lands after the sleep has returned, while the effect hops back to the shell, does not stop the effect (see [Cancellation is cooperative](./effects-and-isolation.md#cancellation-is-cooperative)). A debounced effect that delivers a result a newer action supersedes checks for cancellation before its `modify`.
+
 ### Clock injection
 
 An interactor that waits takes its clock as a generic parameter, and a `ContinuousClock` convenience initializer keeps the app's call sites short:
@@ -309,7 +298,7 @@ extension TickerInteractor where C == ContinuousClock {
 }
 ```
 
-Tests pass a test-local gate clock; see [Testing Infrastructure](./testing-infrastructure.md#time).
+Effects sleep with `try await clock.sleep(for:)`, in a file that imports Lattice. That spelling binds to Lattice's `nonisolated(nonsending)` overload, which starts on the shell's isolation: an `EffectClock` registers the sleep there, before `send` returns. Tests pass an `EffectClock` and move it with the test shell's `advance(_:by:)`; see [Testing Infrastructure](./testing-infrastructure.md#time).
 
 ### Effect identity
 

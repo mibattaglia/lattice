@@ -60,36 +60,22 @@ final class CallLog: @unchecked Sendable {
 
 /// A suspension point the test opens. ``wait()`` ignores cancellation, so a request cancelled while
 /// it waits still gets its answer once the test opens the gate: a stale answer arriving late.
-/// ``waitForWaiters(_:)`` lets the test act only once a request is parked at the gate.
 ///
 /// Locked: the request waits on the model's executor while the test opens the gate. `wait()` is
-/// `nonisolated(nonsending)`, so a request the `send` itself starts registers before that `send`
-/// returns; one that starts after a suspension (a debounced search) registers later.
+/// `nonisolated(nonsending)`, so a request parks before it suspends: one that `send` starts is parked
+/// when that `send` returns, and a debounced search is parked when the `model.advance` that woke it
+/// returns.
 final class Gate: @unchecked Sendable {
-    private struct WaiterWatch {
-        let count: Int
-        let continuation: CheckedContinuation<Void, Never>
-    }
-
     private let lock = NSLock()
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var nextWatchID = 0
-    private var watches: [Int: WaiterWatch] = [:]
 
     nonisolated(nonsending) func wait() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let (resumesNow, satisfiedWatches) = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
-                guard !isOpen else { return (true, []) }
+            let resumesNow = lock.withLock { () -> Bool in
+                guard !isOpen else { return true }
                 waiters.append(continuation)
-                let satisfied = watches.filter { $0.value.count <= waiters.count }
-                for id in satisfied.keys {
-                    watches[id] = nil
-                }
-                return (false, satisfied.values.map(\.continuation))
-            }
-            for watch in satisfiedWatches {
-                watch.resume()
+                return false
             }
             if resumesNow {
                 continuation.resume()
@@ -97,32 +83,8 @@ final class Gate: @unchecked Sendable {
         }
     }
 
-    /// Waits until at least `count` requests are parked at the closed gate, or until the waiting
-    /// task is cancelled.
-    func waitForWaiters(_ count: Int) async {
-        let id = lock.withLock {
-            nextWatchID += 1
-            return nextWatchID
-        }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let resumesNow = lock.withLock {
-                    guard waiters.count < count, !Task.isCancelled else { return true }
-                    watches[id] = WaiterWatch(count: count, continuation: continuation)
-                    return false
-                }
-                if resumesNow {
-                    continuation.resume()
-                }
-            }
-        } onCancel: {
-            lock.withLock { watches.removeValue(forKey: id) }?.continuation.resume()
-        }
-    }
-
     /// Opens the gate for good: every parked request resumes, and a later ``wait()`` returns at once
-    /// instead of parking. A ``waitForWaiters(_:)`` that is still waiting, or that starts after this,
-    /// is not released: it ends only when its task is cancelled (the test's time limit).
+    /// instead of parking.
     func open() {
         let waiting = lock.withLock {
             isOpen = true

@@ -5,8 +5,8 @@ import Testing
 @testable import ScopedCompositionExample
 
 // The suite runs the feature under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. The load and the ticker sleep on a `GateClock`: a test waits until
-// they are sleeping, then moves the clock past them.
+// package supports macOS 14. The load and the ticker sleep on an `EffectClock`: they are asleep on it
+// when their `send` returns, and `model.advance` moves the clock past them and lets them run.
 
 @Suite
 struct PhaseExampleTests {
@@ -15,22 +15,18 @@ struct PhaseExampleTests {
     /// after the last tap.
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
-    func loadShowsTheSuccessCaseAFullDelayAfterTheLastTap() async throws {
-        let clock = GateClock()
+    func loadShowsTheSuccessCaseAFullDelayAfterTheLastTap() async {
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
-        let firstLoad = await model.send(.loadTapped)  // nothing changes until the load is over
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(500))
+        await model.send(.loadTapped)  // nothing changes until the load is over
+        await model.advance(clock, by: .milliseconds(500))
 
-        let load = await model.send(.loadTapped)  // auto-cancels the first load at its sleep
-        await clock.waitForSleepers(1)
-        try #require(clock.pendingSleeps == [loadDuration])  // only the second load, a full delay away
-        await firstLoad?.value
-        await model.expect { _ in }  // the cancelled load ended without writing anything
+        await model.send(.loadTapped)  // auto-cancels the first load at its sleep
+        await model.advance(clock, by: .milliseconds(500))  // when the first load was due
+        await model.expect { _ in }  // the cancelled load wrote nothing; the second is still asleep
 
-        clock.moveForward(by: loadDuration)
-        await load?.value
+        await model.advance(clock, by: .milliseconds(500))  // a full delay after the last tap
         await model.expect { $0 = .success(SuccessState()) }  // the load wrote the new case
         await model.finish()
     }
@@ -40,11 +36,11 @@ struct PhaseExampleTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ticksWhileLoadingChangeNothing() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         let ticker = await model.send(.startTicking)
-        await tickOnce(clock)
+        await model.advance(clock, by: tickInterval)
         await model.expect { _ in }  // `.loading`: the tick changed nothing
 
         ticker?.cancel()
@@ -58,18 +54,17 @@ struct PhaseExampleTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func ticksCountOnlyWhileActiveUntilTheTickerIsCancelled() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
 
         let ticker = await model.send(.startTicking)
-        await tickOnce(clock)
+        await model.advance(clock, by: tickInterval)
         await model.expect { _ in }  // `.idle`: the tick changed nothing
 
         await model.send(.success(.session(.telemetry(.startTapped)))) {
             $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
         }
-        await tickOnce(clock)
-        await tickOnce(clock)
+        await model.advance(clock, by: tickInterval * 2)
         await model.expect {  // two modifications, one assertion
             $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 2, note: "")) }
         }
@@ -85,7 +80,8 @@ struct PhaseExampleTests {
         }
 
         ticker?.cancel()
-        #expect(clock.pendingSleeps == [])  // the ticker's sleep ended inside the cancel
+        await model.advance(clock, by: tickInterval)  // when the next tick was due
+        await model.expect { _ in }  // the cancelled ticker did not tick
         await model.finish()  // the ticker ended without another tick
     }
 
@@ -95,21 +91,20 @@ struct PhaseExampleTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func startingTheTickerAgainReplacesTheRunningOne() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
         await model.send(.success(.session(.telemetry(.startTapped)))) {
             $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
         }
 
         await model.send(.startTicking)
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: .milliseconds(500))  // halfway to the first tick
+        await model.advance(clock, by: .milliseconds(500))  // halfway to the first tick
 
         let ticker = await model.send(.startTicking)  // auto-cancels the running ticker at its sleep
-        await clock.waitForSleepers(1)
-        #expect(clock.pendingSleeps == [tickInterval])  // only the new ticker, a full interval away
+        await model.advance(clock, by: .milliseconds(500))  // when the replaced ticker was due
+        await model.expect { _ in }  // nothing ticked: the new ticker is a full interval away
 
-        await tickOnce(clock)
+        await model.advance(clock, by: .milliseconds(500))
         await model.expect {  // one tick, not one per ticker
             $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 1, note: "")) }
         }
@@ -124,7 +119,7 @@ struct PhaseExampleTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
 
         await model.send(.success(.session(.telemetry(.startTapped)))) {
@@ -144,18 +139,14 @@ struct PhaseExampleTests {
         await model.send(.success(.titleChanged("Renamed"))) {
             $0.modify(\.success) { $0.title = "Renamed" }
         }
-        let loadWhileLoaded = await model.send(.loadTapped)
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: loadDuration)
-        await loadWhileLoaded?.value
+        await model.send(.loadTapped)
+        await model.advance(clock, by: loadDuration)
         await model.expect { _ in }  // the load found the success case and left it alone
 
         await model.send(.resetTapped) { $0 = .loading }
         await model.send(.success(.titleChanged("Late")))
-        let load = await model.send(.loadTapped)
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: loadDuration)
-        await load?.value
+        await model.send(.loadTapped)
+        await model.advance(clock, by: loadDuration)
         await model.expect { $0 = .success(SuccessState()) }
         await model.finish()
     }
@@ -168,19 +159,11 @@ private let tickInterval: Duration = .seconds(1)
 @available(macOS 26, *)
 private func makeModel(
     initialState: PhaseState = .loading,
-    clock: GateClock
+    clock: EffectClock
 ) async -> TestModel<Feature<PhaseEvent, PhaseState>> {
     await TestModel(initialState: initialState, feature: Feature(interactor: makeInteractor(clock: clock)))
 }
 
-private func makeInteractor(clock: GateClock) -> PhaseInteractor<GateClock> {
+private func makeInteractor(clock: EffectClock) -> PhaseInteractor<EffectClock> {
     PhaseInteractor(clock: clock, loadDuration: loadDuration, tickInterval: tickInterval)
-}
-
-/// Lets the running ticker tick once: waits until it sleeps, moves the clock one interval, then
-/// waits until it sleeps again, which it does only after it has committed the tick.
-private func tickOnce(_ clock: GateClock) async {
-    await clock.waitForSleepers(1)
-    clock.moveForward(by: tickInterval)
-    await clock.waitForSleepers(1)
 }

@@ -154,30 +154,36 @@ struct TodosInteractor<C: Clock> {
 
 ## Debounced effects
 
-Wrap a child with `Interactors.Debounce(for:clock:child:)` to delay every effect it performs:
+A debounce is a sleep at the top of the effect. The action changes the state at once, and re-handling the action case cancels the previous effect while it sleeps, so a burst ends in one effect, a full delay after the last action:
 
 ```swift
 @Interactor<SearchState, SearchAction>
-struct DebouncedSearchInteractor<C: Clock> {
+struct SearchInteractor<C: Clock> {
     let searchClient: SearchClient
     let clock: C
     let delay: C.Duration
 
     var body: some InteractorOf<Self> {
-        Interactors.Debounce(for: delay, clock: clock) {  // built on every action: still debounces
-            SearchInteractor(searchClient: searchClient)
+        Interact { state, action, effects in
+            switch action {
+            case .queryChanged(let query):
+                state.query = query
+                effects.perform {
+                    try await clock.sleep(for: delay)  // the next `.queryChanged` cancels this sleep
+                    let results = (try? await searchClient.search(query)) ?? []
+                    try Task.checkCancellation()  // superseded while it searched: drop the results
+                    try effects.modify { $0.results = results }
+                }
+            }
         }
     }
 }
 ```
 
-- Actions go through the child at once, so the state changes immediately; each effect the child performs first sleeps for the duration on the clock, then runs.
-- Coalescing is automatic cancellation: re-handling the action case cancels the previous effect while it sleeps, so a burst ends in one effect, a full delay after the last action.
-- It holds no per-instance state, so it debounces the same stored in a property or built inside `body`.
-- Effects performed with an `@EffectID` are delayed too; they are replaced per key instead of cancelled automatically.
-- `child:` is a plain closure, not a builder: it returns one interactor. `Interactors.Debounce(for:child:)` uses `ContinuousClock`.
+- Coalescing is automatic cancellation, per action case: another case leaves the sleeping effect alone, and a `.queryChanged` the interactor ignores still cancels it.
+- When an ignored action must not cancel the pending effect, identify it: a `perform(id:)` effect is replaced only by the next effect of its key (the Todos auto-sort above).
 - A cancel that lands after the sleep returned, while the effect hops back to the shell, does not stop it. A debounced effect that delivers a result a newer action supersedes checks `try Task.checkCancellation()` before its `modify`.
-- The other shape is a `try await clock.sleep(for:)` at the top of the effect itself.
+- Write `try await clock.sleep(for:)` in a file that imports Lattice: that overload starts on the shell's isolation, so a test's `EffectClock` sees the sleep as soon as `send` returns.
 
 ## Timers and clocks
 
@@ -223,7 +229,7 @@ extension TickerInteractor where C == ContinuousClock {
 
 - Write `try await clock.sleep(for:)`, never `try?`. Both `ContinuousClock` and test clocks throw at once after a cancel, so a `try?` loop spins, committing ticks, until the model is deallocated.
 - Cancellation is cooperative: a cancel that lands while the tick hops back to the shell lets the loop commit at most one extra tick.
-- Tests pass a test-local gate clock; see the `lattice-testing` skill.
+- Tests pass an `EffectClock` and move it with the test shell's `advance(_:by:)`; see the `lattice-testing` skill.
 
 ## Errors and teardown
 

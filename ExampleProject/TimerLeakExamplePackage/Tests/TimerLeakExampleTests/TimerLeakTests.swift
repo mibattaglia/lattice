@@ -4,8 +4,8 @@ import Testing
 @testable import TimerLeakExample
 
 // The suite runs the ticker under `TestModel`, so each test is `@available(macOS 26, *)`: the
-// package supports macOS 14. Time is a `GateClock`: a test waits until the ticker is sleeping,
-// then moves the clock one interval, once per tick.
+// package supports macOS 14. Time is an `EffectClock`: the ticker is asleep on it when `.start`'s
+// `send` returns, and `model.advance` lets it tick once per interval the clock moves.
 
 @Suite
 struct TimerLeakTests {
@@ -16,14 +16,14 @@ struct TimerLeakTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func everyTickCountsAndEveryHundredthShowsANewValue() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         let ticker = await model.send(.start)  // nothing changes until the clock moves
-        await letTheTickerTick(99, on: clock)
+        await model.advance(clock, by: tickInterval * 99)
         await model.expect { $0.tickCount = 99 }  // 99 modifications, one assertion; still "value-0"
 
-        await letTheTickerTick(1, on: clock)
+        await model.advance(clock, by: tickInterval)
         await model.expect {
             $0.tickCount = 100
             $0.displayedValue = "value-1"
@@ -40,19 +40,19 @@ struct TimerLeakTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func startingAgainReplacesTheRunningTicker() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         await model.send(.start)
-        await letTheTickerTick(1, on: clock)
+        await model.advance(clock, by: tickInterval)
         await model.expect { $0.tickCount = 1 }
-        clock.moveForward(by: .milliseconds(10))  // halfway to the next tick
+        await model.advance(clock, by: .milliseconds(10))  // halfway to the next tick
 
         let ticker = await model.send(.start)  // auto-cancels the running ticker at its sleep
-        await clock.waitForSleepers(1)
-        #expect(clock.pendingSleeps == [tickInterval])  // only the new ticker, a full interval away
+        await model.advance(clock, by: .milliseconds(10))  // when the replaced ticker was due
+        await model.expect { _ in }  // nothing ticked: the new ticker is a full interval away
 
-        await letTheTickerTick(1, on: clock)
+        await model.advance(clock, by: .milliseconds(10))
         await model.expect { $0.tickCount = 2 }  // one tick, not one per ticker
 
         ticker?.cancel()
@@ -64,22 +64,24 @@ struct TimerLeakTests {
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func cancellingTheStartTaskStopsTheTicker() async {
-        let clock = GateClock()
+        let clock = EffectClock()
         let model = await makeModel(clock: clock)
 
         let ticker = await model.send(.start)
-        await clock.waitForSleepers(1)
         ticker?.cancel()
-        #expect(clock.pendingSleeps == [])  // the ticker's sleep ended inside the cancel
+        await model.advance(clock, by: tickInterval)  // when the first tick was due
+        await model.expect { _ in }  // the cancelled ticker did not tick
         await model.finish()  // the ticker ended without a tick
     }
 
-    /// Releasing the model stops the ticker, as releasing the app's view model does: the model's
-    /// `isolated deinit` cancels its effects, which ends the ticker's sleep.
+    /// Releasing the model while the ticker runs deallocates it, as releasing the app's view model
+    /// does: the running ticker does not keep the model alive. That the deinit then cancels the
+    /// ticker is proven in Lattice's own tests, by
+    /// `SchedulingTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`.
     @available(macOS 26, *)
     @Test(.timeLimit(.minutes(1)))
-    func releasingTheModelStopsTheTicker() async {
-        let clock = GateClock()
+    func releasingTheModelWhileTheTickerRunsDeallocatesIt() async {
+        let clock = EffectClock()
         weak var weakModel: TestModel<Feature<TimerLeakEvent, TimerLeakState>>?
         do {
             // Exhaustive, with no `finish()`: it would wait for the ticker, which only the release
@@ -88,12 +90,9 @@ struct TimerLeakTests {
             let model = await makeModel(clock: clock)
             weakModel = model
             await model.send(.start)
-            await clock.waitForSleepers(1)
         }
 
         #expect(weakModel == nil)
-        await waitUntilNothingSleeps(on: clock)
-        #expect(clock.pendingSleeps == [])  // the deinit cancelled the ticker, which ended its sleep
     }
 }
 
@@ -101,29 +100,9 @@ struct TimerLeakTests {
 private let tickInterval: Duration = .milliseconds(20)
 
 @available(macOS 26, *)
-private func makeModel(clock: GateClock) async -> TestModel<Feature<TimerLeakEvent, TimerLeakState>> {
+private func makeModel(clock: EffectClock) async -> TestModel<Feature<TimerLeakEvent, TimerLeakState>> {
     await TestModel(
         initialState: TimerLeakState(),
         feature: Feature(interactor: TimerLeakInteractor(clock: clock, tickInterval: tickInterval))
     )
-}
-
-/// Lets the running ticker tick `count` times, with one wait and one move per tick: waits until it
-/// sleeps, then moves the clock one interval. Returns once it sleeps again, which it does only after
-/// it has committed the last tick.
-private func letTheTickerTick(_ count: Int, on clock: GateClock) async {
-    for _ in 0..<count {
-        await clock.waitForSleepers(1)
-        clock.moveForward(by: tickInterval)
-    }
-    await clock.waitForSleepers(1)
-}
-
-/// Waits until no sleep is live on `clock`. A released model's `isolated deinit` runs on the model's
-/// own actor after the release returns, so the cancel it makes is not synchronous with the test
-/// task. The test's time limit cancels a wait for a sleep that never ends.
-private func waitUntilNothingSleeps(on clock: GateClock) async {
-    while !clock.pendingSleeps.isEmpty, !Task.isCancelled {
-        await Task.yield()
-    }
 }

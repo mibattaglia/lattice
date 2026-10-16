@@ -1,6 +1,6 @@
 ---
 name: lattice-testing
-description: Test Lattice features with TestModel and TestViewModel, exhaustivity, and a test-local gate clock.
+description: Test Lattice features with TestModel and TestViewModel, exhaustivity, and EffectClock time control.
 license: MIT
 metadata:
   short-description: Testing patterns for Lattice.
@@ -21,7 +21,7 @@ Write deterministic, exhaustive tests for Lattice features. A test shell runs th
 - `receive(…)` waits for an action an effect sent, and asserts it.
 - `finish()` waits for every effect, then fails on what was never asserted.
 - `skipReceived(strict:)`, `skipInFlightEffects(strict:)` and `Exhaustivity` (`.on`, `.off(showSkippedAssertions:)`).
-- A test-local gate clock for time. None ships with Lattice: copy an example package's `GateClock.swift` from the Lattice repository, such as `ExampleProject/SearchExamplePackage/Tests/SearchExampleTests/GateClock.swift`, into your test target. The reference copy in `Tests/LatticeTests/Support/GateClock.swift` has a log hook that needs that folder's `EffectLog.swift`, so it does not compile on its own.
+- `EffectClock` and the shell's `advance(_:by:)` for time: inject the clock into the interactor, then `await model.advance(clock, by:)` wakes the sleeps that come due and lets each woken effect run to its next suspension.
 
 ## Writing a TestModel test
 
@@ -111,7 +111,7 @@ Rules:
 
 - `send(_:assert:)` first handles what is pending: reported and consumed when exhaustive, skipped when `.off`. It then sends the action and folds the modifications its effects committed synchronously, in their preambles, up to the first action they sent. One `assert` describes the action's change and those modifications.
 - The stub above suspends before it answers (`await Task.yield()`), so the result commits after `send` returns and `expect` describes it. An effect that never suspends finishes inside `send`, and `send`'s `assert` then describes its modifications too, up to the first action it sends.
-- `expect { … }` is synchronous and does not wait. Await the effect first (`await model.send(…)?.value`), receive an action it sends, or wait for a signal it gives. It folds every pending modification up to the next action into one assertion, and with nothing pending it asserts the live state. When exhaustive, an action pending ahead of the modifications fails first: it needs `receive`.
+- `expect { … }` is synchronous and does not wait. Await the effect first (`await model.send(…)?.value`), `advance` the `EffectClock` it sleeps on, receive an action it sends, or wait for a signal it gives. It folds every pending modification up to the next action into one assertion, and with nothing pending it asserts the live state. When exhaustive, an action pending ahead of the modifications fails first: it needs `receive`.
 - `receive` is for actions effects send, never for results: a result is a modification, asserted with `expect`. It waits until a matching action is pending, failing at once when no effect is left in flight, or until its timeout. It folds the entries before the match (when exhaustive, each non-matching action is reported), the match, and the modifications committed right after it, up to the next action.
 - An assertion without an `assert` closure asserts that nothing changed, in every exhaustivity mode.
 
@@ -185,34 +185,33 @@ func savesOnTheMainActor() async {
 
 ## Time
 
-Never call `TestClock.advance` right after `send`. `Clock.sleep` is `@concurrent`, so an effect registers its sleep only after it has hopped off the model's executor, and the advance can look for sleepers before that: it wakes nothing, and the test hangs or fails. Use a test-local gate clock, which lets the test wait for the sleep to register before it moves time:
+Inject an `EffectClock` and move time with the shell's `advance(_:by:)`. Effects sleep with `try await clock.sleep(for:)`, which registers the sleep before `send` returns; `advance` wakes every sleep that comes due, in deadline order, and lets each woken effect run to its next suspension before it goes on:
 
 ```swift
 @available(iOS 26, macOS 26, watchOS 26, *)
 @Test(.timeLimit(.minutes(1)))
 func debouncedSearchUsesTheLatestQuery() async {
-    let clock = GateClock()
+    let clock = EffectClock()
     let model = await TestModel(
         initialState: SearchState(),
         feature: Feature(interactor: SearchInteractor(clock: clock, debounceDuration: .milliseconds(300)))
     )
     await model.send(.queryChanged("a")) { $0.query = "a" }
-    let search = await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a"
-    await clock.waitForSleepers(1)  // "b" is asleep on the clock
-    clock.moveForward(by: .milliseconds(300))  // wakes it before returning
-    await search?.value
+    await model.send(.queryChanged("b")) { $0.query = "b" }  // auto-cancels "a" while it sleeps
+    await model.advance(clock, by: .milliseconds(300))  // "b" wakes, searches and writes its results
     await model.expect { $0.results = ["b"] }
     await model.finish()
 }
 ```
 
-`SearchInteractor` wraps its query interactor in `Interactors.Debounce(for: debounceDuration, clock: clock)`, and the interactor takes its clock as a generic parameter (`struct SearchInteractor<C: Clock>`). Loops, cancelled sleeps and waiting are in `resources/async-and-time.md`.
+`SearchInteractor`'s `.queryChanged` effect starts with `try await clock.sleep(for: debounceDuration)`, and the interactor takes its clock as a generic parameter (`struct SearchInteractor<C: Clock>`). Loops, cancelled sleeps and the late-sleep report are in `resources/async-and-time.md`.
 
 ## Pitfalls
 
-- `expect` can pass vacuously. Before an effect has run, `expect { _ in }` compares an unchanged state and passes. To assert that a cancelled effect wrote nothing, first prove that it ended (for example, `#expect(clock.pendingSleeps == [])` after the cancel, then await its task), then `expect`.
+- `expect` can pass vacuously. Before an effect has run, `expect { _ in }` compares an unchanged state and passes. To assert that a cancelled effect wrote nothing, first prove that it ended (for example, `advance` to when its sleep was due, which wakes a sleep that outlived the cancel, then await its task), then `expect`.
 - Never await a looping effect's task, even a cancelled one: `await task?.value` is not cancellation-aware, and a `.timeLimit` cannot end it. Cancel the task, then end with `finish()`, which is bounded by its timeout.
-- Never `TestClock.advance` right after `send`; wait for the sleep with a gate clock, one wait and one move per tick.
+- Sleep with `try await clock.sleep(for:)`, in a file that imports Lattice. `sleep(for:tolerance:)`, `Task.sleep(for:clock:)`, `sleep(until:tolerance:)` on a generic clock and a sleep inside a `@concurrent` function reach the clock after `send` returned: `EffectClock` reports the late sleep, and `advance` can miss it.
+- `advance` runs a woken effect only to its next suspension. When the effect then waits on a dependency that suspends, wait for that too before `expect`.
 - A timer that sleeps with `try?` spins after a cancel, committing ticks: test clocks and `ContinuousClock` both throw at once. The interactor must write `try await clock.sleep(for:)`.
 - An action the interactor ignores still cancels the anonymous effects of its case, so a test that re-sends a guarded action sees the running effect cancelled. The feature fixes that with `@EffectID`.
 - An error that leaves a live effect fails the test (`Effect threw: …`). Errors thrown once the effect is cancelled, by any source including `skipInFlightEffects`, are not reported.
