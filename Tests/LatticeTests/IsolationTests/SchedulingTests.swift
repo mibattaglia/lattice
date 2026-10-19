@@ -366,7 +366,11 @@ struct SchedulingTests {
         let model = await makeStartOrderModel(clock: clock)
 
         let outerTask = await model.send(.outerSendingLongInner)
-        await withTaskCancellationHandler { await outerTask?.value } onCancel: { outerTask?.cancel() }
+        await withTaskCancellationHandler {
+            await outerTask?.value
+        } onCancel: {
+            outerTask?.cancel()
+        }
 
         // The outer effect finished; the inner effect it started through `effects.send` still sleeps.
         await model.receive(.longInner) { $0.order = ["outer effect finished"] }
