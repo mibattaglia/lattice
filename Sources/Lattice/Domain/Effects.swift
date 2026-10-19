@@ -4,6 +4,17 @@ import IssueReporting
 /// suspension; it is `nonisolated(nonsending)`, so it never hops to the global executor.
 public typealias EffectOperation = nonisolated(nonsending) () async throws -> Void
 
+/// What a handle needs from the feature's runtime that does not depend on `State` or `Action`:
+/// the effect registry. `Core` conforms; every handle of a feature, at every `When` depth, points
+/// at the same runtime.
+protocol EffectRuntime: AnyObject {
+    var isRoutingAction: Bool { get }
+    func enqueue(path: [Int], scopePath: [AnyHashable], id: EffectID.Key?, _ operation: @escaping EffectOperation)
+    func cancel(scopePath: [AnyHashable], id: EffectID.Key)
+    func isRunning(scopePath: [AnyHashable], id: EffectID.Key) -> Bool
+    func visit(path: [Int])
+}
+
 /// The interactor's handle for asynchronous behaviour. A value type over the feature's runtime;
 /// not `Sendable`, and never needs to be: it only runs on the model's isolation.
 ///
@@ -36,31 +47,32 @@ public typealias EffectOperation = nonisolated(nonsending) () async throws -> Vo
 /// A run that a newer `.refresh` cancels still runs its `defer`, after the newer run has started,
 /// so `isRefreshing` can turn `false` while the newer refresh is still running.
 public struct Effects<State, Action> {
-    /// The committed state, untracked; `nil` when the runtime is gone or a case-scoped child is
-    /// no longer active.
-    let readState: () -> State?
-    let isRoutingAction: () -> Bool
+    /// The feature's `Core`. Weak, so an effect that ignores cancellation cannot keep a torn-down
+    /// model alive; `nil` after the shell's deinit.
+    weak var runtime: (any EffectRuntime)?
     /// The enum-tag path of this handle: the root action's tag, then one tag per `When` hop. Keys
     /// the handle's anonymous effects for auto-cancel.
     let path: [Int]
     /// One entry per `When` hop (its key path or case key path). Scopes the handle's `@EffectID`
     /// keys.
     let scopePath: [AnyHashable]
-    let enqueue: ([Int], [AnyHashable], EffectID.Key?, @escaping EffectOperation) -> Void
-    let enqueueCancel: ([AnyHashable], EffectID.Key) -> Void
-    let isRunningKey: ([AnyHashable], EffectID.Key) -> Bool
-    /// Registers a child path as an auto-cancel target of the action being handled.
-    let visit: ([Int]) -> Void
+    let lastKnown: LastKnown<State>
+
+    // The lens: the three operations whose types change at each `When` hop. The root handle maps
+    // them straight onto `Core`; `scope(...)` composes them one level down.
+
+    /// The committed state, untracked; `nil` when the runtime is gone or a case-scoped child is
+    /// no longer active.
+    let readState: () -> State?
     let sendAction: (Action) throws(CancellationError) -> Task<Void, Never>?
     let modifyState: ((inout State) -> Void) throws(CancellationError) -> Void
-    let lastKnown: LastKnown<State>
 
     /// The committed state. Read from effects; during `interact` it is the pre-action value and the
     /// read is reported (use the `inout` argument instead). After the model is gone, or a
     /// case-scoped child is no longer active, it is the last known value and the read is reported.
     /// Get-only: changes go through ``modify(_:)``.
     public var state: State {
-        if isRoutingAction() {
+        if runtime?.isRoutingAction == true {
             reportIssue("Read 'effects.state' during interact; use the 'state' argument instead")
         }
         guard let state = readState() else {
@@ -81,7 +93,11 @@ public struct Effects<State, Action> {
     /// the effect throws once its task is cancelled is not.
     @available(*, noasync)
     public func perform(id: EffectID.Key? = nil, _ operation: @escaping EffectOperation) {
-        enqueue(path, scopePath, id, operation)
+        guard let runtime else {
+            if !Task.isCancelled { reportIssue("Effect performed after the model was invalidated; dropped") }
+            return
+        }
+        runtime.enqueue(path: path, scopePath: scopePath, id: id, operation)
     }
 
     /// Commits a state change from an effect: one commit, one observation pass, one test entry,
@@ -106,7 +122,7 @@ public struct Effects<State, Action> {
     /// in order in the start phase, before the effects queued after it start. From an effect:
     /// immediate.
     public func cancel(_ id: EffectID.Key) {
-        enqueueCancel(scopePath, id)
+        runtime?.cancel(scopePath: scopePath, id: id)
     }
 
     /// Synchronous. `true` from the effect's start until its operation returns, it is replaced, or
@@ -119,7 +135,7 @@ public struct Effects<State, Action> {
     /// clears (in a `defer`, because a cancelled effect never reaches the statements after its
     /// suspension point).
     public func isRunning(_ id: EffectID.Key) -> Bool {
-        isRunningKey(scopePath, id)
+        runtime?.isRunning(scopePath: scopePath, id: id) ?? false
     }
 }
 
@@ -137,20 +153,11 @@ extension Effects where State: FeatureState {
     /// The root handle of one `send`.
     init(core: Core<State, Action>, path: [Int]) {
         self.init(
-            readState: { [weak core] in core?.committedState },
-            isRoutingAction: { [weak core] in core?.isRoutingAction ?? false },
+            runtime: core,
             path: path,
             scopePath: [],
-            enqueue: { [weak core] path, scopePath, id, operation in
-                guard let core else {
-                    reportIssue("'effects.perform' must be called during interact; dropped")
-                    return
-                }
-                core.enqueue(path: path, scopePath: scopePath, id: id, operation)
-            },
-            enqueueCancel: { [weak core] scopePath, id in core?.cancel(scopePath: scopePath, id: id) },
-            isRunningKey: { [weak core] scopePath, id in core?.isRunning(scopePath: scopePath, id: id) ?? false },
-            visit: { [weak core] path in core?.visit(path: path) },
+            lastKnown: LastKnown(core.committedState),
+            readState: { [weak core] in core?.committedState },
             sendAction: { [weak core] action throws(CancellationError) in
                 guard let core, !core.isInvalidated else {
                     if !Task.isCancelled { reportIssue("Effect sent \(action) after the model was invalidated") }
@@ -164,8 +171,7 @@ extension Effects where State: FeatureState {
                     throw CancellationError()
                 }
                 core.modify(body)  // reports and drops during interact and inside another modify
-            },
-            lastKnown: LastKnown(core.committedState)
+            }
         )
     }
 }
@@ -189,37 +195,43 @@ extension Effects {
         scopeEntry: AnyHashable
     ) -> Effects<ChildState, ChildAction> {
         let childPath = path + [childTag]
-        visit(childPath)
+        runtime?.visit(path: childPath)
         let parent = self
+
+        /// The child's case is no longer active. Not checked during `interact`, when the committed
+        /// state still predates the action that may be activating it.
+        func isStale() -> Bool {
+            guard parent.runtime?.isRoutingAction != true, let parentState = parent.readState() else {
+                return false
+            }
+            return extract(parentState) == nil
+        }
+
         return Effects<ChildState, ChildAction>(
-            readState: { parent.readState().flatMap(extract) },
-            isRoutingAction: isRoutingAction,
+            runtime: runtime,
             path: childPath,
             scopePath: scopePath + [scopeEntry],
-            enqueue: enqueue,
-            enqueueCancel: enqueueCancel,
-            isRunningKey: isRunningKey,
-            visit: visit,
+            lastKnown: LastKnown(initialState),
+            readState: { parent.readState().flatMap(extract) },
             sendAction: { childAction throws(CancellationError) in
-                if !parent.isRoutingAction(), let parentState = parent.readState(), extract(parentState) == nil {
+                guard !isStale() else {
                     reportIssue("Child effect sent \(childAction) after its state was removed from the parent; dropped")
                     return nil
                 }
                 return try parent.sendAction(embed(childAction))
             },
             modifyState: { body throws(CancellationError) in
-                if !parent.isRoutingAction(), let parentState = parent.readState(), extract(parentState) == nil {
+                guard !isStale() else {
                     reportIssue("Child effect modified state after its state was removed from the parent; dropped")
                     return
                 }
                 try parent.modifyState { parentState in
-                    // Synchronous on the model's isolation, so the check above still holds here.
+                    // Synchronous on the model's isolation, so `isStale()` still holds here.
                     guard var childState = extract(parentState) else { return }
                     body(&childState)
                     embedState(&parentState, childState)
                 }
-            },
-            lastKnown: LastKnown(initialState)
+            }
         )
     }
 }

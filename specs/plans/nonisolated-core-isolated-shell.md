@@ -1081,6 +1081,16 @@ Deviations:
   directly, a case path once `extract` succeeds). An action for an inactive case therefore returns
   early and no longer visits or auto-cancels the child path; the §3.1 shape had no child value to
   seed a non-optional box with (supervisor decision; 95da2dc).
+- §3.1: the handle reaches the effect registry through an internal class-bound `EffectRuntime`
+  protocol (`isRoutingAction`, `enqueue`, `cancel`, `isRunning`, `visit`) that `Core` conforms to
+  and the handle holds weakly, instead of the per-operation closures `isRoutingAction`, `enqueue`,
+  `enqueueCancel`, `isRunningKey` and `visit`: every handle of a feature, at every `When` depth,
+  calls the same runtime with its own `path` and `scopePath`. The three operations typed by `State`
+  or `Action` (`readState`, `sendAction`, `modifyState`) remain closures, which `scope(...)`
+  composes one level down, with its stale-child check in one local `isStale()`. `perform` through
+  a handle whose core is gone reports `Effect performed after the model was invalidated; dropped`
+  instead of `'effects.perform' must be called during interact; dropped`, and, like `send` and
+  `modify`, reports nothing when the calling task is cancelled (effects-runtime).
 - §3.2: `isRunning` is `false` once the effect's operation returns, it is replaced, or it is
   cancelled by `cancel(_:)` or teardown. Cancelling the task `send` returned cancels the effect, but
   `isRunning` reflects that only once the effect unwinds: the aggregate's `onCancel` runs off the

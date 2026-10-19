@@ -287,3 +287,7 @@ final class Core<State: FeatureState, Action>: Observable {
         tasks[location] = entries
     }
 }
+
+/// `enqueue`, `cancel`, `isRunning`, `visit` and `isRoutingAction` already have the protocol's
+/// shapes; the handle reaches them through `any EffectRuntime`, so it needs no closures for them.
+extension Core: EffectRuntime {}

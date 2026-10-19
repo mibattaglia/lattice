@@ -63,7 +63,7 @@ What follows from this order:
 
 ## The `Effects` Handle
 
-`interact(state:action:effects:)` receives an `Effects<State, Action>`: a value type over closures into the core. It is not `Sendable` and never needs to be, because it is only used on the shell's isolation. Its public surface:
+`interact(state:action:effects:)` receives an `Effects<State, Action>`: a value type over the core, which it holds weakly. It reaches the effect registry (`perform`, `cancel`, `isRunning` and the paths a `When` visits) through the internal `EffectRuntime` protocol that `Core` conforms to, and it reads, modifies and sends through three closures that each `When` hop composes one level down. It is not `Sendable` and never needs to be, because it is only used on the shell's isolation. Its public surface:
 
 ```swift
 public typealias EffectOperation = nonisolated(nonsending) () async throws -> Void
@@ -115,7 +115,7 @@ The `defer` runs on every path, cancelled or not. A run that is replaced or auto
 
 | Member | Legal from | Otherwise |
 |---|---|---|
-| `perform` | `interact` | A compile error in async contexts: `'perform' is unavailable from asynchronous contexts`. From a synchronous escape it is reported and dropped: `'effects.perform' must be called during interact; dropped`, or `Can't perform an effect inside 'modify'; dropped` inside a `modify` body. |
+| `perform` | `interact` | A compile error in async contexts: `'perform' is unavailable from asynchronous contexts`. From a synchronous escape it is reported and dropped: `'effects.perform' must be called during interact; dropped`, or `Can't perform an effect inside 'modify'; dropped` inside a `modify` body. Through a handle that outlived its model it is dropped and, unless the calling task is cancelled, reported: `Effect performed after the model was invalidated; dropped`. |
 | `state` | an effect | During `interact`: reported (`Read 'effects.state' during interact; use the 'state' argument instead`), and it returns the committed pre-action value. After invalidation, or once a case-scoped child's case is inactive: reported (`Read 'effects.state' after the model was invalidated or the scoped state went away`), and it returns the last known value. |
 | `modify` | an effect | During `interact`: `Can't modify state from effects during interact; mutate the 'state' argument instead`, and the body does not run. Inside another `modify` body: `Can't modify state inside another 'modify'; dropped`. For an inactive case-scoped child: `Child effect modified state after its state was removed from the parent; dropped`. After invalidation it throws `CancellationError` (see [Teardown](#teardown)). |
 | `send` | an effect | During `interact` or inside a `modify` body: see [Handling An Action](#handling-an-action). For an inactive case-scoped child: `Child effect sent <action> after its state was removed from the parent; dropped`, and it returns `nil`. After invalidation it throws `CancellationError`. |
