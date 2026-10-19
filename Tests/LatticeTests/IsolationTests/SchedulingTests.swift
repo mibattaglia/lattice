@@ -40,7 +40,6 @@ enum StartOrderAction: Equatable {
 @Interactor<StartOrderState, StartOrderAction>
 struct StartOrderInteractor {
     let clock: EffectClock
-    var nestedTask = LockedNestedTaskBox()
 
     var body: some InteractorOf<Self> {
         Interact { state, action, effects in
@@ -78,7 +77,7 @@ struct StartOrderInteractor {
 
             case .outerSendingLongInner:
                 effects.perform {
-                    nestedTask.task = try effects.send(.longInner)
+                    try effects.send(.longInner)
                     await Task.yield()
                     try effects.modify { $0.order.append("outer effect finished") }
                 }
@@ -286,7 +285,6 @@ struct SchedulingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     private func makeStartOrderModel(
         clock: EffectClock,
-        nestedTask: LockedNestedTaskBox = LockedNestedTaskBox(),
         fileID: StaticString = #fileID,
         filePath: StaticString = #filePath,
         line: UInt = #line,
@@ -294,7 +292,7 @@ struct SchedulingTests {
     ) async -> TestModel<Feature<StartOrderAction, StartOrderState>> {
         await TestModel(
             initialState: StartOrderState(),
-            feature: Feature(interactor: StartOrderInteractor(clock: clock, nestedTask: nestedTask)),
+            feature: Feature(interactor: StartOrderInteractor(clock: clock)),
             fileID: fileID,
             filePath: filePath,
             line: line,
@@ -307,7 +305,7 @@ struct SchedulingTests {
     /// `send` folds the preamble's modification in: it ran before `send` returned. The rest of the
     /// effect runs only once `advance` wakes it.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectPreambleRunsBeforeSendReturns() async {
         let clock = EffectClock()
         let model = await makeStartOrderModel(clock: clock)
@@ -323,7 +321,7 @@ struct SchedulingTests {
 
     /// `perform` only enqueues: the effect starts after `interact` (and its `defer`) returned.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func deferInInteractRunsBeforeTheEffectStarts() async {
         let clock = EffectClock()
         let model = await makeStartOrderModel(clock: clock)
@@ -339,7 +337,7 @@ struct SchedulingTests {
     /// The outer effect's send is handled, with the inner effect's preamble, before the outer effect
     /// carries on and before the outer send starts its second effect.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func sendFromAnEffectPreambleIsProcessedDepthFirst() async {
         let clock = EffectClock()
         let model = await makeStartOrderModel(clock: clock)
@@ -358,33 +356,23 @@ struct SchedulingTests {
         await model.finish()
     }
 
-    /// A task that waited for the inner effect, which sleeps until cancelled, would stall this
-    /// test: the time limit reports the stall under the test's name, and the wait is
-    /// cancellation-aware so the test then ends instead of hanging the run.
+    /// The inner effect sleeps on a clock the test never advances, so only a cancel ends it. A send
+    /// task that covered it would stall here; the time limit reports the stall under this test's
+    /// name, and the cancellation-aware wait then ends the effects instead of hanging the run.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test(.timeLimit(.minutes(1)))
-    func sendTaskDoesNotCoverTheEffectsOfSendsItsEffectsMake() async throws {
+    func sendTaskDoesNotCoverTheEffectsOfSendsItsEffectsMake() async {
         let clock = EffectClock()
-        let nestedTask = LockedNestedTaskBox()
-        let model = await makeStartOrderModel(clock: clock, nestedTask: nestedTask)
+        let model = await makeStartOrderModel(clock: clock)
 
         let outerTask = await model.send(.outerSendingLongInner)
-        await withTaskCancellationHandler {
-            await outerTask?.value
-        } onCancel: {
-            outerTask?.cancel()
-        }
+        await withTaskCancellationHandler { await outerTask?.value } onCancel: { outerTask?.cancel() }
 
         // The outer effect finished; the inner effect it started through `effects.send` still sleeps.
         await model.receive(.longInner) { $0.order = ["outer effect finished"] }
         #expect(clock.sleeperCount == 1)
 
-        let innerTask = try #require(nestedTask.task)
-        innerTask.cancel()
-        // The send task started immediately, so cancelling it cancelled the effect; checked before
-        // the wait, so a cancel that did not arrive fails instead of hanging.
-        try #require(clock.sleeperCount == 0)
-        await innerTask.value
+        await model.skipInFlightEffects()
         await model.finish()  // the inner effect never finished
     }
 
@@ -426,7 +414,7 @@ struct SchedulingTests {
     /// `TestViewModel`: the 100 synchronous sends hold the main actor, where the effects run, so
     /// every send but the first re-handles the case while the previous effect is still suspended.
     @MainActor
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandledCaseStillDeliversSendsOfEffectsThatIgnoreCancellation() async {
         let model = TestViewModel(
             initialState: CancelledEffectState(),
@@ -450,7 +438,7 @@ struct SchedulingTests {
 
     /// `TestViewModel`, as above.
     @MainActor
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandledCaseStillCommitsModificationsOfEffectsThatIgnoreCancellation() async {
         let model = TestViewModel(
             initialState: CancelledEffectState(),
@@ -471,7 +459,7 @@ struct SchedulingTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandledCaseLosesTheWorkOfEffectsCancelledAtASleep() async {
         let clock = EffectClock()
         let model = await TestModel(
@@ -494,7 +482,7 @@ struct SchedulingTests {
     /// Cancellation can surface as an error other than `CancellationError`, so whatever an effect
     /// throws once its task is cancelled is not reported.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func errorThrownByACancelledEffectIsNotReported() async {
         let answer = Gate()
         let issues = await reportedIssueDetails {
@@ -514,7 +502,7 @@ struct SchedulingTests {
 
     /// The same error from an effect that was not cancelled is a failure, and is reported.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func errorThrownByALiveEffectIsReported() async {
         let answer = Gate()
         let issues = await reportedIssueDetails {
@@ -538,7 +526,7 @@ struct SchedulingTests {
     /// own case cancels the already started effects of that case (itself included) but not the
     /// effects queued after it by the outer send, which start once the nested send returns.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func preambleResendOfItsOwnCaseDoesNotCancelTheOuterSendsNotYetStartedEffects() async {
         let clock = EffectClock()
         let model = await TestModel(

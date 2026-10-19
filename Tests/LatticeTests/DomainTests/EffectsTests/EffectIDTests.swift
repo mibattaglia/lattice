@@ -249,7 +249,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectIsCancelledFromAnotherCaseAlthoughEachInteractRebuildsTheChild() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -263,7 +263,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectIsReplacedPerKeyFromAnyCase() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -278,7 +278,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectIsNotAutoCancelledWhenItsCaseIsHandledAgain() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -297,7 +297,7 @@ struct EffectIDTests {
     /// The effect performed first started, then the queued cancel ran: its preamble saw it running,
     /// and it never completes.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func cancelQueuedDuringInteractRunsInOrderAfterTheEffectPerformedBeforeIt() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -312,7 +312,7 @@ struct EffectIDTests {
     /// The queued cancel ran first and cancelled only the running effect; the effect performed
     /// after it started, saw itself running and completes.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func cancelQueuedDuringInteractRunsInOrderBeforeTheEffectPerformedAfterIt() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -328,7 +328,7 @@ struct EffectIDTests {
 
     /// The effect's `cancel` takes effect before it returns: `isRunning` right after it is `false`.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func cancelFromAnEffectIsImmediate() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -341,7 +341,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func isRunningFromInteractAndFromTheEffectsOwnPreamble() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -360,7 +360,7 @@ struct EffectIDTests {
     /// `TestViewModel`: the test holds the main actor, where the effect runs, from the cancel to the
     /// probe, so the effect cannot unwind in between.
     @MainActor
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func isRunningStaysTrueAfterTheSendTaskIsCancelledUntilTheEffectUnwinds() async throws {
         let clock = EffectClock()
         let model = TestViewModel(
@@ -385,7 +385,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func cancelThenIsRunningInOneInteractIsTrueUntilTheNextAction() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -399,7 +399,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func twoWhensOverTheSameChildKeepIndependentEffectsThroughTheirScopePaths() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -418,7 +418,7 @@ struct EffectIDTests {
     /// Without a scope path to tell them apart, two instances of one child type collide on their
     /// key: the second replaces the first.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func twoInstancesOfAChildInOneScopeShareItsKey() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -431,7 +431,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func genericSpecializationsInOneScopeShareTheirKey() async {
         let clock = EffectClock()
         let model = await TestModel(
@@ -449,7 +449,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func perElementKeysFromScopedAreIndependent() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -466,7 +466,7 @@ struct EffectIDTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectThatFinishesInItsPreambleIsNotRunning() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)

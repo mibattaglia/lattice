@@ -89,7 +89,7 @@ struct TestModelFoldingTests {
         )
     }
 
-    /// §6: a modification an effect's preamble makes is committed inside `send`, so the send's
+    /// A modification an effect's preamble makes is committed inside `send`, so the send's
     /// assertion describes it with the action's change.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test

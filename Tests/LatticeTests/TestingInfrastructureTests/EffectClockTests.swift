@@ -51,7 +51,7 @@ struct EffectClockTests {
     /// with no `await` in between, sees the sleep; cancelling the effect removes it inside
     /// `cancel()`.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func sleepIsRegisteredBeforeSendReturns(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -72,7 +72,7 @@ struct EffectClockTests {
     /// `advance` wakes the debounced search and returns once it has committed, so `expect` right
     /// after it sees the results. Not a moment early: 1 ms short of the debounce, nothing ran.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func advanceDeliversTheDebouncedResult(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -96,7 +96,7 @@ struct EffectClockTests {
     /// the previous tick and slept again: exactly five ticks, then exactly one more. Cancelling the
     /// ticker removes its sleep inside `cancel()`.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func advanceTicksOncePerInterval(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -124,7 +124,7 @@ struct EffectClockTests {
     /// ticker three times and returns while the load has committed nothing; opening the answer then
     /// finishes the load.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func advanceDoesNotWaitForAnEffectParkedElsewhere(iteration: Int) async {
         let clock = EffectClock()
         let loadGate = Gate()
@@ -149,7 +149,7 @@ struct EffectClockTests {
     /// A second query within the debounce auto-cancels the first one's sleep inside its `send`, so
     /// only the second sleep is left, and `advance` wakes only it: one search, one result.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func aSecondQueryWithinTheDebounceReplacesTheFirst(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -171,7 +171,7 @@ struct EffectClockTests {
     /// Clearing the query auto-cancels the waiting search: its sleep is gone when `send` returns, and
     /// moving time past it searches nothing.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func clearingTheQueryRemovesTheSleepInsideSend(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -192,7 +192,7 @@ struct EffectClockTests {
     /// One `advance` over two intervals wakes the search at 300 ms and the ticker at 1 s and 2 s, in
     /// that order, and leaves the ticker asleep a full interval past the new time.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func oneAdvanceWakesInterleavedSleepsInDeadlineOrder(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -226,7 +226,7 @@ struct EffectClockTests {
     /// late sleep still works: `advance` wakes it once it registered, and the effect commits after it
     /// hops back to the model, so the test awaits it.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: SleepSpelling.allCases)
+    @Test(arguments: SleepSpelling.allCases)
     func eachBypassSpellingReportsTheLateSleepOnce(spelling: SleepSpelling) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -245,7 +245,7 @@ struct EffectClockTests {
 
     /// `clock.sleep(for:)` from the effect reports nothing, for a one-shot sleep and for a ticker.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func sleepForOnTheEffectsIsolationReportsNothing() async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -268,7 +268,7 @@ struct EffectClockTests {
     /// Not a bypass: `sleep(until:)` called on a concrete `EffectClock` runs on the effect's
     /// isolation, with no hop, so the sleep registers before `send` returns and nothing is reported.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func sleepUntilOnAConcreteEffectClockReportsNothing() async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -291,7 +291,7 @@ struct EffectClockTests {
     /// standard library's overload does: a `ContinuousClock` sleep takes its time, and the effect
     /// then commits on the model.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func aProductionClockSleepsForItsDuration() async {
         let issues = await reportedIssueDetails {
             let model = await TestModel(

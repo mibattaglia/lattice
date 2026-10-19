@@ -888,7 +888,7 @@ swift test --filter TestViewModelTests
 
 - `IsolationTests` selects the three isolation regression suites, `ViewModelIsolationTests`, `TestModelIsolationTests` and `ActorModelIsolationTests`, not the whole `IsolationTests` folder.
 - `ActorModel` selects the three `ActorModel*` suites, `TestModel` every `TestModel*` suite, and `EffectClock` `EffectClockTests` and `EffectClockTestViewModelTests`.
-- `ParallelismTests` holds two rendezvous tests, one per actor shell: two models whose effects each wait for the other's. It is skipped on a single-core machine.
+- `ParallelismTests` holds one test per actor shell: the effects of two models run on different isolations.
 
 Run the negative compile checks after a build (CI runs them):
 

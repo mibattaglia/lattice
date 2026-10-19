@@ -338,7 +338,7 @@ Apart from the `ActorModel` suites, they drive `TestModel` and assert what the e
 - `ViewModelTeardownTests`: what the `ViewModel` deinit does to its effects, and a handle that outlived its view model.
 - `AutoCancelTests` and `EffectIDTests`: paths per case and per `When` hop, `Merge`, tag stability, declaration-site keys across rebuilt and generic instances, replacement, queued and immediate cancels, `isRunning`, scope paths and `scoped(_:)`.
 - `ActorModelTests`: scheduling, auto-cancel, isolation and teardown under `ActorModel`.
-- `ParallelismTests`: two models per actor shell, whose effects each signal and then wait up to five seconds for the other's; they meet only if the models run on executors of their own, in parallel. Skipped on a single core.
+- `ParallelismTests`: two models per actor shell, whose effects report the isolation they run on; the two differ, so the models can run their effects in parallel.
 
 ## Limitations
 

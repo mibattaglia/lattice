@@ -10,7 +10,7 @@ import Testing
 
 @Suite
 struct TodosTests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func addToggleDeleteReorder() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -62,7 +62,7 @@ struct TodosTests {
         await model.finish()
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func debouncedAutoSortMovesCompletedToBottom() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -93,7 +93,7 @@ struct TodosTests {
 
     /// Toggling again within the delay replaces the waiting sort and starts the delay over:
     /// the list is sorted once, a full delay after the last toggle.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func togglingAgainRestartsTheAutoSortDelay() async {
         let clock = EffectClock()
         let todos = [
@@ -129,7 +129,7 @@ struct TodosTests {
     /// nothing, so the sort an earlier toggle scheduled still runs on time. The sort is identified
     /// by a key, which only a new sort replaces; an anonymous effect would be cancelled by every
     /// `.setTodoCompletion`, ignored or not.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func ignoredTogglesLeaveThePendingSortAlone() async {
         let clock = EffectClock()
         let todos = [

@@ -37,7 +37,7 @@
 - Run library tests only: `swift test --filter LatticeTests`
 - Run `@FeatureState` expansion snapshots: `swift test --filter FeatureStateMacroTests`
 - Run projection runtime tests: `swift test --filter '\.ProjectionTests'`, `swift test --filter ViewStateProjectionTests`, and `swift test --filter ViewStateCollectionTests`
-- Run the core's behaviour suites: `swift test --filter '\.SchedulingTests'` (plain `SchedulingTests` also matches `ActorModelSchedulingTests`), `ModificationTests`, `CoreExitTests` and `ParallelismTests` (one rendezvous test per actor shell, skipped on a single core). `--filter IsolationTests` runs only the three `*IsolationTests` regression suites.
+- Run the core's behaviour suites: `swift test --filter '\.SchedulingTests'` (plain `SchedulingTests` also matches `ActorModelSchedulingTests`), `ModificationTests`, `CoreExitTests` and `ParallelismTests` (one executor-identity test per actor shell). `--filter IsolationTests` runs only the three `*IsolationTests` regression suites.
 - Run the effects, `ActorModel` and clock suites: `swift test --filter '\.AutoCancelTests'`, `EffectIDTests`, `ActorModel` (the three `ActorModel*` suites) and `EffectClock` (`EffectClockTests` and `EffectClockTestViewModelTests`)
 - Run the test-shell suites: `swift test --filter TestModel` and `swift test --filter TestViewModelTests`
 - Run negative compile checks after `swift build`: `bash scripts/negative-compile-checks.sh` (CI runs it). The `-typecheck` lane asserts that `@Domain` members stay hidden and generic states are rejected; the `-emit-sil -wmo` lane (region isolation) asserts that `NO_SENDABLE_BASELINE` compiles with `-warnings-as-errors` and that `PERFORM_IN_EFFECT` and `MAINACTOR_INTERACTOR_TO_TESTMODEL` fail.
@@ -51,10 +51,6 @@
 - `@FeatureState` and `@Domain` are implemented in `Sources/LatticeMacros/Plugins/` (`FeatureStateMacro.swift`, `ObservationStateMacros.swift`, the `ViewState` projection in `FeatureStateMacro+ViewState.swift`, `ViewStateMember.swift` and `ViewStateRenderer.swift`, and `FeatureStateSupportMacros.swift`), declared in `Sources/Lattice/Macros.swift`, and registered in `Sources/LatticeMacros/Plugins/Plugin.swift`.
 - Macro tests are `MacroTesting` snapshots (`assertMacro`); the extension role only expands with `MacroSpec(type:conformances:)`.
 - Swift 6.4 compiler bug: a file that holds a `@FeatureState` enum together with other macro-annotated declarations (other `@FeatureState` types, `@CasePathable` enums, `@Observable` classes, `@Interactor` types, …) can crash the compiler (segfault in `TypeCheckPrimaryFileRequest`). Declare each `@FeatureState` enum, `@CasePathable` or not, in its own file with no other macro-annotated declaration; files whose `@FeatureState` types are all structs are not affected. This is a temporary workaround for the compiler bug, not a design rule.
-
-## Macro binary refresh
-- If macro sources change, rebuild the tool: `scripts/rebuild-macro.sh` builds the package in release and copies the `LatticeMacros` tool to `Macros/LatticeMacros`. The binary is not checked in; the podspec's `prepare_command` runs the same script at `pod install`.
-- Set `SKIP_LATTICE_MACRO_BUILD=1` or `SKIP_LATTICE_MACRO_BUILD=true` to skip when needed.
 
 ## Skill sync
 - Sync `skills/` and `.claude/skills/`: `scripts/sync-skills.sh`

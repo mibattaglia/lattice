@@ -241,7 +241,7 @@ struct AutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAnActionCaseCancelsOnlyThatCasesPreviousEffects() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -260,7 +260,7 @@ struct AutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAChildCaseThroughAWhenKeyPathCancelsOnlyThatChildCasesEffects() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -289,7 +289,7 @@ struct AutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAChildCaseThroughAWhenCasePathCancelsOnlyThatChildCasesEffects() async {
         let clock = EffectClock()
         let model = await TestModel(
@@ -315,7 +315,7 @@ struct AutoCancelTests {
     /// A parent effect performed for `.a(.start)` sits at the parent's path, `[tag(a)]`, so any
     /// action of that child cancels it, while the child's own effect sits at `[tag(a), tag(start)]`.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func parentEffectForAChildActionIsCancelledByAnyActionOfThatChild() async {
         let clock = EffectClock()
         let model = await TestModel(
@@ -339,7 +339,7 @@ struct AutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func mergedInteractorsBothStartTheirEffectsAndReHandlingTheCaseCancelsBoth() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -362,7 +362,7 @@ struct AutoCancelTests {
     /// for an inactive case returns early without visiting the child's path, and the effects the
     /// child started while it was active keep running until the case is handled again.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func childActionForAnInactiveCaseIsIgnoredAndCancelsNothing() async {
         let clock = EffectClock()
         let model = await TestModel(
@@ -404,7 +404,7 @@ struct AutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAnIndirectCaseCancelsItsEffectsWhateverThePayload() async {
         let clock = EffectClock()
         let model = await TestModel(

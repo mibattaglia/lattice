@@ -7,8 +7,8 @@ import Testing
 /// effects commit while unwinding stays pending.
 @Suite
 struct TestModelCancellationTests {
-    /// Port of the old `skipInFlightEffectsCancelsRunningEffectWork`: the gated effect never gets
-    /// past its gate, and its `defer` modification is pending for `expect`.
+    /// The gated effect never gets past its gate, and its `defer` modification is pending for
+    /// `expect`.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func skipInFlightEffectsCancelsAWaitingEffectWhoseDeferModificationStaysPending() async {
@@ -43,7 +43,6 @@ struct TestModelCancellationTests {
         #expect(issues == [])
     }
 
-    /// Port of the old `skipInFlightEffectsReportsMissingWorkAtCaller`.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func skipInFlightEffectsWithNoEffectInFlightReportsItWhenStrict() async {

@@ -9,8 +9,8 @@ import Foundation
 /// `TestModelIsolationTests`, `ActorModelIsolationTests`), one of them from a cancellation handler:
 /// they keep swift-clocks' `TestClock` for its real `@concurrent` hop.
 ///
-/// Locked: an effect appends on its model's isolation, a cancellation handler on whichever thread
-/// cancels, and the test reads.
+/// Locked: effects and cancellation handlers append on the model's isolation, and a test reads
+/// from its own while a cancelled effect may still be appending.
 final class EffectLog: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String] = []

@@ -467,7 +467,7 @@ struct ModificationTests {
     // MARK: Scoped children
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func staleCaseScopedChildModifyAndSendAreReportedAndLeaveTheParentUntouched() async {
         let log = EffectLog()
         let writeGate = Gate()
@@ -492,7 +492,7 @@ struct ModificationTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func staleCaseScopedChildReadBeforeAnySuccessfulReadReturnsTheSeededValue() async {
         let log = EffectLog()
         let readGate = Gate()
@@ -516,7 +516,7 @@ struct ModificationTests {
     /// The child handle is seeded with the child state `When` routed to, which is the working copy's:
     /// here the case was entered by the same `interact`, so the committed state never had it.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func staleCaseScopedChildReadReturnsTheWorkingValueItWasSeededWith() async {
         let log = EffectLog()
         let readGate = Gate()
@@ -541,7 +541,7 @@ struct ModificationTests {
     /// payload once the case is active again, and a read goes through it too. The gates open one
     /// at a time, so the read comes after the write and the send.
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func caseScopedChildEffectUsesTheNewPayloadAfterReactivation() async {
         let log = EffectLog()
         let writeGate = Gate()

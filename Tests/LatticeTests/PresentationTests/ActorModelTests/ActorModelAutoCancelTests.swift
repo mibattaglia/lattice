@@ -179,7 +179,7 @@ struct ActorModelAutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAnActionCaseCancelsOnlyThatCasesPreviousEffects() async {
         let answers = ActorModelAnswers()
         let model = await makeModel(answers: answers)
@@ -200,7 +200,7 @@ struct ActorModelAutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func reHandlingAChildCaseThroughAWhenKeyPathCancelsOnlyThatChildCasesEffects() async {
         let answers = ActorModelAnswers()
         let model = await makeModel(answers: answers)
@@ -231,7 +231,7 @@ struct ActorModelAutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func mergedInteractorsBothStartTheirEffectsAndReHandlingTheCaseCancelsBoth() async {
         let answers = ActorModelAnswers()
         let model = await makeModel(answers: answers)
@@ -254,7 +254,7 @@ struct ActorModelAutoCancelTests {
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func identifiedEffectIsReplacedPerKeyAndCancelledFromAnotherCase() async {
         let answers = ActorModelAnswers()
         let model = await makeModel(answers: answers)

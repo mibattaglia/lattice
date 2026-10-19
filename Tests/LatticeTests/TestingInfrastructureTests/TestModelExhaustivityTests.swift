@@ -57,7 +57,6 @@ struct TestModelExhaustivityTests {
         #expect(issues.first?.message.contains("Assert the modifications effects made with 'expect'.") == true)
     }
 
-    /// Port of the old `finishReportsUnhandledReceivedActionsAtCaller`.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func finishReportsTheActionsLeftPending() async {

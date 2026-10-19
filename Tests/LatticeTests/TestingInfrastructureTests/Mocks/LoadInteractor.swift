@@ -1,6 +1,7 @@
 import CasePaths
 import Foundation
 import Lattice
+import os
 
 // The feature the test model suites drive: one action per shape of commit a test shell has to
 // handle. Declared at file scope, so the interactor and its effect literals are nonisolated, as
@@ -24,8 +25,6 @@ enum LoadAction: Equatable, Sendable {
     case loaded(Int)
     /// Its effect sends `.loaded(41)` after a `Task.yield()`.
     case loadAfterYield
-    /// Its effect sends `.loaded(41)` after sleeping for the duration.
-    case loadAfterSleep(Duration)
     /// Its effect sends `.step(1)` and `.step(2)` from its preamble.
     case startSequence
     case step(Int)
@@ -61,25 +60,12 @@ enum LoadAction: Equatable, Sendable {
     case modifyTwiceThenSend
 }
 
-/// A task the test hands an effect to cancel. Locked: the test sets it, and the effect cancels it on
-/// the model's executor.
-final class LockedTaskBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var task: Task<Void, Never>?
-
-    func set(_ task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func cancel() {
-        lock.withLock { task }?.cancel()
-    }
-}
-
 @Interactor<LoadState, LoadAction>
 struct LoadInteractor {
     var gate = Gate()
-    var waiter = LockedTaskBox()
+    /// A task the test hands an effect to cancel in the same job as a commit; a lock because the
+    /// test sets it and the effect cancels it on the model's executor.
+    var waiter = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     /// Only for sleeps that end by cancellation: the tests never advance it.
     var clock = EffectClock()
 
@@ -99,12 +85,6 @@ struct LoadInteractor {
             case .loadAfterYield:
                 effects.perform {
                     await Task.yield()
-                    try effects.send(.loaded(41))
-                }
-
-            case .loadAfterSleep(let duration):
-                effects.perform {
-                    try await Task.sleep(for: duration)
                     try effects.send(.loaded(41))
                 }
 
@@ -193,7 +173,7 @@ struct LoadInteractor {
                 effects.perform {
                     try await gate.pass()
                     try effects.send(.loaded(41))
-                    waiter.cancel()
+                    waiter.withLock { $0 }?.cancel()
                 }
 
             case .modifyTwiceThenSend:

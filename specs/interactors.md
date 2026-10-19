@@ -156,7 +156,7 @@ These patterns come from the example packages under `ExampleProject/` and from t
 
 ### A result is a modification
 
-An effect writes its result with `effects.modify`. There is no response case to send and handle (adapted from `TestModelExampleTests`' `CounterExampleInteractor`):
+An effect writes its result with `effects.modify`. There is no response case to send and handle:
 
 ```swift
 case .refresh:

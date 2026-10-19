@@ -3,9 +3,6 @@ import Testing
 
 @testable import Lattice
 
-// What `.append` and `.observe` expressed is now one effect: steps done in order inside it, and a
-// `for await` over a stream inside it.
-
 @FeatureState
 struct EffectSequenceState: Equatable, Sendable {
     var log: [String] = []
@@ -16,7 +13,7 @@ enum EffectSequenceAction: Equatable, Sendable {
     /// another, each after a `Task.yield()`.
     case runSequence
     /// Its effect sends `.logged(value)` for every value of a two-value stream.
-    case observeStream
+    case iterateStream
     case logged(String)
 }
 
@@ -33,7 +30,7 @@ struct EffectSequenceInteractor {
                     }
                 }
 
-            case .observeStream:
+            case .iterateStream:
                 effects.perform {
                     let values = AsyncStream<String> { continuation in
                         continuation.yield("stream-1")
@@ -84,7 +81,7 @@ struct TestModelEffectSequenceTests {
                 initialState: EffectSequenceState(),
                 feature: Feature(interactor: EffectSequenceInteractor())
             )
-            await model.send(.observeStream)?.value
+            await model.send(.iterateStream)?.value
             #expect(await model.state.log == [])
 
             await model.receive(.logged("stream-1")) { $0.log = ["stream-1"] }

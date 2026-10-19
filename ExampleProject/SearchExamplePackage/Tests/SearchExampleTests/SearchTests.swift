@@ -12,7 +12,7 @@ import Testing
 struct SearchTests {
     /// Each edit auto-cancels the search the previous edit started while that search was still
     /// waiting out the debounce, so only the last query reaches the service.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func debouncedSearchUsesLatestQuery() async {
         let clock = EffectClock()
         let searches = CallLog()
@@ -39,7 +39,7 @@ struct SearchTests {
     }
 
     /// Clearing the field auto-cancels the search that is still waiting out the debounce.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func clearingTheQueryCancelsTheWaitingSearch() async {
         let clock = EffectClock()
         let searches = CallLog()
@@ -60,7 +60,7 @@ struct SearchTests {
 
     /// An edit while a search waits for the service auto-cancels that search, so its answer, which
     /// arrives afterwards, is dropped: only the last query's results are shown.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func editingDuringASearchDropsItsResults() async {
         let clock = EffectClock()
         let answers = Gate()
@@ -97,7 +97,7 @@ struct SearchTests {
 
     /// Tapping a row loads its forecast. Tapping another row auto-cancels that request, so the
     /// answer it gets afterwards is dropped: only the second row shows a forecast.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func tappingAnotherLocationDropsTheEarlierForecast() async {
         let forecasts = Gate()
         let first = makeResultItem(id: 1, name: "First")

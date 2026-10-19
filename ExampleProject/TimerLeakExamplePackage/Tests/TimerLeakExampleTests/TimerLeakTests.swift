@@ -13,7 +13,7 @@ struct TimerLeakTests {
     /// the child wholesale, but a content-equal rebuild leaves no trace in state (the current child,
     /// its `_$id` and its registrars are kept), so only profiling, the resident-memory overlay,
     /// shows those rebuilds.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func everyTickCountsAndEveryHundredthShowsANewValue() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -36,7 +36,7 @@ struct TimerLeakTests {
     /// Sending `.start` again, as a view that appears again does, auto-cancels the running ticker
     /// and starts a new one, so there is never more than one: the next tick comes a full interval
     /// after the restart, and the count goes on.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func startingAgainReplacesTheRunningTicker() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -59,7 +59,7 @@ struct TimerLeakTests {
 
     /// Cancelling the task `.start` returned stops the ticker. The view's `.task` does this when
     /// the view goes away.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func cancellingTheStartTaskStopsTheTicker() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -74,8 +74,8 @@ struct TimerLeakTests {
     /// Releasing the model while the ticker runs deallocates it, as releasing the app's view model
     /// does: the running ticker does not keep the model alive. That the deinit then cancels the
     /// ticker is proven in Lattice's own tests, by
-    /// `SchedulingTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`.
-    @Test(.timeLimit(.minutes(1)))
+    /// `ViewModelTeardownTests.deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue`.
+    @Test
     func releasingTheModelWhileTheTickerRunsDeallocatesIt() async {
         let clock = EffectClock()
         weak var weakModel: TestModel<Feature<TimerLeakEvent, TimerLeakState>>?

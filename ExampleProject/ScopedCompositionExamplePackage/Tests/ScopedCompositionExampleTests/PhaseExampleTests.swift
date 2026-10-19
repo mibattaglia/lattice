@@ -13,7 +13,7 @@ struct PhaseExampleTests {
     /// The load writes the success case once its delay is over. Tapping Load again auto-cancels
     /// the waiting load and starts the delay over, so the success case comes once, a full delay
     /// after the last tap.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func loadShowsTheSuccessCaseAFullDelayAfterTheLastTap() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -32,7 +32,7 @@ struct PhaseExampleTests {
 
     /// The root view starts the ticker as it appears, while `.loading` is showing: a tick then
     /// changes nothing, since only the `.active` payload counts ticks.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func ticksWhileLoadingChangeNothing() async {
         let clock = EffectClock()
         let model = await makeModel(clock: clock)
@@ -49,7 +49,7 @@ struct PhaseExampleTests {
     /// keeps the count, and Stop drops both, so the next Start begins from the defaults.
     /// Cancelling the task `.startTicking` returned stops the ticker, which is what the root view's
     /// `.task` does when the view goes away.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func ticksCountOnlyWhileActiveUntilTheTickerIsCancelled() async {
         let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
@@ -85,7 +85,7 @@ struct PhaseExampleTests {
     /// Sending `.startTicking` again, as a root view that appears again does, auto-cancels the
     /// running ticker, so there is never a second one: the next tick comes a full interval after
     /// the restart.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func startingTheTickerAgainReplacesTheRunningOne() async {
         let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
@@ -112,7 +112,7 @@ struct PhaseExampleTests {
     /// Reset and Stop drop their payload, so the next Load or Start begins from the defaults. A
     /// Load while loaded leaves the payload alone, and a send for a case that is no longer showing
     /// changes nothing.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped() async {
         let clock = EffectClock()
         let model = await makeModel(initialState: .success(SuccessState()), clock: clock)

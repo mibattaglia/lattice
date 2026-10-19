@@ -4,93 +4,78 @@ import Testing
 @testable import Lattice
 
 @FeatureState
-struct RendezvousState: Equatable, Sendable {
-    var metPartner = false
+struct ExecutorProbeState: Equatable, Sendable {}
+
+enum ExecutorProbeAction: Equatable, Sendable {
+    case probe
 }
 
-enum RendezvousAction: Equatable, Sendable {
-    case meet
-}
-
-/// Where the effects of two models meet: each signals its own semaphore, then waits up to five
-/// seconds for its partner's. Synchronous, because `DispatchSemaphore.wait` is unavailable from async
-/// code, and blocking on purpose: a waiting effect holds its model's executor, so the two meet only
-/// if the models run on executors of their own, at the same time.
-final class Rendezvous: @unchecked Sendable {
-    private let arrivals = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
-
-    /// Signals that `side` (0 or 1) arrived, then waits for the other side; returns whether it came.
-    func arrive(_ side: Int) -> Bool {
-        arrivals[side].signal()
-        return arrivals[1 - side].wait(timeout: .now() + 5) == .success
-    }
-}
-
-/// `.meet`'s effect waits at the rendezvous in its preamble, then records that it met its partner.
-@Interactor<RendezvousState, RendezvousAction>
-struct RendezvousInteractor {
-    let rendezvous: Rendezvous
-    let side: Int
+/// `.probe`'s effect reports, from its preamble, the isolation it runs on.
+@Interactor<ExecutorProbeState, ExecutorProbeAction>
+struct ExecutorProbeInteractor {
+    let isolations: AsyncStream<ObjectIdentifier?>.Continuation
 
     var body: some InteractorOf<Self> {
         Interact { _, action, effects in
             switch action {
-            case .meet:
+            case .probe:
                 effects.perform {
-                    if rendezvous.arrive(side) {
-                        try effects.modify { $0.metPartner = true }
-                    }
+                    isolations.yield(#isolation.map { ObjectIdentifier($0) })
                 }
             }
         }
     }
 }
 
-/// Each `TestModel` and each `ActorModel` runs its feature on an executor of its own
-/// (`DefaultIsolation`), so two models run their effects in parallel: two effects that each wait for
-/// the other meet. Were the models' effects serialized on one executor, the first effect would wait
-/// out the timeout alone and the second would meet nobody.
-@Suite(.enabled(if: ProcessInfo.processInfo.activeProcessorCount > 1, "needs two cores"))
+/// Each `TestModel` and each `ActorModel` runs its effects on a serial executor of its own, so the
+/// effects of two models can run in parallel.
+@Suite
 struct ParallelismTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
-    func twoTestModelsRunTheirEffectsAtTheSameTime() async {
-        let rendezvous = Rendezvous()
+    @Test
+    func twoTestModelsRunTheirEffectsOnExecutorsOfTheirOwn() async {
+        let (isolations, continuation) = AsyncStream.makeStream(of: ObjectIdentifier?.self)
         let first = await TestModel(
-            initialState: RendezvousState(),
-            feature: Feature(interactor: RendezvousInteractor(rendezvous: rendezvous, side: 0))
+            initialState: ExecutorProbeState(),
+            feature: Feature(interactor: ExecutorProbeInteractor(isolations: continuation))
         )
         let second = await TestModel(
-            initialState: RendezvousState(),
-            feature: Feature(interactor: RendezvousInteractor(rendezvous: rendezvous, side: 1))
+            initialState: ExecutorProbeState(),
+            feature: Feature(interactor: ExecutorProbeInteractor(isolations: continuation))
         )
 
-        async let firstMeeting = first.send(.meet) { $0.metPartner = true }  // the effect met its partner inside `send`
-        async let secondMeeting = second.send(.meet) { $0.metPartner = true }
-        _ = await (firstMeeting, secondMeeting)
-
+        await first.send(.probe)
+        await second.send(.probe)
         await first.finish()
         await second.finish()
+
+        continuation.finish()
+        let reported = await isolations.reduce(into: []) { $0.append($1) }
+        #expect(reported.count == 2)
+        #expect(reported.allSatisfy { $0 != nil })
+        #expect(Set(reported).count == 2)
     }
 
     @available(iOS 26, macOS 26, watchOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
-    func twoActorModelsRunTheirEffectsAtTheSameTime() async {
-        let rendezvous = Rendezvous()
+    @Test
+    func twoActorModelsRunTheirEffectsOnExecutorsOfTheirOwn() async {
+        let (isolations, continuation) = AsyncStream.makeStream(of: ObjectIdentifier?.self)
         let first = await ActorModel(
-            initialState: RendezvousState(),
-            feature: Feature(interactor: RendezvousInteractor(rendezvous: rendezvous, side: 0))
+            initialState: ExecutorProbeState(),
+            feature: Feature(interactor: ExecutorProbeInteractor(isolations: continuation))
         )
         let second = await ActorModel(
-            initialState: RendezvousState(),
-            feature: Feature(interactor: RendezvousInteractor(rendezvous: rendezvous, side: 1))
+            initialState: ExecutorProbeState(),
+            feature: Feature(interactor: ExecutorProbeInteractor(isolations: continuation))
         )
 
-        async let firstMeeting = first.send(.meet)
-        async let secondMeeting = second.send(.meet)
-        _ = await (firstMeeting, secondMeeting)
+        await first.send(.probe)?.value
+        await second.send(.probe)?.value
 
-        #expect(await first.state.metPartner)
-        #expect(await second.state.metPartner)
+        continuation.finish()
+        let reported = await isolations.reduce(into: []) { $0.append($1) }
+        #expect(reported.count == 2)
+        #expect(reported.allSatisfy { $0 != nil })
+        #expect(Set(reported).count == 2)
     }
 }

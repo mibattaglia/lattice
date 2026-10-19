@@ -11,7 +11,7 @@ Key source files:
 - [TestModel.swift](../Sources/Lattice/Testing/TestModel.swift), [TestViewModel.swift](../Sources/Lattice/Testing/TestViewModel.swift)
 - [Received.swift](../Sources/Lattice/Testing/Received.swift), [Exhaustivity.swift](../Sources/Lattice/Testing/Exhaustivity.swift), [TestFailure.swift](../Sources/Lattice/Testing/TestFailure.swift), [TestIssueReporting.swift](../Sources/Lattice/Testing/TestIssueReporting.swift)
 - [EffectClock.swift](../Sources/Lattice/Testing/EffectClock.swift): the test clock and the shells' `advance(_:by:)`; [Clock+Sleep.swift](../Sources/Lattice/Domain/Clock+Sleep.swift): the `clock.sleep(for:)` overload effects call
-- [TestingInfrastructureTests](../Tests/LatticeTests/TestingInfrastructureTests): `TestModelSendTests`, `TestModelFoldingTests`, `TestModelExhaustivityTests`, `TestModelWaitingTests`, `TestModelCancellationTests`, `TestModelExampleTests`, `TestModelDeterminismTests`, `TestModelStateEqualityTests`, `TestModelNonSendableTests`, `TestModelEffectSequenceTests`, `EffectClockTests`, and the `TestViewModel` mirrors `TestViewModelTests` and `EffectClockTestViewModelTests`
+- [TestingInfrastructureTests](../Tests/LatticeTests/TestingInfrastructureTests): `TestModelSendTests`, `TestModelFoldingTests`, `TestModelExhaustivityTests`, `TestModelWaitingTests`, `TestModelCancellationTests`, `TestModelDeterminismTests`, `TestModelStateEqualityTests`, `TestModelNonSendableTests`, `TestModelEffectSequenceTests`, `EffectClockTests`, and the `TestViewModel` mirrors `TestViewModelTests` and `EffectClockTestViewModelTests`
 - Test support: [ReportedIssues.swift](../Tests/LatticeTests/Support/ReportedIssues.swift)
 
 `Sources/Lattice/Testing` is excluded from the CocoaPods pod.
@@ -280,7 +280,7 @@ let issues = await reportedIssueDetails {
 
 ## Parallelism
 
-`TestModel` runs each test's feature on its own executor, so nonisolated suites run in parallel on the cooperative pool. `ParallelismTests` checks it with a rendezvous: two models whose effects each signal and then wait up to five seconds for the other's meet only if the models run at the same time.
+`TestModel` runs each test's feature on its own executor, so nonisolated suites run in parallel on the cooperative pool. `ParallelismTests` checks that the effects of two models run on different isolations.
 
 ## Related Specs
 

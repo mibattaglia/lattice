@@ -33,7 +33,7 @@ struct MyInteractor: Interactor {
                     content.isLoading = true
                 }
                 effects.perform {
-                    try? await Task.sleep(for: .milliseconds(10))
+                    await Task.yield()
                     try effects.modify { state in
                         state.modify(\.success) { content in
                             content.isLoading = false

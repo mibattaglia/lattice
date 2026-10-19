@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import Lattice
 
@@ -23,14 +24,19 @@ struct TestModelWaitingTests {
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func receiveWaitsForAnActionSentAfterASuspension() async {
+        let gate = Gate()
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel()
+            let model = await makeLoadModel(LoadInteractor(gate: gate))
             await model.send(.loadAfterYield)
             await model.receive(.loaded(41)) { $0.count = 41 }
 
-            let sleeping = await model.send(.loadAfterSleep(.milliseconds(50)))
-            await model.receive(.loaded(41), timeout: .seconds(5)) { $0.count = 82 }
-            await sleeping?.value
+            await model.send(.gatedLoad)
+            let receiving = Task.immediate {
+                await model.receive(.loaded(41)) { $0.count = 82 }
+            }
+            _ = await model.state  // after the waiting task's job on the model's executor: it waits
+            gate.open()
+            await receiving.value
             await model.finish()
         }
 
@@ -121,7 +127,6 @@ struct TestModelWaitingTests {
         #expect(issues == [])
     }
 
-    /// Port of the old `finishReportsTimeoutWhileEmissionRemainsInFlight`.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func finishTimesOutWhileAnEffectStaysInFlight() async {
@@ -143,17 +148,22 @@ struct TestModelWaitingTests {
         )
     }
 
-    /// Port of the old `finishReportsBufferedReceivesProducedWhileWaiting`: what effects sent while
-    /// `finish` waited is reported and consumed.
+    /// What effects sent while `finish` waited is reported and consumed.
     @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
     func finishReportsTheActionsEffectsSentWhileItWaited() async {
+        let gate = Gate()
         var finishLine = 0
         let issues = await reportedIssueDetails {
-            let model = await makeLoadModel()
-            await model.send(.loadAfterSleep(.milliseconds(50)))
-            finishLine = #line + 1
-            await model.finish(timeout: .seconds(5))
+            let model = await makeLoadModel(LoadInteractor(gate: gate))
+            await model.send(.gatedLoad)
+            finishLine = #line + 2
+            let finishing = Task.immediate {
+                await model.finish()
+            }
+            _ = await model.state  // after the waiting task's job on the model's executor: it waits
+            gate.open()
+            await finishing.value
             #expect(await model.state.count == 41)
             await model.finish()
         }
@@ -242,14 +252,14 @@ struct TestModelWaitingTests {
         #expect(issues.map(\.line) == lines)
 
         let gate = Gate()
-        let waiter = LockedTaskBox()
+        let waiter = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
         let coinciding = await reportedIssueDetails {
             let model = await makeLoadModel(LoadInteractor(gate: gate, waiter: waiter))
             await model.send(.gatedLoadCancellingWaiter)
             let waiting = Task.immediate {
                 await model.receive(.loaded(41)) { $0.count = 41 }
             }
-            waiter.set(waiting)
+            waiter.withLock { $0 = waiting }
             _ = await model.state  // after the waiting task's job on the model's executor
             gate.open()  // one job: commit `.loaded(41)`, then cancel `waiting`
             await waiting.value  // it still received `.loaded(41)`

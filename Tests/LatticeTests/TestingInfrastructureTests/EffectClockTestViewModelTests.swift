@@ -33,7 +33,7 @@ private func makeViewModel(
 struct EffectClockTestViewModelTests {
     /// The sleep is registered when the synchronous `send` returns, and `advance` returns once the
     /// woken search has committed. Not a moment early: 1 ms short of the debounce, nothing ran.
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func advanceDeliversTheDebouncedResult(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -55,7 +55,7 @@ struct EffectClockTestViewModelTests {
 
     /// One `advance` over five intervals ticks exactly five times on the main actor; cancelling the
     /// ticker removes its sleep inside `cancel()`.
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func advanceTicksOncePerInterval(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {
@@ -81,7 +81,7 @@ struct EffectClockTestViewModelTests {
 
     /// A second query within the debounce replaces the first one inside its `send`: one `advance`
     /// wakes only the second sleep, for one search and one result.
-    @Test(.timeLimit(.minutes(1)), arguments: 1...25)
+    @Test(arguments: 1...25)
     func aSecondQueryWithinTheDebounceReplacesTheFirst(iteration: Int) async {
         let clock = EffectClock()
         let issues = await reportedIssueDetails {

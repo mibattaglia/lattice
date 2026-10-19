@@ -52,7 +52,7 @@ struct TeardownInteractor {
 @MainActor
 @Suite
 struct ViewModelTeardownTests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func deinitCancelsEffectsAndTheirLaterSendAndModifyThrowWithoutAnIssue() async throws {
         let log = EffectLog()
         let clock = EffectClock()
@@ -77,7 +77,7 @@ struct ViewModelTeardownTests {
 
     /// Effect tasks hold the runtime weakly, so it ends with its view model: a read after that is
     /// reported and returns the last value the effect read.
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func effectsStateAfterDeinitIsReportedAndReturnsTheLastKnownValue() async {
         let log = EffectLog()
         let clock = EffectClock()

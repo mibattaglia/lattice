@@ -47,7 +47,7 @@ struct TestModelDeterminismTests {
         #expect(issues == [])
     }
 
-    /// §6: each re-sent `.tick` auto-cancels the previous tick's effect, but `Task.yield()` ignores
+    /// Each re-sent `.tick` auto-cancels the previous tick's effect, but `Task.yield()` ignores
     /// cancellation, so every decrement is still committed: 100 increments and 100 decrements. `.off`,
     /// because whether a decrement lands before or after the next send is scheduling.
     @available(iOS 26, macOS 26, watchOS 26, *)
