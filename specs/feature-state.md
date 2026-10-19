@@ -1,6 +1,6 @@
 # FeatureState
 
-A feature has one `State`. `@FeatureState` makes that struct or enum observation-tracked per member and generates a nested `ViewState` projection that views read through. `@Domain` hides a member from the projection at compile time while keeping it tracked, so a visible computed member that depends on a hidden stored member still re-renders fine-grained. The feature's interactor is the only code that mutates the state.
+A feature has one `State`. `@FeatureState` makes that struct or enum observation-tracked per member and generates a nested `ViewState` projection that views read through. `@Domain` hides a member from the projection at compile time while keeping it tracked, so a visible computed member that depends on a hidden stored member still re-renders fine-grained. The feature's interactor, with the effects it performs, is the only code that mutates the state.
 
 Key source files:
 
@@ -24,7 +24,7 @@ Key source files:
 
 The state holds everything a feature knows: business data, workflow state, and the values views render.
 
-- The interactor mutates it (`Interactor.State`); nothing else does.
+- The interactor mutates it (`Interactor.State`), synchronously in `interact` and from its effects through `effects.modify`; nothing else does.
 - Views read it only through `State.ViewState`, which omits `@Domain` members.
 - Every member is observation-tracked, `@Domain` ones included, and a view re-renders only when a member it read changes.
 
@@ -206,7 +206,7 @@ The coarse row holds for single-payload cases. A case with several payload value
 - `viewModel.member` (and `scoped.member`) reads through the projection with fine-grained observation. It also registers the root, so a wholesale replacement re-renders the reader.
 - `viewModel.viewState` (and `scoped.viewState`) is the whole projection. The value itself is coarse: it re-renders on a wholesale replacement or an enum case change. Members read off it stay fine-grained, so `switch viewModel.viewState { case .loaded(let l): Text(l.title) }` re-renders on case changes and on `title` changes only.
 - Scopes and bindings take key paths rooted at `State.ViewState`, so they reject `@Domain` members too.
-- The raw state (`ViewModel.state`) is internal to Lattice. `TestViewModel.state` exposes it to tests.
+- The raw state (`ViewModel.state`) is internal to Lattice. `TestModel.state` and `TestViewModel.state` expose the raw value to tests: the state the test last asserted, `@Domain` members included.
 - View-side helpers belong in `extension FooState.ViewState { … }`. Same-module code can reach `_state` there; other modules only through `@_spi(Lattice) import Lattice`.
 
 ## Observation Guarantees
@@ -232,7 +232,7 @@ These are the behaviors the test suite asserts, through the view model's commit 
 ## Equality
 
 - `State: Equatable` is not required. Each member notifies only when its value changes; a member whose type is not `Equatable` notifies on every assignment.
-- `Feature.areStatesEqual` is the state's content equality. `Feature(interactor:)` supplies `==` for an `Equatable` state, and `Feature(interactor:areStatesEqual:)` takes a custom comparison. `ViewModel` uses it to drop content-equal wholesale replacements, and `TestViewModel` uses it to compare states.
+- `Feature.areStatesEqual` is the state's content equality. `Feature(interactor:)` supplies `==` for an `Equatable` state, and `Feature(interactor:areStatesEqual:)` takes a custom comparison. The feature's runtime uses it to drop content-equal wholesale replacements, and `TestModel` and `TestViewModel` use it to compare states.
 
 ## Diagnostics
 

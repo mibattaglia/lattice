@@ -1,6 +1,6 @@
 ---
 name: lattice-observable-models
-description: Move SwiftUI logic into Lattice interactors and view models while keeping views thin.
+description: Move SwiftUI logic into Lattice interactors, effects and view models while keeping views thin.
 license: MIT
 metadata:
   short-description: Observable models for Lattice features.
@@ -14,14 +14,14 @@ Prefer Lattice's `Interactor` + `ViewModel` architecture for feature logic, whil
 
 ## Primary rule
 
-If logic affects the feature's state, side effects, or async work, model it in the `Interactor`. Views should only translate user events into actions via `sendViewEvent(_:)`.
-Use the `EventTask` returned from `sendViewEvent(_:)` when the UI needs to await or cancel feature work; do not build a second `@Observable` coordinator just to manage async interactor behavior.
+If logic affects the feature's state, side effects, or async work, model it in the `Interactor` and its effects. Views should only translate user events into actions via `sendViewEvent(_:)`.
+Use the `Task<Void, Never>?` returned from `sendViewEvent(_:)` when the UI needs to await or cancel feature work; do not build a second `@Observable` coordinator just to manage async interactor behavior.
 
 ## When a local observable model is acceptable
 
 - View-only state (focus, selection, animation flags).
 - Temporary UI state that is not part of the feature's `@FeatureState` state.
-- UI helpers that do not trigger emissions or side effects.
+- UI helpers that do not trigger effects or state mutations.
 
 ## Patterns
 
@@ -29,13 +29,12 @@ Use the `EventTask` returned from `sendViewEvent(_:)` when the UI needs to await
 
 ```swift
 @Interactor<CounterState, CounterAction>
-struct CounterInteractor: Sendable {
+struct CounterInteractor {
     var body: some InteractorOf<Self> {
         Interact { state, action in
             switch action {
             case .increment:
                 state.count += 1
-                return .none
             }
         }
     }
@@ -62,7 +61,10 @@ final class ToastState {
 }
 
 struct ScreenView: View {
-    @State private var viewModel = ViewModel(...)
+    @State private var viewModel = ViewModel(
+        initialState: CounterState(count: 0),
+        feature: Feature(interactor: CounterInteractor())
+    )
     @State private var toast = ToastState()
 
     var body: some View {
@@ -71,13 +73,17 @@ struct ScreenView: View {
 }
 ```
 
+Keep an `@Observable` class out of any file that declares a `@FeatureState` enum: that combination can crash the Swift 6.4 compiler (see the `lattice` skill).
+
 ## Async work
 
-Async work must live in the interactor. Views can create a `Task` when they need to await `EventTask` completion.
+Async work must live in the interactor, as effects it performs with `effects.perform`; an effect writes its result into the state with `effects.modify`. Views can create a `Task` when they need to await the effects an action started:
 
 ```swift
-Button("Refresh") { Task { await viewModel.sendViewEvent(.refresh).finish() } }
+Button("Refresh") { Task { await viewModel.sendViewEvent(.refresh)?.value } }
 ```
+
+Awaiting the task does not cancel it. Inside `.task`, forward the cancellation instead, so the work stops with the view (see the `lattice-modern-swiftui` skill).
 
 For advanced effect orchestration patterns (time, streams, composition), use the feature's interactor and corresponding architecture/testing guides.
 

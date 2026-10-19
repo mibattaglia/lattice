@@ -5,7 +5,6 @@ enum MyEvent: Equatable {
     case load
     case incrementCount
     case fetchData
-    case fetchDataCompleted(Int)
 }
 
 @Interactor<MyScreenState, MyEvent>
@@ -13,14 +12,13 @@ struct MyInteractor: Interactor {
     let dateFactory: @Sendable () -> Date
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .incrementCount:
                 state.modify(\.success) { content in
                     content.count += 1
                     content.timestamp = dateFactory().timeIntervalSince1970
                 }
-                return .none
             case .load:
                 state = .success(
                     MyContentState(
@@ -29,23 +27,20 @@ struct MyInteractor: Interactor {
                         isLoading: false
                     )
                 )
-                return .none
 
             case .fetchData:
                 state.modify(\.success) { content in
                     content.isLoading = true
                 }
-                return .perform {
-                    try? await Task.sleep(for: .milliseconds(10))
-                    return .fetchDataCompleted(42)
+                effects.perform {
+                    await Task.yield()
+                    try effects.modify { state in
+                        state.modify(\.success) { content in
+                            content.isLoading = false
+                            content.count = 42
+                        }
+                    }
                 }
-
-            case .fetchDataCompleted(let count):
-                state.modify(\.success) { content in
-                    content.isLoading = false
-                    content.count = count
-                }
-                return .none
             }
         }
     }

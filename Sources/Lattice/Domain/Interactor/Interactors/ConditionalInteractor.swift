@@ -14,20 +14,22 @@ extension Interactors {
     ///     }
     /// }
     /// ```
-    public enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>: Interactor,
-        @unchecked Sendable
-    where First.State: Sendable, First.Action: Sendable {
+    public enum Conditional<First: Interactor, Second: Interactor<First.State, First.Action>>: Interactor {
         case first(First)
         case second(Second)
 
         public var body: some Interactor<First.State, First.Action> { self }
 
-        public func interact(state: inout First.State, action: First.Action) -> Emission<First.Action> {
+        public func interact(
+            state: inout First.State,
+            action: First.Action,
+            effects: Effects<First.State, First.Action>
+        ) {
             switch self {
             case .first(let first):
-                return first.interact(state: &state, action: action)
+                first.interact(state: &state, action: action, effects: effects)
             case .second(let second):
-                return second.interact(state: &state, action: action)
+                second.interact(state: &state, action: action, effects: effects)
             }
         }
     }

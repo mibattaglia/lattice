@@ -9,7 +9,7 @@ import Lattice
 import SwiftUI
 
 @FeatureState
-struct BadgeState: Equatable, Identifiable, Sendable {
+struct BadgeState: Equatable, Identifiable {
     let id: Int
     var count = 0
     @Domain var secretThreshold = 10
@@ -17,7 +17,7 @@ struct BadgeState: Equatable, Identifiable, Sendable {
 }
 
 @FeatureState
-struct CounterState: Equatable, Sendable {
+struct CounterState: Equatable {
     var title = "Counter"
     @Domain var lastUpdatedAt: Date?
     @Domain var nonce = 0
@@ -28,7 +28,7 @@ struct CounterState: Equatable, Sendable {
 }
 
 @FeatureState
-struct LoadedState: Equatable, Sendable {
+struct LoadedState: Equatable {
     var query = ""
     @Domain var etag: String?
 }
@@ -37,13 +37,13 @@ struct LoadedState: Equatable, Sendable {
 // rather than as a type mismatch.
 
 @CasePathable
-enum BadgeAction: Sendable {
+enum BadgeAction {
     case countChanged(Int)
     case secretThresholdChanged(Int)
 }
 
 @CasePathable
-enum CounterAction: Sendable {
+enum CounterAction {
     case titleChanged(String)
     case lastUpdatedAtChanged(Date?)
     case badge(BadgeAction)
@@ -52,28 +52,28 @@ enum CounterAction: Sendable {
 }
 
 @CasePathable
-enum LoadedAction: Sendable {
+enum LoadedAction {
     case queryChanged(String)
 }
 
 @CasePathable
-enum ScreenAction: Sendable {
+enum ScreenAction {
     case queryChanged(String)
     case etagChanged(String?)
     case loaded(LoadedAction)
 }
 
 @Interactor<CounterState, CounterAction>
-struct CounterInteractor: Sendable {
+struct CounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { _, _ in .none }
+        Interact { _, _ in }
     }
 }
 
 @Interactor<ScreenState, ScreenAction>
-struct ScreenInteractor: Sendable {
+struct ScreenInteractor {
     var body: some InteractorOf<Self> {
-        Interact { _, _ in .none }
+        Interact { _, _ in }
     }
 }
 

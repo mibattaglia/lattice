@@ -1,8 +1,12 @@
 import Foundation
 
-protocol WeatherService: Sendable {
-    func searchWeather(query: String) async throws -> WeatherSearchDomainModel
-    func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel
+/// The weather API the search feature calls. Not `Sendable`: effects call it on the feature's
+/// isolation, so its methods are `nonisolated(nonsending)` and run there too. This module does not
+/// enable `NonisolatedNonsendingByDefault`, so a plain `async` method would be `@concurrent`, and an
+/// effect could not call it on a non-`Sendable` service.
+protocol WeatherService {
+    nonisolated(nonsending) func searchWeather(query: String) async throws -> WeatherSearchDomainModel
+    nonisolated(nonsending) func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel
 }
 
 struct WeatherSearchDomainModel: Codable, Equatable {
@@ -61,7 +65,7 @@ struct RealWeatherService: WeatherService {
         return decoder
     }()
 
-    func searchWeather(query: String) async throws -> WeatherSearchDomainModel {
+    nonisolated(nonsending) func searchWeather(query: String) async throws -> WeatherSearchDomainModel {
         var components = URLComponents(string: "https://geocoding-api.open-meteo.com/v1/search")!
         components.queryItems = [URLQueryItem(name: "name", value: query)]
 
@@ -69,7 +73,7 @@ struct RealWeatherService: WeatherService {
         return try jsonDecoder.decode(WeatherSearchDomainModel.self, from: data)
     }
 
-    func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel {
+    nonisolated(nonsending) func forecast(latitude: Double, longitude: Double) async throws -> ForecastDomainModel {
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         components.queryItems = [
             URLQueryItem(name: "latitude", value: "\(latitude)"),

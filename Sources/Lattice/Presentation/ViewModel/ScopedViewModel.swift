@@ -11,8 +11,8 @@ import SwiftUI
 /// Create a scope with `viewModel.scope(state:action:)`.
 /// Reads go through `Child.ViewState`, so `@Domain` members of the child stay hidden, and they
 /// register on the child's observation registrar, so a child view re-renders only when what it
-/// read changes. ``sendViewEvent(_:)`` embeds child actions into the parent action and runs them
-/// on the parent's action loop.
+/// read changes. ``sendViewEvent(_:)`` embeds child actions into the parent action and sends them
+/// to the parent view model.
 ///
 /// ## Observe members, not the container
 ///
@@ -36,13 +36,13 @@ import SwiftUI
 /// that runs in the parent's `deinit`.
 @dynamicMemberLookup
 @MainActor
-public struct ScopedViewModel<Child: FeatureState, ChildAction: Sendable> {
+public struct ScopedViewModel<Child: FeatureState, ChildAction> {
     private let _state: @MainActor () -> Child
-    private let _send: @MainActor (ChildAction) -> EventTask
+    private let _send: @MainActor (ChildAction) -> Task<Void, Never>?
 
     init(
         state: @escaping @MainActor () -> Child,
-        send: @escaping @MainActor (ChildAction) -> EventTask
+        send: @escaping @MainActor (ChildAction) -> Task<Void, Never>?
     ) {
         self._state = state
         self._send = send
@@ -65,11 +65,11 @@ public struct ScopedViewModel<Child: FeatureState, ChildAction: Sendable> {
         Child.ViewState(_state())[keyPath: keyPath]
     }
 
-    /// Sends a child action, embedding it into the parent action and running it on the parent's
-    /// action loop.
+    /// Sends a child action, embedding it into the parent action and sending it to the parent
+    /// view model.
     ///
     /// To hand off to a child view that takes a `(ChildAction) -> Void` callback, wrap in a
-    /// closure (the returned ``EventTask`` is discarded):
+    /// closure (the returned task is discarded):
     ///
     /// ```swift
     /// ChildView(action: { scoped.sendViewEvent($0) })
@@ -83,9 +83,10 @@ public struct ScopedViewModel<Child: FeatureState, ChildAction: Sendable> {
     /// ```
     ///
     /// - Parameter action: The child action to embed and dispatch.
-    /// - Returns: The parent's ``EventTask`` for the dispatched action.
+    /// - Returns: The task for the effects the dispatched action started, or `nil` when it
+    ///   started none.
     @discardableResult
-    public func sendViewEvent(_ action: ChildAction) -> EventTask {
+    public func sendViewEvent(_ action: ChildAction) -> Task<Void, Never>? {
         _send(action)
     }
 
@@ -227,7 +228,7 @@ extension ScopedViewModel: @MainActor Identifiable where Child: Identifiable {
         /// deactivates while the scope is still held (at most one transitional render), reads
         /// serve the payload captured at creation.
         ///
-        /// Sends are embedded with `embed` and run on the parent's action loop. A send can arrive
+        /// Sends are embedded with `embed` and sent to the parent view model. A send can arrive
         /// after the case has deactivated; the interactor should drop actions that no longer
         /// apply to the current state (`Interactors.When` over a case path does).
         ///
@@ -314,7 +315,7 @@ extension ScopedViewModel {
     ) -> ScopedViewModel<P.State, Never> {
         ScopedViewModel<P.State, Never>(
             state: { [self] in Child.ViewState(self._state())[keyPath: keyPath]._state },
-            send: { (_: Never) in EventTask(rawValue: nil) }
+            send: { (_: Never) -> Task<Void, Never>? in }  // `Never` has no values: never called
         )
     }
 }
@@ -422,8 +423,8 @@ extension ViewModel {
         /// fine-grained. If the case deactivates while the scope is still held (at most one
         /// transitional render), reads serve the payload captured at creation.
         ///
-        /// Sends are embedded into this feature's action with `embed` and run on this view
-        /// model's action loop. A send can arrive after the case has deactivated; the interactor
+        /// Sends are embedded into this feature's action with `embed` and sent to this view
+        /// model. A send can arrive after the case has deactivated; the interactor
         /// should drop actions that no longer apply to the current state (`Interactors.When`
         /// over a case path does).
         ///

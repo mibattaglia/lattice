@@ -1,7 +1,7 @@
 import Lattice
 
 @Interactor<SearchState, SearchEvent>
-struct SearchInteractor: Sendable {
+struct SearchInteractor {
     private let weatherService: WeatherService
     private let queryInteractor: AnyInteractor<SearchState.ResultState, SearchQueryEvent>
 
@@ -17,9 +17,9 @@ struct SearchInteractor: Sendable {
         weatherService: WeatherService,
         clock: C,
         debounceDuration: C.Duration
-    ) where C.Duration: Sendable {
+    ) {
         self.weatherService = weatherService
-        self.queryInteractor = SearchQueryInteractor<C>(
+        self.queryInteractor = SearchQueryInteractor(
             weatherService: weatherService,
             clock: clock,
             debounceDuration: debounceDuration
@@ -28,26 +28,19 @@ struct SearchInteractor: Sendable {
     }
 
     var body: some InteractorOf<Self> {
-        Interact { state, event in
+        Interact { state, event, effects in
             switch event {
             case .search:
-                return .none
+                break
 
             case .locationTapped(let id):
-                guard case .results(var resultState) = state else {
-                    return .none
-                }
-
-                guard
+                guard case .results(var resultState) = state,
                     let tappedRowIndex = resultState.results.firstIndex(where: {
                         "\($0.weatherModel.id)" == id
                     })
                 else {
-                    return .none
+                    return
                 }
-
-                resultState.forecastRequestNonce += 1
-                let requestNonce = resultState.forecastRequestNonce
 
                 for index in resultState.results.indices {
                     resultState.results[index].isLoading = false
@@ -55,32 +48,31 @@ struct SearchInteractor: Sendable {
                 resultState.results[tappedRowIndex].isLoading = true
                 state = .results(resultState)
 
-                let tappedRow = resultState.results[tappedRowIndex]
-
-                return .perform { [weatherService] in
-                    let weather = try? await weatherService.forecast(
-                        latitude: tappedRow.weatherModel.latitude,
-                        longitude: tappedRow.weatherModel.longitude
-                    )
-                    guard let weather else { return nil }
-                    return .forecastReceived(
-                        index: tappedRowIndex,
-                        forecast: weather,
-                        requestNonce: requestNonce
-                    )
+                let location = resultState.results[tappedRowIndex].weatherModel
+                // Tapping another row auto-cancels this request: `.locationTapped` is handled
+                // again.
+                effects.perform {
+                    guard
+                        let forecast = try? await weatherService.forecast(
+                            latitude: location.latitude,
+                            longitude: location.longitude
+                        )
+                    else { return }
+                    // Cancelled after the service answered: the forecast is for a row that is no
+                    // longer loading. A cancelled effect's modification is still committed, so
+                    // check first.
+                    try Task.checkCancellation()
+                    try effects.modify { state in
+                        guard case .results(var resultState) = state,
+                            tappedRowIndex < resultState.results.count
+                        else {
+                            return
+                        }
+                        resultState.results[tappedRowIndex].isLoading = false
+                        resultState.results[tappedRowIndex].forecast = forecast
+                        state = .results(resultState)
+                    }
                 }
-
-            case .forecastReceived(let index, let forecast, let requestNonce):
-                guard case .results(var resultState) = state,
-                    index < resultState.results.count,
-                    requestNonce == resultState.forecastRequestNonce
-                else {
-                    return .none
-                }
-                resultState.results[index].isLoading = false
-                resultState.results[index].forecast = forecast
-                state = .results(resultState)
-                return .none
             }
         }
         .when(state: \.results, action: \.search) {

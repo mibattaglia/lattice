@@ -1,7 +1,4 @@
-import DequeModule
 import Observation
-import OrderedCollections
-import SwiftUI
 
 /// A generic class that binds a SwiftUI view to a feature's state and interactor.
 ///
@@ -10,13 +7,17 @@ import SwiftUI
 ///
 /// ## Overview
 ///
-/// The data flow is unidirectional:
+/// `ViewModel` is a thin main-actor shell over the feature's runtime. The data flow is
+/// unidirectional:
 ///
-/// 1. View calls `sendViewEvent(_:)` with user actions
-/// 2. The ``Interactor`` processes the action synchronously and returns an ``Emission``
-/// 3. State mutations are applied immediately
-/// 4. Any async effects from the emission are spawned as tasks inside the originating root send scope
-/// 5. Views re-render from the members they read
+/// 1. The view calls `sendViewEvent(_:)` with a user action
+/// 2. The ``Interactor`` mutates the state synchronously and enqueues effects
+/// 3. The state is committed; the previous effects of the same action case are cancelled
+/// 4. The new effects start in order on the main actor, each running until its first suspension
+///    before `sendViewEvent(_:)` returns
+/// 5. Effects resume on the main actor after every suspension and deliver their results with
+///    ``Effects/modify(_:)``
+/// 6. Views re-render from the members they read
 ///
 /// ## Initialization
 ///
@@ -61,31 +62,23 @@ import SwiftUI
 ///
 /// ## Awaiting Effects
 ///
-/// Use ``EventTask/finish()`` to await transitive effect completion when needed:
+/// ``sendViewEvent(_:)`` returns the task for the effects the action started (not for effects
+/// those effects start in turn):
 ///
 /// ```swift
 /// .refreshable {
-///     await viewModel.sendViewEvent(.refresh).finish()
+///     await viewModel.sendViewEvent(.refresh)?.value
 /// }
 /// ```
+///
+/// Deallocating the view model cancels its effects.
 @dynamicMemberLookup
 @MainActor
 public final class ViewModel<F: FeatureProtocol>: Observable {
     public typealias Action = F.Action
     public typealias State = F.State
 
-    private var _state: State
-    private var bufferedActions: Deque<BufferedAction<Action>> = []
-    private var rootScopes: OrderedDictionary<SendScopeID, RootScopeState> = [:]
-    private var effectTasks: OrderedDictionary<EffectID, Task<Void, Never>> = [:]
-    private var isSending = false
-
-    private let interactor: AnyInteractor<State, Action>
-    private let areStatesEqual: ((_ lhs: State, _ rhs: State) -> Bool)?
-    private nonisolated let taskRegistry = EffectTaskRegistry()
-    private nonisolated let cancellationRegistry = EffectCancellationRegistry()
-
-    private let _$observationRegistrar = ObservationRegistrar()
+    private let core: Core<State, Action>
 
     /// Creates a view model for a concrete feature.
     ///
@@ -93,9 +86,12 @@ public final class ViewModel<F: FeatureProtocol>: Observable {
     ///   - initialState: The initial state value.
     ///   - feature: The feature bundle containing the interactor and the state equality.
     public init(initialState: State, feature: F) {
-        self._state = initialState
-        self.interactor = feature.interactor
-        self.areStatesEqual = feature.areStatesEqual
+        core = Core(
+            isolation: MainActor.shared,
+            initialState: initialState,
+            interactor: feature.interactor,
+            areStatesEqual: feature.areStatesEqual
+        )
     }
 
     /// Whole projection. The value itself is coarse: re-renders on wholesale replacement or enum
@@ -110,194 +106,24 @@ public final class ViewModel<F: FeatureProtocol>: Observable {
         State.ViewState(state)[keyPath: keyPath]
     }
 
-    /// Raw state. Internal: `TestViewModel`, `ScopedViewModel` and bindings live in this module.
-    var state: State {
-        _$observationRegistrar.access(self, keyPath: \.state)
-        return _state
-    }
-
-    /// Sends an action to the interactor and returns a handle for the root send scope.
+    /// Processes the action synchronously (state, auto-cancel, effect preambles) and returns the
+    /// task for the effects it started, or `nil` when it started none.
     ///
-    /// - Parameter event: The action to send.
-    /// - Returns: An ``EventTask`` whose `finish()` waits for recursively emitted child work
-    ///   started from this send, and whose `cancel()` cancels the currently tracked work in
-    ///   that scope.
+    /// Awaiting the task waits for exactly those effects; effects started by actions they send are
+    /// not covered. Cancelling it cancels them.
     @discardableResult
-    public func sendViewEvent(_ event: Action) -> EventTask {
-        let rootScopeID = SendScopeID()
-        enqueue(event, source: .sent, rootScopeID: rootScopeID)
-        drainBufferedActionsIfNeeded()
-        return makeEventTask(for: rootScopeID)
+    public func sendViewEvent(_ event: Action) -> Task<Void, Never>? {
+        core.send(event)
     }
 
-    deinit {
-        taskRegistry.cancelAll()
-        cancellationRegistry.cancelAll()
-    }
+    /// Raw state. Internal: `ScopedViewModel` and bindings live in this module. Registers on the
+    /// runtime's registrar, which is what `withObservationTracking` records.
+    var state: State { core.state }
 
-    private func enqueue(
-        _ action: Action,
-        source: ActionSource,
-        rootScopeID: SendScopeID
-    ) {
-        bufferedActions.append(
-            .init(
-                action: action,
-                source: source,
-                rootScopeID: rootScopeID
-            )
-        )
-
-        var rootScope = rootScopes[rootScopeID] ?? .init()
-        rootScope.bufferedActionCount += 1
-        rootScopes[rootScopeID] = rootScope
-    }
-
-    private func drainBufferedActionsIfNeeded() {
-        guard !isSending else { return }
-
-        isSending = true
-        defer { isSending = false }
-
-        while let bufferedAction = bufferedActions.popFirst() {
-            guard var rootScope = rootScopes[bufferedAction.rootScopeID] else {
-                continue
-            }
-
-            rootScope.bufferedActionCount -= 1
-            rootScopes[bufferedAction.rootScopeID] = rootScope
-
-            var workingState = _state
-            let transition = ActionTransition.apply(
-                bufferedAction.action,
-                source: bufferedAction.source,
-                rootScopeID: bufferedAction.rootScopeID,
-                to: &workingState,
-                using: interactor
-            )
-
-            commit(transition)
-            spawnEffects(
-                from: transition.emission,
-                rootScopeID: bufferedAction.rootScopeID
-            )
-            pruneRootScopeIfQuiescent(bufferedAction.rootScopeID)
-        }
-    }
-
-    /// Stores the state an action produced.
-    ///
-    /// The interactor mutated a working copy whose registrars are shared with `_state`, so
-    /// per-member notifications already fired during `interact(state:action:)`, and an observer
-    /// that re-read this view model synchronously saw the previous committed value. Only a
-    /// wholesale replacement (a new root `_$id`) fires the coarse `\.state` key path.
-    private func commit(_ transition: ActionTransition<State, Action>) {
-        let newState = transition.currentState
-        let isReplacement = newState._$id != _state._$id
-        if isReplacement, let areStatesEqual, areStatesEqual(_state, newState) {
-            // Content-equal wholesale replacement: keep the current value so its registrar tree —
-            // and every observer registered on it — survives. Nothing changed for the view.
-            return
-        }
-        _state = newState
-        if isReplacement {
-            _$observationRegistrar.withMutation(of: self, keyPath: \.state) {}
-        }
-    }
-
-    private func spawnEffects(
-        from emission: Emission<Action>,
-        rootScopeID: SendScopeID
-    ) {
-        let spawnedTasks = EmissionExecution.spawnTasks(
-            from: emission,
-            rootScopeID: rootScopeID,
-            cancellationRegistry: cancellationRegistry,
-            makeEffectID: { EffectID() },
-            effectDidStart: { [weak self] effectID in
-                self?.enrollEffect(effectID, rootScopeID: rootScopeID)
-            },
-            effectDidComplete: { [weak self] effectID in
-                self?.completeEffect(effectID, rootScopeID: rootScopeID)
-            },
-            effectDidCancel: { [weak self] effectID in
-                self?.cancelEffect(effectID, rootScopeID: rootScopeID)
-            },
-            enqueueEmittedAction: { [weak self] action, rootScopeID in
-                guard let self else { return }
-                self.enqueue(action, source: .emitted, rootScopeID: rootScopeID)
-                self.drainBufferedActionsIfNeeded()
-            }
-        )
-
-        for (effectID, task) in spawnedTasks {
-            effectTasks[effectID] = task
-        }
-        taskRegistry.insert(spawnedTasks)
-    }
-
-    private func enrollEffect(
-        _ effectID: EffectID,
-        rootScopeID: SendScopeID
-    ) {
-        var rootScope = rootScopes[rootScopeID] ?? .init()
-        rootScope.inFlightEffectIDs.insert(effectID)
-        rootScopes[rootScopeID] = rootScope
-    }
-
-    private func completeEffect(
-        _ effectID: EffectID,
-        rootScopeID: SendScopeID
-    ) {
-        effectTasks[effectID] = nil
-        taskRegistry.remove([effectID])
-
-        guard var rootScope = rootScopes[rootScopeID] else { return }
-        rootScope.inFlightEffectIDs.remove(effectID)
-        rootScopes[rootScopeID] = rootScope
-
-        pruneRootScopeIfQuiescent(rootScopeID)
-    }
-
-    private func cancelEffect(
-        _ effectID: EffectID,
-        rootScopeID: SendScopeID
-    ) {
-        completeEffect(effectID, rootScopeID: rootScopeID)
-    }
-
-    private func makeEventTask(for rootScopeID: SendScopeID) -> EventTask {
-        guard rootScopes[rootScopeID] != nil else {
-            return EventTask(rawValue: nil)
-        }
-
-        return EventTask(
-            rawValue: RootScopeTasks.makeTask(
-                rootScopeID: rootScopeID,
-                isQuiescent: { [weak self] rootScopeID in
-                    self?.isRootScopeQuiescent(rootScopeID) ?? true
-                },
-                cancelScope: { [weak self] rootScopeID in
-                    self?.cancelRootScope(rootScopeID)
-                }
-            )
-        )
-    }
-
-    private func isRootScopeQuiescent(_ rootScopeID: SendScopeID) -> Bool {
-        rootScopes[rootScopeID]?.isQuiescent ?? true
-    }
-
-    private func cancelRootScope(_ rootScopeID: SendScopeID) {
-        guard let rootScope = rootScopes[rootScopeID] else { return }
-
-        for effectID in rootScope.inFlightEffectIDs {
-            effectTasks[effectID]?.cancel()
-        }
-    }
-
-    private func pruneRootScopeIfQuiescent(_ rootScopeID: SendScopeID) {
-        guard rootScopes[rootScopeID]?.isQuiescent == true else { return }
-        rootScopes[rootScopeID] = nil
+    #if swift(<6.4)
+        @_optimize(none)
+    #endif
+    isolated deinit {
+        core.invalidate()
     }
 }

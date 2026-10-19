@@ -6,7 +6,7 @@ import Lattice
 /// power of observing enums and binding to enums in this demo.
 @CasePathable
 @FeatureState
-enum SearchState: Equatable, Sendable {
+enum SearchState: Equatable {
     case noResults
     case results(ResultState)
 }

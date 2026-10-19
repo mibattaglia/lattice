@@ -11,7 +11,7 @@ struct ViewModelBindingTests {
     func testBindingFromStateViewModel() {
         var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState>> = .init(
             initialState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
+            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractor())
         )
 
         let binding = Binding(
@@ -29,7 +29,7 @@ struct ViewModelBindingTests {
     func testBindingFromFeatureViewModelAlias() {
         var viewModel: ViewModel<Feature<BindingTestAction, BindingTestState>> = .init(
             initialState: BindingTestState(name: "Blob"),
-            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractorUnchecked())
+            feature: Feature(interactor: BindingTestInteractor().eraseToAnyInteractor())
         )
 
         let binding = Binding(
@@ -155,10 +155,8 @@ private struct BindingTestInteractor: Interactor {
             switch action {
             case .nameChanged(let name):
                 state.name = name
-                return .none
             case .badge(.labelChanged(let label)):
                 state.badge.label = label
-                return .none
             }
         }
     }
@@ -190,7 +188,6 @@ private struct BindingScreenInteractor {
             case .failureMessageChanged(let message):
                 state.modify(\.failed) { $0.message = message }
             }
-            return .none
         }
     }
 }

@@ -3,9 +3,9 @@ import Foundation
 /// A *result builder* that composes multiple ``Interactor`` values into a single
 /// interactor.
 ///
-/// The builder powers the `body` property of every ``Interactor`` implementation.  You can use
-/// regular control-flow (`if`, `switch`, `for`), optional and array literals to declaratively
-/// combine smaller interactors into more complex ones.
+/// The builder powers the `body` property of every ``Interactor`` implementation. You can use
+/// regular control flow (`if`, `switch`, `for`) to combine smaller interactors into more
+/// complex ones; consecutive children run in order.
 ///
 /// ```swift
 /// struct Feature: Interactor {
@@ -19,8 +19,8 @@ import Foundation
 /// }
 /// ```
 @resultBuilder
-public enum InteractorBuilder<State: Sendable, Action: Sendable> {
-    /// Builds an interactor from an array literal `[...]`.
+public enum InteractorBuilder<State, Action> {
+    /// Builds the ``Interactors/MergeMany`` of a `for` loop's iterations.
     public static func buildArray(
         _ interactors: [some Interactor<State, Action>]
     ) -> some Interactor<State, Action> {
@@ -37,7 +37,8 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
         interactor
     }
 
-    /// Variadic overload for `I...` syntax.
+    /// Variadic overload. A block of several children builds ``Interactors/Merge`` through
+    /// `buildPartialBlock`, which the compiler prefers, so `body` never uses this overload.
     public static func buildBlock<I: Interactor<State, Action>>(_ interactors: I...)
         -> Interactors.MergeMany<I>
     {
@@ -68,8 +69,7 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildExpression(
         _ expression: any Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = expression.eraseToAnyInteractorUnchecked()
-        return erased
+        expression.eraseToAnyInteractor()
     }
 
     public static func buildFinalResult<I: Interactor<State, Action>>(_ interactor: I) -> I {
@@ -79,14 +79,13 @@ public enum InteractorBuilder<State: Sendable, Action: Sendable> {
     public static func buildLimitedAvailability(
         _ wrapped: some Interactor<State, Action>
     ) -> AnyInteractor<State, Action> {
-        let erased: AnyInteractor<State, Action> = wrapped.eraseToAnyInteractorUnchecked()
-        return erased
+        wrapped.eraseToAnyInteractor()
     }
 
     public static func buildOptional(_ wrapped: (any Interactor<State, Action>)?) -> AnyInteractor<
         State, Action
     > {
-        wrapped?.eraseToAnyInteractorUnchecked() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
+        wrapped?.eraseToAnyInteractor() ?? EmptyInteractor<State, Action>().eraseToAnyInteractor()
     }
 
     public static func buildPartialBlock<I: Interactor<State, Action>>(first: I) -> I {

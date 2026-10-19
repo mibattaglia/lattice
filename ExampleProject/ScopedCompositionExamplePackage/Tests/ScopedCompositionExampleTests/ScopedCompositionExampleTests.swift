@@ -1,69 +1,45 @@
-import Observation
+import Lattice
 import Testing
 
 @testable import ScopedCompositionExample
-import Lattice
 
-private final class ChangeProbe: @unchecked Sendable {
-    var didChange = false
-}
+// The suite runs the feature under `TestModel`. A child view sends through its scope chain, which
+// embeds its action into the root action, so a test sends that root action: the badge's Increment
+// button sends `.dashboard(.header(.badge(.incremented)))`. `send` asserts the whole state, so each
+// test also shows that the action left the other slices alone.
 
-@MainActor
 @Suite
 struct ScopedCompositionExampleTests {
-    private func makeViewModel() -> ScopedCompositionViewModel {
-        ViewModel(
-            initialState: ScopedCompositionState(),
-            feature: Feature(interactor: ScopedCompositionInteractor())
-        )
+    @Test
+    func incrementingTheBadgeChangesOnlyItsCount() async {
+        let model = await makeModel()
+
+        await model.send(.dashboard(.header(.badge(.incremented)))) {
+            $0.dashboard.header.badge.count = 1
+        }
+        await model.finish()
+    }
+
+    /// The badge's Label field binds `label` and sends `labelChanged` for each edit.
+    @Test
+    func typingABadgeLabelChangesOnlyTheLabel() async {
+        let model = await makeModel()
+
+        await model.send(.dashboard(.header(.badge(.labelChanged("Typed"))))) {
+            $0.dashboard.header.badge.label = "Typed"
+        }
+        await model.finish()
     }
 
     @Test
-    func chainedScopeSendsThroughToRoot() {
-        let viewModel = makeViewModel()
-        let badge = viewModel.scope(state: \.dashboard, action: \.dashboard)
-            .scope(state: \.header, action: \.header)
-            .scope(state: \.badge, action: \.badge)
+    func updatingTheFooterChangesOnlyItsStatus() async {
+        let model = await makeModel()
 
-        badge.sendViewEvent(.incremented)
-        #expect(viewModel.viewState.dashboard.header.badge.count == 1)
+        await model.send(.setFooter("Updated")) { $0.footer.status = "Updated" }
+        await model.finish()
     }
+}
 
-    @Test
-    func badgeLeafChangeDoesNotInvalidateHeaderTitleObserver() {
-        let viewModel = makeViewModel()
-        let header = viewModel.scope(state: \.dashboard, action: \.dashboard)
-            .scope(state: \.header, action: \.header)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = header.title } onChange: { probe.didChange = true }
-
-        viewModel.sendViewEvent(.dashboard(.header(.badge(.incremented))))
-        #expect(!probe.didChange)
-        #expect(viewModel.viewState.dashboard.header.badge.count == 1)
-    }
-
-    @Test
-    func readOnlyFooterScopeIsObservationLive() {
-        let viewModel = makeViewModel()
-        let footer = viewModel.scope(state: \.footer)
-        let probe = ChangeProbe()
-        withObservationTracking { _ = footer.status } onChange: { probe.didChange = true }
-
-        viewModel.sendViewEvent(.setFooter("Updated"))
-        #expect(probe.didChange)
-        #expect(viewModel.viewState.footer.status == "Updated")
-    }
-
-    @Test
-    func badgeBindingReadsAndSendsThroughChainedScopes() {
-        let viewModel = makeViewModel()
-        let badge = viewModel.scope(state: \.dashboard, action: \.dashboard)
-            .scope(state: \.header, action: \.header)
-            .scope(state: \.badge, action: \.badge)
-        let binding = badge.binding(\.label, sending: \.labelChanged)
-
-        #expect(binding.wrappedValue == "Badge")
-        binding.wrappedValue = "Typed"
-        #expect(viewModel.viewState.dashboard.header.badge.label == "Typed")
-    }
+private func makeModel() async -> TestModel<Feature<ScopedCompositionEvent, ScopedCompositionState>> {
+    await TestModel(initialState: ScopedCompositionState(), feature: Feature(interactor: ScopedCompositionInteractor()))
 }

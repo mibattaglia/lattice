@@ -1,135 +1,127 @@
 import CasePaths
 import Lattice
-import Observation
 import Testing
 
 @testable import ScopedCompositionExample
 
-private final class ChangeProbe: @unchecked Sendable {
-    var didChange = false
-}
+// The suite runs the feature under `TestModel`. The load and the ticker sleep on an `EffectClock`:
+// they are asleep on it when their `send` returns, and `model.advance` moves the clock past them and
+// lets them run.
 
-/// Observes the reads `PhaseExampleView` and its children perform, so each test checks which
-/// render boundaries a change crosses.
-@MainActor
 @Suite
 struct PhaseExampleTests {
-    private func makeViewModel(
-        areStatesEqual: ((PhaseState, PhaseState) -> Bool)? = { $0 == $1 }
-    ) -> PhaseExampleViewModel {
-        ViewModel(
-            initialState: .loading,
-            feature: Feature(interactor: PhaseInteractor(), areStatesEqual: areStatesEqual)
-        )
-    }
-
-    private func observe(_ read: () -> Void) -> ChangeProbe {
-        let probe = ChangeProbe()
-        withObservationTracking(read) { probe.didChange = true }
-        return probe
-    }
-
-    private func telemetryScope(
-        of viewModel: PhaseExampleViewModel
-    ) -> ScopedViewModel<TelemetryState, TelemetryAction> {
-        viewModel.scope(state: \.success, action: \.success)
-            .scope(state: \.session, action: \.session)
-            .scope(state: \.telemetry, action: \.telemetry)
-    }
-
-    // Without state equality, the root switch still stays put: a case without a payload keeps the
-    // same identity across commits, so a commit that leaves `.loading` showing is not a wholesale
-    // replacement.
+    /// The load writes the success case once its delay is over. Tapping Load again auto-cancels
+    /// the waiting load and starts the delay over, so the success case comes once, a full delay
+    /// after the last tap.
     @Test
-    func tickWhileLoadingDoesNotInvalidateTheRootSwitch() {
-        let viewModel = makeViewModel(areStatesEqual: nil)
-        let rootSwitch = observe { _ = viewModel.viewState }
+    func loadShowsTheSuccessCaseAFullDelayAfterTheLastTap() async {
+        let clock = EffectClock()
+        let model = await makeModel(clock: clock)
 
-        viewModel.sendViewEvent(.tick)
-        #expect(!rootSwitch.didChange)
-        #expect(viewModel.viewState == .loading)
+        await model.send(.loadTapped)  // nothing changes until the load is over
+        await model.advance(clock, by: .milliseconds(500))
+
+        await model.send(.loadTapped)  // auto-cancels the first load at its sleep
+        await model.advance(clock, by: .milliseconds(500))  // when the first load was due
+        await model.expect { _ in }  // the cancelled load wrote nothing; the second is still asleep
+
+        await model.advance(clock, by: .milliseconds(500))  // a full delay after the last tap
+        await model.expect { $0 = .success(SuccessState()) }  // the load wrote the new case
+        await model.finish()
     }
 
+    /// The root view starts the ticker as it appears, while `.loading` is showing: a tick then
+    /// changes nothing, since only the `.active` payload counts ticks.
     @Test
-    func tickWhileIdleInvalidatesNeitherSwitch() {
-        let viewModel = makeViewModel()
-        viewModel.sendViewEvent(.loaded)
-        let telemetry = telemetryScope(of: viewModel)
-        let rootSwitch = observe { _ = viewModel.viewState }
-        let innerSwitch = observe { _ = telemetry.subphase }
+    func ticksWhileLoadingChangeNothing() async {
+        let clock = EffectClock()
+        let model = await makeModel(clock: clock)
 
-        viewModel.sendViewEvent(.tick)
-        #expect(!rootSwitch.didChange)
-        #expect(!innerSwitch.didChange)
+        let ticker = await model.send(.startTicking)
+        await model.advance(clock, by: tickInterval)
+        await model.expect { _ in }  // `.loading`: the tick changed nothing
+
+        ticker?.cancel()
+        await model.finish()
     }
 
+    /// Only the `.active` payload counts ticks: a tick while `.idle` changes nothing, typing a note
+    /// keeps the count, and Stop drops both, so the next Start begins from the defaults.
+    /// Cancelling the task `.startTicking` returned stops the ticker, which is what the root view's
+    /// `.task` does when the view goes away.
     @Test
-    func payloadEditsWhileActiveInvalidateOnlyTheirLeaf() {
-        let viewModel = makeViewModel()
-        viewModel.sendViewEvent(.loaded)
-        viewModel.sendViewEvent(.success(.session(.telemetry(.startTapped))))
-        let success = viewModel.scope(state: \.success, action: \.success)
-        let telemetry = telemetryScope(of: viewModel)
-        let active = telemetry.scope(state: \.subphase, action: \.subphase)
-            .scope(state: \.active, action: \.active)
+    func ticksCountOnlyWhileActiveUntilTheTickerIsCancelled() async {
+        let clock = EffectClock()
+        let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
 
-        let rootSwitch = observe { _ = viewModel.viewState }
-        let innerSwitch = observe { _ = telemetry.subphase }
-        let summary = observe { _ = success.scope(state: \.summary, action: \.summary).count }
-        let tick = observe { _ = active.tick }
-        let note = observe { _ = active.note }
+        let ticker = await model.send(.startTicking)
+        await model.advance(clock, by: tickInterval)
+        await model.expect { _ in }  // `.idle`: the tick changed nothing
 
-        viewModel.sendViewEvent(.tick)
-        #expect(tick.didChange)
-        #expect(!note.didChange)
-        #expect(!innerSwitch.didChange)
-        #expect(!summary.didChange)
-        #expect(!rootSwitch.didChange)
-        #expect(active.tick == 1)
-
-        let noteAfterTick = observe { _ = active.note }
-        let tickAfterTick = observe { _ = active.tick }
-        active.sendViewEvent(.noteChanged("typed"))
-        #expect(noteAfterTick.didChange)
-        #expect(!tickAfterTick.didChange)
-        #expect(active.note == "typed")
-    }
-
-    @Test
-    func caseTransitionsInvalidateExactlyTheirSwitch() {
-        let viewModel = makeViewModel()
-        let rootSwitchBeforeLoad = observe { _ = viewModel.viewState }
-        viewModel.sendViewEvent(.loaded)
-        #expect(rootSwitchBeforeLoad.didChange)
-
-        let telemetry = telemetryScope(of: viewModel)
-        let rootSwitch = observe { _ = viewModel.viewState }
-        let innerSwitch = observe { _ = telemetry.subphase }
-        telemetry.sendViewEvent(.startTapped)
-        #expect(innerSwitch.didChange)
-        #expect(!rootSwitch.didChange)
-
-        let rootSwitchBeforeReset = observe { _ = viewModel.viewState }
-        viewModel.sendViewEvent(.resetTapped)
-        #expect(rootSwitchBeforeReset.didChange)
-        #expect(viewModel.viewState == .loading)
-    }
-
-    @Test
-    func resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped() async {
-        let model = TestViewModel(
-            initialState: .loading,
-            feature: Feature(interactor: PhaseInteractor())
-        )
-
-        await model.send(.loaded) { $0 = .success(SuccessState()) }
         await model.send(.success(.session(.telemetry(.startTapped)))) {
             $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
         }
-        await model.send(.tick) {
-            $0.modify(\.success) {
-                $0.session.telemetry.subphase = .active(ActiveState(tick: 1, note: ""))
-            }
+        await model.advance(clock, by: tickInterval * 2)
+        await model.expect {  // two modifications, one assertion
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 2, note: "")) }
+        }
+        await model.send(.success(.session(.telemetry(.subphase(.active(.noteChanged("typed"))))))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 2, note: "typed")) }
+        }
+
+        await model.send(.success(.session(.telemetry(.stopTapped)))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .idle }
+        }
+        await model.send(.success(.session(.telemetry(.startTapped)))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
+        }
+
+        ticker?.cancel()
+        await model.advance(clock, by: tickInterval)  // when the next tick was due
+        await model.expect { _ in }  // the cancelled ticker did not tick
+        await model.finish()  // the ticker ended without another tick
+    }
+
+    /// Sending `.startTicking` again, as a root view that appears again does, auto-cancels the
+    /// running ticker, so there is never a second one: the next tick comes a full interval after
+    /// the restart.
+    @Test
+    func startingTheTickerAgainReplacesTheRunningOne() async {
+        let clock = EffectClock()
+        let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
+        await model.send(.success(.session(.telemetry(.startTapped)))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
+        }
+
+        await model.send(.startTicking)
+        await model.advance(clock, by: .milliseconds(500))  // halfway to the first tick
+
+        let ticker = await model.send(.startTicking)  // auto-cancels the running ticker at its sleep
+        await model.advance(clock, by: .milliseconds(500))  // when the replaced ticker was due
+        await model.expect { _ in }  // nothing ticked: the new ticker is a full interval away
+
+        await model.advance(clock, by: .milliseconds(500))
+        await model.expect {  // one tick, not one per ticker
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 1, note: "")) }
+        }
+
+        ticker?.cancel()
+        await model.finish()
+    }
+
+    /// Reset and Stop drop their payload, so the next Load or Start begins from the defaults. A
+    /// Load while loaded leaves the payload alone, and a send for a case that is no longer showing
+    /// changes nothing.
+    @Test
+    func resetAndStopReturnToDefaultPayloadsAndLateSendsAreDropped() async {
+        let clock = EffectClock()
+        let model = await makeModel(initialState: .success(SuccessState()), clock: clock)
+
+        await model.send(.success(.session(.telemetry(.startTapped)))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState()) }
+        }
+        await model.send(.success(.session(.telemetry(.subphase(.active(.noteChanged("typed"))))))) {
+            $0.modify(\.success) { $0.session.telemetry.subphase = .active(ActiveState(tick: 0, note: "typed")) }
         }
         await model.send(.success(.session(.telemetry(.stopTapped)))) {
             $0.modify(\.success) { $0.session.telemetry.subphase = .idle }
@@ -142,8 +134,30 @@ struct PhaseExampleTests {
         await model.send(.success(.titleChanged("Renamed"))) {
             $0.modify(\.success) { $0.title = "Renamed" }
         }
+        await model.send(.loadTapped)
+        await model.advance(clock, by: loadDuration)
+        await model.expect { _ in }  // the load found the success case and left it alone
+
         await model.send(.resetTapped) { $0 = .loading }
         await model.send(.success(.titleChanged("Late")))
-        await model.send(.loaded) { $0 = .success(SuccessState()) }
+        await model.send(.loadTapped)
+        await model.advance(clock, by: loadDuration)
+        await model.expect { $0 = .success(SuccessState()) }
+        await model.finish()
     }
+}
+
+/// How long the fake load takes, and the time between two ticks, in the tests.
+private let loadDuration: Duration = .seconds(1)
+private let tickInterval: Duration = .seconds(1)
+
+private func makeModel(
+    initialState: PhaseState = .loading,
+    clock: EffectClock
+) async -> TestModel<Feature<PhaseEvent, PhaseState>> {
+    await TestModel(initialState: initialState, feature: Feature(interactor: makeInteractor(clock: clock)))
+}
+
+private func makeInteractor(clock: EffectClock) -> PhaseInteractor<EffectClock> {
+    PhaseInteractor(clock: clock, loadDuration: loadDuration, tickInterval: tickInterval)
 }

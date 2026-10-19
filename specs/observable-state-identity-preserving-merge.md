@@ -24,9 +24,8 @@ So *mutating* a value carries identity forward, but *constructing* one mints new
 An interactor that rebuilds a nested `@FeatureState` member wholesale instead of mutating it —
 
 ```swift
-Interact { state, event in
-    state.child = TimerChildState(value: state.displayedValue)   // wholesale rebuild every tick
-    return .none
+Interact { state, event, _ in
+    state.child = TimerChildState(value: state.displayedValue)  // wholesale rebuild every tick
 }
 ```
 
@@ -114,13 +113,12 @@ Nesting is handled by *not writing*, not by recursion:
 
 ### Root replacement
 
-The rule covers members; the root state is not a member of anything. The view model applies
-the same rule in its commit step: when the interactor replaces the whole state
-(`state = State(...)`) and the feature's `areStatesEqual` reports equal content, the stored
-value is kept, so its registrar tree and every observer registered on it survive. A
-content-changed replacement fires the view model's coarse `\.state` and is leak-safe for the
-same reason as the changed branch above. See
-[ViewModel Event Loop And Emission Handling](./view-model-event-loop-and-emission-handling.md#commit-rules).
+The rule covers members; the root state is not a member of anything. The feature's runtime
+applies the same rule in its commit step: when the interactor, or an effect's `modify`, replaces
+the whole state (`state = State(...)`) and the feature's `areStatesEqual` reports equal content,
+the stored value is kept, so its registrar tree and every observer registered on it survive. A
+content-changed replacement fires the coarse `\.state` and is leak-safe for the same reason as
+the changed branch above. See [ViewModel](./view-model.md#commit-rules).
 
 ## Runtime changes
 
@@ -233,8 +231,8 @@ negative):
 
 1. **Nested `@FeatureState` child** inside the state: `TimerLeakState.child` is a
    `TimerChildState` holding `TimerLeakConstants.rowCount` (500) `@FeatureState` rows.
-2. A **timer** (an `AsyncStream` driven from an `.observe` emission) firing about 50 Hz, whose
-   interactor **rebuilds the child wholesale every tick**:
+2. A **timer** (an effect that sleeps on the interactor's clock and modifies the state once per
+   tick) firing about 50 Hz, whose tick modification **rebuilds the child wholesale every tick**:
    `state.child = TimerChildState(value: state.displayedValue)`.
 3. **Content is equal on almost every tick**: the `@Domain` `displayedValue` changes only every
    100 ticks. This forces the content-equal leak path. If content changed every tick, every

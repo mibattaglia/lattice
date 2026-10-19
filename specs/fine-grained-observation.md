@@ -55,8 +55,8 @@ public subscript<Value>(dynamicMember keyPath: KeyPath<State, Value>) -> Value {
 }
 ```
 
-Lattice's `ViewModel` fires its coarse `\.state` on the same condition — only when the root
-state's `_$id` changes — so `viewModel.<member>` reads and all `_ViewModelBinding` getters are
+Lattice's feature runtime, the `Core` behind `ViewModel`, fires its coarse `\.state` on the same
+condition — only when the root state's `_$id` changes — so `viewModel.<member>` reads and all `_ViewModelBinding` getters are
 fine-grained by default. This converges Lattice onto TCA's model rather than inventing a new
 one. Lattice has no `core.didSet` publisher, so the gate is expressed inline in the commit step
 (compare `_$id` across the transition) — identical observable behavior, no reactive plumbing.
@@ -73,7 +73,7 @@ the container. Pass the `viewModel` (or a scope) down and read leaf members in t
 
 `@FeatureState` enums carry **no registrar of their own** (the enum expansion emits only `_$id`
 and `_$willModify`); their observation is mediated entirely by the containing registrar. When the
-whole state is an enum, that container is the view model's `_$observationRegistrar` via
+whole state is an enum, that container is the `ObservationRegistrar` of the feature's `Core`, via
 `\.state`. So a view that switches over the enum:
 
 ```swift
@@ -99,8 +99,8 @@ changes reach the `switch` only through the coarse fire; see
 
 ## Why this works (the invariant it stands on)
 
-1. **The root registrar tree is stable for the view model's lifetime.** The interactor mutates
-   a working copy of the stored state; `@FeatureState` registrars are reference types, so the
+1. **The root registrar tree is stable for the view model's lifetime.** The interactor, or an
+   effect's `modify` body, mutates a working copy of the stored state; `@FeatureState` registrars are reference types, so the
    copy shares the same registrar tree as the stored value. The commit is a single plain store,
    and a content-equal wholesale replacement keeps the stored value instead (the
    `areStatesEqual` gate). So the registrar tree rooted at the stored state persists.
@@ -132,16 +132,15 @@ the suite asserts.
 
 ## Source
 
-### `Sources/Lattice/Presentation/ViewModel/ViewModel.swift`
+### `Sources/Lattice/Internal/Core.swift`
 
-The gate lives in the commit step. Because the working copy shares the stored state's
-registrars, the nested registrars fire the precise key paths during `interact(state:action:)`;
-the coarse `\.state` is reserved for root identity and case changes (the enum-switch case),
-matching TCA:
+The gate lives in the commit step of the feature's runtime, which every action and every
+`effects.modify` goes through. Because the working copy shares the stored state's registrars, the
+nested registrars fire the precise key paths during the mutation; the coarse `\.state` is
+reserved for root identity and case changes (the enum-switch case), matching TCA:
 
 ```swift
-private func commit(_ transition: ActionTransition<State, Action>) {
-    let newState = transition.currentState
+private func commit(_ newState: State) {
     let isReplacement = newState._$id != _state._$id
     if isReplacement, let areStatesEqual, areStatesEqual(_state, newState) {
         // Content-equal wholesale replacement: keep the current value so its registrar tree —
@@ -150,13 +149,14 @@ private func commit(_ transition: ActionTransition<State, Action>) {
     }
     _state = newState
     if isReplacement {
-        _$observationRegistrar.withMutation(of: self, keyPath: \.state) {}
+        registrar.withMutation(of: self, keyPath: \.state) {}
     }
 }
 ```
 
-- The internal `state` getter registers `\.state`, and both `viewState` and the dynamic member
-  subscript read through it, so a root fire re-renders every reader.
+- `ViewModel`'s internal `state` getter reads `core.state`, which registers `\.state` on the
+  core's registrar, and both `viewState` and the dynamic member subscript read through it, so a
+  root fire re-renders every reader.
 - In-place mutations leave the root `_$id` stable, so they fire nothing coarse and are driven
   entirely by the nested registrars.
 - This mirrors TCA's `Store` pipeline, which projects `didSet` to `_$id`, applies
@@ -285,10 +285,10 @@ state is one flat `@FeatureState`:
 
 ```swift
 @FeatureState
-struct FineGrainedState: Equatable, Sendable {
-    var title: String = "Hello"
-    var count: Int = 0
-    @Domain var phaseActive: Bool = false
+struct FineGrainedState: Equatable {
+    var title = "Hello"
+    var count = 0
+    @Domain var phaseActive = false
 
     /// The phase views show, derived from the domain-only `phaseActive` flag.
     var phase: FineGrainedPhase { phaseActive ? .active("Active!") : .idle }
@@ -331,7 +331,10 @@ Expected, demonstrable behavior:
 
 Each counter lives in its view value, so it starts over whenever SwiftUI re-creates that view;
 compare which counter advances on a tap rather than absolute counts. `FineGrainedExampleTests`
-checks the same boundaries with observation probes.
+runs the feature under `TestModel` and asserts the state each action changes; the boundaries the
+counters show are proven in `FineGrainedObservationTests` (`unrelatedLeafChangeDoesNotInvalidate`,
+`inPlaceNestedLeafMutationFiresOnlyThatLeaf` and
+`visibleComputedMemberInvalidatesWhenItsDomainDependencyChanges`).
 
 ## Validation
 

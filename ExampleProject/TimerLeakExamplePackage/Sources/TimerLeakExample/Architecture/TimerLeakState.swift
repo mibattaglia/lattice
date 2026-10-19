@@ -5,15 +5,14 @@ import Observation
 /// `child` wholesale on every tick (assignment, not field mutation), which is
 /// exactly the pattern that triggers the content-equal registrar leak.
 @FeatureState
-struct TimerLeakState: Equatable, Sendable {
+struct TimerLeakState: Equatable {
     var tickCount = 0
     @Domain var displayedValue = "value-0"
-    @Domain var isRunning = false
     var child = TimerChildState(value: "value-0")
 }
 
 @FeatureState
-struct TimerChildState: Equatable, Sendable {
+struct TimerChildState: Equatable {
     var value: String
     /// A wide subtree of nested `@FeatureState` rows. The child is rebuilt
     /// wholesale every tick, so every content-equal tick orphans one registrar
@@ -37,7 +36,7 @@ extension TimerChildState {
 }
 
 @FeatureState
-struct TimerRowState: Equatable, Identifiable, Sendable {
+struct TimerRowState: Equatable, Identifiable {
     let id: Int
     var value: String
 }

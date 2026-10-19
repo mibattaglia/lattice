@@ -6,7 +6,7 @@ extension SearchState {
     /// re-renders only the views that read it. Views read the `listItems` derived from the
     /// hidden domain `results`.
     @FeatureState
-    struct ResultState: Equatable, Sendable {
+    struct ResultState: Equatable {
         struct ResultItem: Equatable {
             var isLoading = false
             let weatherModel: WeatherSearchDomainModel.Result
@@ -15,7 +15,6 @@ extension SearchState {
 
         var query: String
         @Domain var results: [ResultItem]
-        @Domain var forecastRequestNonce = 0
 
         /// The rows views show, one per result.
         var listItems: [SearchListItem] {

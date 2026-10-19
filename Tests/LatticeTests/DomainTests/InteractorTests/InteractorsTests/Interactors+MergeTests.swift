@@ -4,40 +4,33 @@ import Testing
 @testable import Lattice
 
 @Suite
-@MainActor
 struct MergeTests {
+    /// Alone, `TripleInteractor` writes 9 and `DoubleInteractor` 6. `Merge` runs both in order, so
+    /// the last one's value wins, and starts both effects, in merge order, before `send` returns.
+    @available(iOS 26, macOS 26, watchOS 26, *)
     @Test
-    func mergeTwo() throws {
-        var results: [Int] = []
-
-        let merge = Interactors.Merge(
-            TripleInteractor(),
-            DoubleInteractor()
-        )
-
-        var state = 0
-
-        // TripleInteractor processes first: state = 3 * 3 = 9
-        _ = TripleInteractor().interact(state: &state, action: 3)
-        results.append(state)
-
-        state = 0
-        // DoubleInteractor processes: state = 3 * 2 = 6
-        _ = DoubleInteractor().interact(state: &state, action: 3)
-        results.append(state)
-
-        #expect(results == [9, 6])
-
-        // Also verify merge calls both
-        state = 0
-        let emission = merge.interact(state: &state, action: 3)
-        // Final state is from last interactor (DoubleInteractor)
-        #expect(state == 6)
-        // Emission should be merged
-        if case .merge(let emissions) = emission.kind {
-            #expect(emissions.count == 2)
-        } else {
-            Issue.record("Expected merged emissions")
+    func mergeRunsBothInteractorsAndTheirEffectsInOrder() async {
+        let triple = await makeArithmeticModel(TripleInteractor())
+        await triple.send(3) {
+            $0.value = 9
+            $0.performed = ["triple"]
         }
+        await triple.finish()
+
+        let double = await makeArithmeticModel(DoubleInteractor())
+        await double.send(3) {
+            $0.value = 6
+            $0.performed = ["double"]
+        }
+        await double.finish()
+
+        let merge = await makeArithmeticModel(Interactors.Merge(TripleInteractor(), DoubleInteractor()))
+        let task = await merge.send(3) {
+            $0.value = 6
+            $0.performed = ["triple", "double"]
+        }
+
+        #expect(task != nil)
+        await merge.finish()
     }
 }

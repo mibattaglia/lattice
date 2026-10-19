@@ -4,7 +4,7 @@ import Lattice
 
 @CasePathable
 @FeatureState
-enum ScreenState: Equatable, Sendable {
+enum ScreenState: Equatable {
     case loading
     case loaded(LoadedState)
 }

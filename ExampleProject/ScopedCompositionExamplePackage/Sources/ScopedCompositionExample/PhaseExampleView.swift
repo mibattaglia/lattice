@@ -67,7 +67,17 @@ struct PhaseExampleView: View {
             }
             .padding()
         }
-        .task { await viewModel.sendViewEvent(.startTicking).finish() }
+        .task {
+            // `.task` cancels this closure when the view goes away, but awaiting the ticker's task
+            // does not cancel the ticker: forward the cancellation, so the ticker stops with the
+            // view.
+            let ticker = viewModel.sendViewEvent(.startTicking)
+            await withTaskCancellationHandler {
+                await ticker?.value
+            } onCancel: {
+                ticker?.cancel()
+            }
+        }
     }
 }
 
@@ -180,7 +190,7 @@ struct TelemetryView: View {
     }
 }
 
-/// Level 4, the deep leaf: the tick stream mutates `tick` in place once per second and the
+/// Level 4, the deep leaf: the ticker mutates `tick` in place once per second and the
 /// note field round-trips through a binding — only this counter advances on either.
 struct ActiveView: View {
     let model: ScopedViewModel<ActiveState, ActiveAction>

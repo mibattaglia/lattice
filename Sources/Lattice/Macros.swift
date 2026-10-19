@@ -6,11 +6,10 @@ import Observation
 ///
 /// ```swift
 /// @Interactor<CounterState, CounterAction>
-/// struct CounterInteractor: Sendable {
+/// struct CounterInteractor {
 ///     var body: some InteractorOf<Self> {
-///         Interact(initialValue: CounterState()) { state, action in
+///         Interact { state, action, effects in
 ///             // Handle actions
-///             return .state
 ///         }
 ///     }
 /// }
@@ -36,7 +35,7 @@ public macro Interactor<State, Action>() = #externalMacro(module: "LatticeMacros
 ///
 /// ```swift
 /// @FeatureState
-/// struct CounterState: Equatable, Sendable {
+/// struct CounterState: Equatable {
 ///     var count = 0
 ///     @Domain var lastUpdatedAt: Date?
 ///     var countText: String { "\(count)" }

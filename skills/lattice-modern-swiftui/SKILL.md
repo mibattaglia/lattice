@@ -1,6 +1,6 @@
 ---
 name: lattice-modern-swiftui
-description: Build SwiftUI features with Lattice ViewModel, @Bindable bindings, and clear view actions.
+description: Build SwiftUI features with Lattice ViewModel, @Bindable bindings, clear view actions, and the task sendViewEvent returns.
 license: MIT
 metadata:
   short-description: Modern SwiftUI patterns for Lattice.
@@ -15,7 +15,8 @@ Build SwiftUI views that are thin, deterministic, and easy to preview by routing
 ## Core rules
 
 - Views send user events through `sendViewEvent(_:)` and read members of the state's `ViewState` (`viewModel.title`), or `viewModel.viewState` to `switch` over an enum state.
-- `sendViewEvent(_:)` returns an `EventTask` scoped to that root send. Await `finish()` in `.task`, `.refreshable`, or explicit `Task` blocks when the UI must wait for downstream work.
+- `sendViewEvent(_:)` is synchronous. When it returns, the interactor has run, the state is committed, and every effect the action started has run until its first suspension.
+- It returns a discardable `Task<Void, Never>?` for exactly the effects that send started: `nil` when it started none, and never the effects those effects start in turn. Cancelling the task cancels them.
 - Keep visible members simple (strings, numbers, colors, booleans). Compute them on the state from `@Domain` raw values instead of transforming data in the view.
 - Move multi-line logic out of view closures into methods named after user actions.
 - `@Domain` members cannot be read from views, scopes, or bindings; expose a computed member instead.
@@ -24,7 +25,7 @@ Build SwiftUI views that are thin, deterministic, and easy to preview by routing
 
 ```swift
 @FeatureState
-struct CounterState: Sendable, Equatable {
+struct CounterState: Equatable {
     @Domain var count = 0
     var displayText: String { "Count: \(count)" }
 }
@@ -59,23 +60,37 @@ struct CounterView: View {
 
 ## Async actions from the view
 
-```swift
-Button("Refresh") {
-    Task { await refreshButtonTapped() }
-}
+A button only sends. The effect runs on its own and writes its result into the state, which re-renders the view:
 
-private func refreshButtonTapped() async {
-    await viewModel.sendViewEvent(.refresh).finish()
-}
+```swift
+Button("Refresh") { viewModel.sendViewEvent(.refresh) }
 ```
 
-`.refreshable` and `.task` are good fits when SwiftUI already expects an async boundary:
+Await the returned task only where SwiftUI expects an async boundary and the effect ends by itself, as in `.refreshable`:
 
 ```swift
 .refreshable {
-    await viewModel.sendViewEvent(.refresh).finish()
+    await viewModel.sendViewEvent(.refresh)?.value
 }
 ```
+
+A `.task` that starts a long-lived effect, such as a ticker or a stream, forwards its own cancellation. SwiftUI cancels the `.task` closure when the view goes away, but awaiting `Task.value` does not cancel the effects:
+
+```swift
+.task {
+    let ticker = viewModel.sendViewEvent(.startTicking)
+    await withTaskCancellationHandler {
+        await ticker?.value
+    } onCancel: {
+        ticker?.cancel()
+    }
+}
+```
+
+- Without the handler, `await viewModel.sendViewEvent(.startTicking)?.value` would leave the ticker running until `.startTicking` is sent again or the view model is deallocated.
+- The interactor performs the ticker without a guard: re-sending `.startTicking`, as a view that appears again does, cancels the running ticker, so there is never more than one.
+- Deallocating the view model cancels its effects too. Released on the main actor, its `isolated deinit` cancels them before the release returns.
+- Effects run on the main actor under `ViewModel`. Keep CPU-bound work behind a `@concurrent` function or a dependency with its own executor.
 
 ## Bindings
 
@@ -88,7 +103,7 @@ Action enums must be `@CasePathable` to use `sending`.
 TextField("Name", text: $viewModel.name.sending(\.nameChanged))
 ```
 
-For enum state case bindings, use `sending(_:default:)` when the case may not be active.
+A write sends the action and discards the task `sendViewEvent(_:)` returns. For enum state case bindings, use `sending(_:default:)` when the case may not be active.
 
 ## Scoped child views
 
@@ -125,7 +140,7 @@ Rules:
 - Case-path action embedding requires the parent action to be `@CasePathable`; use the closure overload `scope(state:action: { .child($0) })` otherwise.
 - `scope(state:)` with no action produces a read-only scope (`ChildAction == Never`) for display-only children.
 - Collections of `Identifiable` children scope element by element: `ForEach(viewModel.scope(state: \.rows, action: \.row)) { row in RowView(model: row) }`.
-- `model.sendViewEvent(_:)` returns the parent's `EventTask`; await `finish()` for async boundaries just like on `ViewModel`.
+- `model.sendViewEvent(_:)` embeds the child action into the parent action and returns the parent's `Task<Void, Never>?`; await its `value`, or forward cancellation to it, just like on `ViewModel`.
 
 ### Enum state
 
@@ -148,7 +163,7 @@ Keep navigation and presentation decisions in the state. Use optional children o
 
 ```swift
 @FeatureState
-struct ScreenState: Sendable, Equatable {
+struct ScreenState: Equatable {
     var detail: DetailState?
     var isShowingDetail: Bool { detail != nil }
 }

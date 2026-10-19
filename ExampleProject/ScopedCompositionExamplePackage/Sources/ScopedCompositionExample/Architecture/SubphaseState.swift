@@ -7,7 +7,7 @@ import Lattice
 /// the inner switch subtree, never the root switch.
 @CasePathable
 @FeatureState
-enum SubphaseState: Equatable, Sendable {
+enum SubphaseState: Equatable {
     case idle
     case active(ActiveState)
 }

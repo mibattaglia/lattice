@@ -15,14 +15,13 @@ enum AsyncCounterAction: Sendable, Equatable {
 @Interactor<AsyncCounterState, AsyncCounterAction>
 struct AsyncCounterInteractor {
     var body: some InteractorOf<Self> {
-        Interact { state, action in
+        Interact { state, action, effects in
             switch action {
             case .increment:
                 state.count += 1
-                return .none
             case .asyncIncrement:
-                return .perform {
-                    .increment
+                effects.perform {
+                    try effects.send(.increment)
                 }
             }
         }
