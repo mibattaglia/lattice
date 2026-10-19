@@ -1090,7 +1090,7 @@ Deviations:
   composes one level down, with its stale-child check in one local `isStale()`. `perform` through
   a handle whose core is gone reports `Effect performed after the model was invalidated; dropped`
   instead of `'effects.perform' must be called during interact; dropped`, and, like `send` and
-  `modify`, reports nothing when the calling task is cancelled (effects-runtime).
+  `modify`, reports nothing when the calling task is cancelled (8edb9db).
 - §3.2: `isRunning` is `false` once the effect's operation returns, it is replaced, or it is
   cancelled by `cancel(_:)` or teardown. Cancelling the task `send` returned cancels the effect, but
   `isRunning` reflects that only once the effect unwinds: the aggregate's `onCancel` runs off the
