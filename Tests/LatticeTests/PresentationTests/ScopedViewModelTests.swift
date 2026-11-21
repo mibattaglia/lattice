@@ -416,6 +416,42 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
         #expect(identifiedRows[0].title == "one")
     }
 
+    // MARK: One element by id
+
+    @Test func scopeByIDReadsItsElementLive() throws {
+        let vm = makeListViewModel()
+        let row = try #require(vm.scope(state: \.idRows, id: 2, action: \.idRow))
+        let title = ObservationProbe { _ = row.title }
+
+        vm.sendViewEvent(.idRow(2, .titleChanged("deux")))  // in place, not through the scope
+        #expect(title.didFire)
+        #expect(row.title == "deux")
+        #expect(row.id == 2)
+    }
+
+    @Test func scopeByIDIsNilForAnUnknownID() {
+        let vm = makeListViewModel()
+        #expect(vm.scope(state: \.idRows, id: 99, action: \.idRow) == nil)
+    }
+
+    @Test func scopeByIDSendEmbedsTheID() throws {
+        let vm = makeListViewModel()
+        let row = try #require(vm.scope(state: \.idRows, id: 2, action: \.idRow))
+
+        row.sendViewEvent(.incremented)
+        #expect(vm.idRows[id: 2]?.count == 1)
+        #expect(vm.idRows[id: 1]?.count == 0)
+    }
+
+    @Test func scopeByIDServesItsSnapshotAfterTheElementIsRemoved() throws {
+        let vm = makeListViewModel()
+        let row = try #require(vm.scope(state: \.idRows, id: 2, action: \.idRow))
+
+        vm.sendViewEvent(.remove(2))
+        #expect(row.title == "two")  // creation snapshot, no trap/crash
+        #expect(vm.scope(state: \.idRows, id: 2, action: \.idRow) == nil)
+    }
+
     // MARK: Overloads on ScopedViewModel
 
     @Test func scopedViewModelScopesIntoCollectionsOptionalsAndClosures() throws {
@@ -429,6 +465,8 @@ private func identifiers<Element: Identifiable>(of elements: [Element]) -> [Elem
         let identifiedRows = list.scope(state: \.idRows, action: \.idRow)
         identifiedRows[1].sendViewEvent(.titleChanged("deux"))
         #expect(vm.list.idRows[id: 2]?.title == "deux")
+        try #require(list.scope(state: \.idRows, id: 1, action: \.idRow)).sendViewEvent(.incremented)
+        #expect(vm.list.idRows[id: 1]?.count == 1)
 
         #expect(list.scope(state: \.selection, action: \.selection) == nil)
         list.sendViewEvent(.select(2))

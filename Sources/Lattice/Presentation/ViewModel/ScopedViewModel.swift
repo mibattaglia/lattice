@@ -214,6 +214,35 @@ extension ScopedViewModel: @MainActor Identifiable where Child: Identifiable {
                 )
             }
         }
+
+        /// Projects this scope onto the element with the given id in an `IdentifiedArray` of child
+        /// states, or returns `nil` if no element has that id.
+        ///
+        /// For consumers that configure one row at a time, such as a UIKit cell dequeued for an id
+        /// or a detail view for a selected element. The lookup is O(1) on creation and on every
+        /// read. If the element is removed while the scope is still held, reads serve the element
+        /// captured when the scope was created (in a UIKit cell, until the cell is reused), and
+        /// sends still reach this scope's action tagged with the id, so the interactor should drop
+        /// actions for an id it no longer holds. A cell may store its scope: the scope keeps the
+        /// parent view model alive only as long as the cell lives.
+        ///
+        /// - Parameters:
+        ///   - keyPath: A key path to an `IdentifiedArray` of `@FeatureState` children.
+        ///   - id: The id of the element to scope to.
+        ///   - embed: A case key path that embeds an element action, tagged with the element's
+        ///     id, into this scope's action.
+        /// - Returns: A scope over the element, or `nil` if no element has `id`.
+        public func scope<ID: Hashable, Element: FeatureState & Identifiable, ElementAction>(
+            state keyPath: KeyPath<Child.ViewState, ViewStateCollection<IdentifiedArray<ID, Element>>>,
+            id: ID,
+            action embed: CaseKeyPath<ChildAction, (ID, ElementAction)>
+        ) -> ScopedViewModel<Element, ElementAction>? where Element.ID == ID {
+            guard let snapshot = Child.ViewState(_state())[keyPath: keyPath]._base[id: id] else { return nil }
+            return ScopedViewModel<Element, ElementAction>(
+                state: { [self] in Child.ViewState(self._state())[keyPath: keyPath]._base[id: id] ?? snapshot },
+                send: { [self] in self._send(embed((id, $0))) }
+            )
+        }
     }
 
     extension ScopedViewModel where Child.ViewState: CasePathable, ChildAction: CasePathable {
@@ -411,6 +440,34 @@ extension ViewModel {
             action embed: CaseKeyPath<Action, (ID, ChildAction)>
         ) -> [ScopedViewModel<Element, ChildAction>] where Element.ID == ID {
             rootScope.scope(state: keyPath, action: embed)
+        }
+
+        /// Projects this view model onto the element with the given id in an `IdentifiedArray`
+        /// of child states, or returns `nil` if no element has that id.
+        ///
+        /// ```swift
+        /// let row = viewModel.scope(state: \.rows, id: id, action: \.row)
+        /// ```
+        ///
+        /// The lookup is O(1) on creation and on every read. If the element is removed while the
+        /// scope is still held, reads serve the element captured when the scope was created (in
+        /// a UIKit cell, until the cell is reused), and sends still reach this feature tagged
+        /// with the id, so the interactor should drop actions for an id it no longer holds. A
+        /// cell may store its scope: the scope keeps this view model alive only as long as the
+        /// cell lives.
+        ///
+        /// - Parameters:
+        ///   - keyPath: A key path to an `IdentifiedArray` of `@FeatureState` children.
+        ///   - id: The id of the element to scope to.
+        ///   - embed: A case key path that embeds an element action, tagged with the element's
+        ///     id, into this feature's action.
+        /// - Returns: A scope over the element, or `nil` if no element has `id`.
+        public func scope<ID: Hashable, Element: FeatureState & Identifiable, ChildAction>(
+            state keyPath: KeyPath<State.ViewState, ViewStateCollection<IdentifiedArray<ID, Element>>>,
+            id: ID,
+            action embed: CaseKeyPath<Action, (ID, ChildAction)>
+        ) -> ScopedViewModel<Element, ChildAction>? where Element.ID == ID {
+            rootScope.scope(state: keyPath, id: id, action: embed)
         }
     }
 

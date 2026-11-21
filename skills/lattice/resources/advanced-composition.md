@@ -34,6 +34,7 @@ Overloads on `ViewModel` (and the same ones on `ScopedViewModel`):
 - `scope(state: KeyPath, action: CaseKeyPath)` — case-path sugar; requires `Action: CasePathable`.
 - `scope(state: KeyPath, action: CaseKeyPath)` to an optional child — returns `nil` while the child is absent.
 - `scope(state: KeyPath, action: CaseKeyPath<Action, (ID, ChildAction)>)` to an `Array` or `IdentifiedArrayOf` of `Identifiable` children — one `Identifiable` scope per element, for `ForEach`. `IdentifiedArrayOf` finds elements in O(1), `Array` in O(n).
+- `scope(state: KeyPath, id: id, action: CaseKeyPath<Action, (ID, ChildAction)>)` to one element of an `IdentifiedArrayOf` in O(1), or `nil` if no element has the id (a UIKit cell, a detail view).
 - `scope(state: KeyPath, action: (ChildAction) -> Action)` — general closure embedding, no `CasePathable` requirement.
 - `scope(state: KeyPath)` — read-only; the scope's action type is `Never`.
 

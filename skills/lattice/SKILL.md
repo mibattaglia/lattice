@@ -200,7 +200,7 @@ struct HeaderView: View {
 - Do read members through the scope (`model.title`) for fine-grained observation; don't read the whole `model.viewState` (coarse: it re-renders only when the child is replaced).
 - Do create scopes inline in `body`; don't store them (`@State` etc.) — a scope retains its parent view model.
 - `model.sendViewEvent(_:)` embeds the child action into the parent action and returns the parent's `Task<Void, Never>?`.
-- Optional children scope to `ScopedViewModel?`; a collection of `Identifiable` children (`Array` or `IdentifiedArrayOf`) scopes to one scope per element for `ForEach` (`scope(state: \.rows, action: \.row)` with `case row(RowState.ID, RowAction)`).
+- Optional children scope to `ScopedViewModel?`; a collection of `Identifiable` children (`Array` or `IdentifiedArrayOf`) scopes to one scope per element for `ForEach` (`scope(state: \.rows, action: \.row)` with `case row(RowState.ID, RowAction)`); `scope(state: \.rows, id: id, action: \.row)` scopes one `IdentifiedArrayOf` element in O(1), `nil` for an unknown id.
 - For an enum state, use `viewModel.scope(state: \.success, action: \.success)` inside a matched `switch viewModel.viewState` case (traps if inactive) or `scopeIfActive(state:action:)` when the case may be inactive. Both go through the `@CasePathable` `ViewState` mirror, so the payload must be `@FeatureState`.
 - Details and more overloads (closure embedding, read-only, nested scopes, bindings) in `resources/advanced-composition.md`.
 
