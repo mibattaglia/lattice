@@ -126,11 +126,12 @@ whole state.
 | `scope(state: KeyPath<_, P?>, action: CaseKeyPath<_, ChildAction>)` | `ScopedViewModel<P.State, ChildAction>?` | `nil` while the child is absent; after removal, serves the creation snapshot for the at-most-one transitional render |
 | `scope(state: KeyPath<_, ViewStateCollection<C>>, action: CaseKeyPath<_, (C.Element.ID, ChildAction)>)` | `[ScopedViewModel<C.Element, ChildAction>]` | elements are `FeatureState & Identifiable`; each scope re-finds its element by id on every read (O(n)) |
 | `scope(state: KeyPath<_, ViewStateCollection<IdentifiedArray<ID, Element>>>, action: CaseKeyPath<_, (ID, ChildAction)>)` | `[ScopedViewModel<Element, ChildAction>]` | `IdentifiedArray` specialisation: O(1) lookup through `[id:]`; preferred by overload ranking |
+| `scope(state: KeyPath<_, ViewStateCollection<IdentifiedArray<ID, Element>>>, id: ID, action: CaseKeyPath<_, (ID, ChildAction)>)` | `ScopedViewModel<Element, ChildAction>?` | one element by id in O(1); `nil` if no element has the id at creation |
 | `scope(state: KeyPath<_, P>, action: @escaping @MainActor (ChildAction) -> Action)` | `ScopedViewModel<P.State, ChildAction>` | closure-mapped action; no `CasePathable` requirement |
 | `scope(state: KeyPath<_, P>)` | `ScopedViewModel<P.State, Never>` | read-only child |
 
-A collection scope serves the element captured at its creation if the element is removed while
-the scope is still held. The enum-case overloads (`scopeIfActive(state:action:)` and the
+A collection scope, and a scope by id, serves the element captured at its creation if the
+element is removed while the scope is still held. The enum-case overloads (`scopeIfActive(state:action:)` and the
 trapping `scope(state:action:fileID:line:)`) are specified in
 [`enum-case-scoping.md`](./enum-case-scoping.md) (Spec C).
 
