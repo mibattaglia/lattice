@@ -25,7 +25,7 @@ Add package dependency:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mibattaglia/lattice", .upToNextMinor(from: "0.4.0"))
+    .package(url: "https://github.com/mibattaglia/lattice", .upToNextMinor(from: "0.4.1"))
 ]
 ```
 
